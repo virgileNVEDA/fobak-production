@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>Liste officielle des cotisations</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <style>
+    body{background:#fff;padding:0;margin:0;color:#111;font-family:Arial,Helvetica,sans-serif}.print-page{padding:16mm;position:relative}.print-page:before{content:"";position:fixed;inset:0;background:url('{{ url_for('static', filename=settings.logo_path) if settings.logo_path else '' }}') center 45%/260px auto no-repeat;opacity:.045;pointer-events:none}.print-head{display:grid;grid-template-columns:170px 1fr 120px;align-items:center;border-bottom:3px solid #0B3A66;padding-bottom:12px;margin-bottom:15px;gap:12px}.print-flag img{width:118px;height:72px;object-fit:contain;border:1px solid #0B3A66;border-radius:5px}.print-logo{width:160px;height:54px;border:0;border-radius:0;display:grid;place-items:center;overflow:visible;margin:auto;color:#0B3A66;font-weight:900;background:transparent}.print-logo img{width:100%;height:100%;object-fit:contain}.print-head h1{text-align:center;margin:0;font-size:22px;text-transform:uppercase;color:#0B3A66}.print-head p{text-align:center;margin:3px 0;font-size:12px}.doc-title{text-align:center;text-transform:uppercase;text-decoration:underline;margin:16px 0 8px;font-size:20px}.meta{display:flex;justify-content:space-between;font-size:12px;margin-bottom:10px;gap:12px}table{width:100%;border-collapse:collapse;font-size:10.5px;background:rgba(255,255,255,.96)}th,td{border:1px solid #444;padding:5px;text-align:left}th{background:#eaf1f9;color:#0B3A66}.totals{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0}.totals span{border:1px solid #0B3A66;padding:6px 10px;border-radius:8px}@page{size:A4 landscape;margin:8mm}@media print{.no-print{display:none!important}.print-page{padding:0}.print-page:before{position:fixed}}
+  </style>
+
+<style id="fobak-print-watermark">
+body::before{content:"";position:fixed;inset:18% 18%;background:url('{{ url_for('static', filename=settings.logo_watermark_path or settings.logo_path) if (settings.logo_watermark_path or settings.logo_path) else '' }}') center/contain no-repeat;opacity:.045;pointer-events:none;z-index:0}
+.page,.print-page{position:relative;z-index:1}
+@media print{body::before{position:fixed;opacity:.045}}
+</style>
+</head>
+<body>
+<div class="print-page">
+  <button class="btn no-print" onclick="window.print()">Imprimer maintenant</button>
+  <a class="btn no-print" href="{{ url_for('payments') }}">Retour</a>
+  <header class="print-head">
+    <div class="print-logo">{% if settings.logo_path %}<img src="{{ url_for('static', filename=settings.logo_path) }}" alt="Logo FOBAK">{% else %}<span>FOBAK</span>{% endif %}</div>
+    <div><h1>{{ settings.structure_name }}</h1><p>{{ settings.structure_header }}</p><p><strong>{{ settings.structure_foundation }}</strong> — {{ settings.structure_legal }}</p><p>{{ settings.headquarters }} — {{ settings.contact_phones }}</p></div>
+    <div class="print-flag"><img src="{{ url_for('static', filename=rdc_flag_rel) }}" alt="Drapeau RDC"></div>
+  </header>
+  <h2 class="doc-title">Liste officielle des cotisations</h2>
+  <div class="meta"><span>Filtres : Province {{ filters.get('province') or 'Toutes/selon rôle' }} | Année {{ filters.get('year') or 'Toutes' }} | Mois {{ filters.get('month') or 'Tous' }} | Statut {{ filters.get('status') or 'Tous' }}</span><span>Imprimé par : {{ printed_by.email }} — {{ now }}</span></div>
+  <div class="totals">{% for t in totals %}<span><strong>{{ t.total or 0 }} {{ t.currency }}</strong> — {{ t.status }} — {{ t.n }} opération(s)</span>{% endfor %}</div>
+  <table><thead><tr><th>N°</th><th>Date</th><th>Code</th><th>Nom complet</th><th>Province</th><th>Type</th><th>Montant</th><th>Méthode</th><th>Référence</th><th>Statut</th></tr></thead><tbody>{% for p in rows %}<tr><td>{{ loop.index }}</td><td>{{ p.paid_at or p.created_at[:10] }}</td><td>{{ p.code }}</td><td>{{ p.last_name }} {{ p.first_name }}</td><td>{{ p.province }}</td><td>{{ p.contribution_type }}</td><td>{{ p.amount }} {{ p.currency }}</td><td>{{ p.method }}</td><td>{{ p.reference }}</td><td>{{ p.status }}</td></tr>{% else %}<tr><td colspan="10">Aucune cotisation trouvée.</td></tr>{% endfor %}</tbody></table>
+<div class="print-footer-note">Document officiel FOBAK — {{ settings.headquarters }} — {{ settings.contact_phones }}</div></div>
+</body>
+</html>

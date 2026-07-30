@@ -1,0 +1,17 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="card legal-card mobile-card">
+  <span class="eyebrow">Document officiel</span>
+  <h1>{{ page_title }}</h1>
+  <p class="lead">Cette page est modifiable dans les paramètres de la structure.</p>
+  <div class="legal-text">
+    {% for line in content.split('\n') %}
+      <p>{{ line }}</p>
+    {% endfor %}
+  </div>
+  <div class="quick-actions-row">
+    <a class="btn" href="{{ url_for('index') }}">Retour à l'accueil</a>
+    <a class="btn primary" href="{{ url_for('report_problem') }}">Signaler un problème</a>
+  </div>
+</section>
+{% endblock %}

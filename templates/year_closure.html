@@ -1,0 +1,29 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="dashboard-welcome">
+  <div><span class="eyebrow">Préparation de clôture</span><h1>Clôture d’exercice sans supprimer les historiques</h1><p>Cette opération garde les membres, cotisations, activités, cartes et documents. Elle sert seulement à fermer l’année et ouvrir une nouvelle période de suivi.</p></div>
+  <div class="dashboard-seal large-seal">📦</div>
+</section>
+<section class="kpi-grid">
+  <article class="kpi-card"><div class="kpi-icon blue">👥</div><div><small>Membres conservés</small><strong>{{ member_count }}</strong><span>Aucun dossier supprimé</span></div></article>
+  <article class="kpi-card"><div class="kpi-icon yellow">💰</div><div><small>Cotisations historiques</small><strong>{{ contribution_count }}</strong><span>Restent consultables</span></div></article>
+  <article class="kpi-card"><div class="kpi-icon red">📅</div><div><small>Activités historiques</small><strong>{{ activity_count }}</strong><span>Archivées par année</span></div></article>
+  <article class="kpi-card"><div class="kpi-icon blue">🔄</div><div><small>Migration</small><strong>Auto</strong><span>Tables vérifiées au lancement</span></div></article>
+</section>
+<section class="grid two">
+  <article class="card mobile-card">
+    <h2>Clôturer une année</h2>
+    <form method="post" class="form mobile-form">
+      <label>Année / exercice <input name="label" value="{{ settings.current_exercise_label or current_year }}" required></label>
+      <label>Date début <input type="date" name="start_date" value="{{ current_year }}-01-01"></label>
+      <label>Date fin <input type="date" name="end_date" value="{{ current_year }}-12-31"></label>
+      <label class="full">Observation <textarea name="note" rows="4" placeholder="Ex. Exercice clôturé après validation du comité national."></textarea></label>
+      <button class="btn primary wide-mobile" onclick="return confirm('Confirmer la clôture sans suppression des historiques ?')">Clôturer l’exercice</button>
+    </form>
+  </article>
+  <article class="card mobile-card">
+    <h2>Exercices clôturés</h2>
+    {% for y in years %}<div class="list-item"><strong>{{ y.label }} — {{ y.status }}</strong><span>{{ y.start_date }} au {{ y.end_date }} — clôturé le {{ y.closed_at }}</span></div>{% else %}<p>Aucune clôture enregistrée.</p>{% endfor %}
+  </article>
+</section>
+{% endblock %}

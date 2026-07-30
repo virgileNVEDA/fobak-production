@@ -1,0 +1,37 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="dashboard-welcome stability-hero">
+  <div>
+    <span class="eyebrow">Centre de stabilité publique</span>
+    <h1>Stabilité, sécurité et assistance</h1>
+    <p>{{ settings.stability_center_text }}</p>
+  </div>
+  <div class="dashboard-seal large-seal">✅</div>
+</section>
+
+<section class="kpi-grid">
+  <article class="kpi-card"><div class="kpi-icon blue">🟢</div><div><small>État de la plateforme</small><strong>Opérationnel</strong><span>Local ou web selon votre installation</span></div></article>
+  <article class="kpi-card"><div class="kpi-icon yellow">🔐</div><div><small>Accès</small><strong>Sécurisé</strong><span>Rôles national, provincial, local, membre</span></div></article>
+  <article class="kpi-card"><div class="kpi-icon red">🛟</div><div><small>Support</small><strong>Tickets</strong><span>Problèmes suivis par l'administration</span></div></article>
+  <article class="kpi-card"><div class="kpi-icon blue">📱</div><div><small>Mobile</small><strong>PWA</strong><span>Icône sur écran d'accueil</span></div></article>
+</section>
+
+<section class="grid two">
+  <article class="card mobile-card">
+    <h2>Engagements de fonctionnement</h2>
+    <ul class="steps">
+      <li>Conservation des historiques après chaque clôture d'exercice.</li>
+      <li>Migration automatique des tables au lancement de l'application.</li>
+      <li>Accès provincial limité à la province de l'utilisateur.</li>
+      <li>Mode démonstration pour présenter l'application sans exposer les données réelles.</li>
+    </ul>
+  </article>
+  <article class="card mobile-card">
+    <h2>Assistance</h2>
+    <p>{{ settings.support_intro }}</p>
+    <a class="btn primary wide-mobile" href="{{ url_for('report_problem') }}">Signaler un problème</a>
+    <a class="btn wide-mobile" href="{{ url_for('privacy_policy') }}">Politique de confidentialité</a>
+    <a class="btn wide-mobile" href="{{ url_for('terms_of_use') }}">Conditions d’utilisation</a>
+  </article>
+</section>
+{% endblock %}

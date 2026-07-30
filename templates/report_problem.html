@@ -1,0 +1,57 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="grid two">
+  <article class="card mobile-card">
+    <span class="eyebrow">Contact international et assistance</span>
+    <h1>Nous contacter</h1>
+    <p>{{ settings.support_intro }}</p>
+    <form method="post" enctype="multipart/form-data" class="form mobile-form">
+      <label>Nom complet
+        <input name="full_name" value="{% if member %}{{ member.last_name }} {{ member.first_name }}{% endif %}" placeholder="Votre nom complet">
+      </label>
+      <label>E-mail
+        <input type="email" name="email" value="{{ current_user.email if current_user else '' }}" placeholder="exemple@domaine.com">
+      </label>
+      <label>Téléphone
+        <input name="phone" value="{{ current_user.phone if current_user else '' }}" placeholder="+243 ...">
+      </label>
+      <label>Province
+        <select name="province" class="province-select">
+          <option value="">Choisir</option>{% for p in provinces %}<option {% if member and member.province==p %}selected{% endif %}>{{ p }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>Localité / commune
+        <input name="localite" value="{{ member.localite if member else '' }}">
+      </label>
+      <label>Catégorie
+        <select name="category">
+          <option>Contact général</option><option>Partenariat</option><option>Demande d’information</option><option>Connexion</option><option>Adhésion</option><option>Carte membre</option><option>Cotisation</option><option>Activité</option><option>Erreur application</option><option>Général</option>
+        </select>
+      </label>
+      <label>Priorité
+        <select name="priority"><option value="normal">Normale</option><option value="high">Urgente</option><option value="low">Faible</option></select>
+      </label>
+      <label class="full">Objet du message
+        <input name="title" required placeholder="Ex. Je n'arrive pas à télécharger ma carte">
+      </label>
+      <label class="full">Votre message
+        <textarea name="message" rows="6" required placeholder="Expliquez ce qui s'est passé, la page concernée et ce que vous vouliez faire."></textarea>
+      </label>
+      <label class="full">Capture ou fichier facultatif
+        <input type="file" name="attachment" accept="image/*,.pdf,.doc,.docx">
+      </label>
+      <button class="btn primary wide-mobile">Envoyer le message</button>
+    </form>
+  </article>
+  <article class="card mobile-card">
+    <h2>Nos coordonnées</h2>
+    <div class="contact-detail-list">
+      <a href="{{ maps_url }}" target="_blank" rel="noopener"><strong>📍 Adresse</strong><span>{{ settings.headquarters }}</span></a>
+      <div><strong>☎ Téléphones</strong><span>{{ settings.contact_phones }}</span></div>
+      <div><strong>🌍 Plateforme</strong><span>{{ settings.public_base_url }}</span></div>
+    </div>
+    <p class="muted">Après l’envoi, un numéro de suivi est créé automatiquement pour faciliter la réponse.</p>
+    <a class="btn primary" href="{{ maps_url }}" target="_blank" rel="noopener">Ouvrir l’itinéraire</a>
+  </article>
+</section>
+{% endblock %}

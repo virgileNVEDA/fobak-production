@@ -1,0 +1,19 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="dashboard-welcome production-welcome">
+  <div><span class="eyebrow">Contrôle qualité</span><h1>Préparation de la version commerciale</h1><p>{{ app_release_name }} — vérification automatique des points essentiels avant livraison à un client.</p></div>
+  <div class="readiness-score"><strong>{{ readiness.score }}%</strong><span>niveau de préparation</span></div>
+</section>
+<section class="readiness-grid">
+{% for item in readiness.checks %}
+  <article class="readiness-item {{ 'ready' if item.ok else 'todo' }}">
+    <span>{{ '✓' if item.ok else '!' }}</span>
+    <div><strong>{{ item.label }}</strong><small>{{ item.detail }}</small></div>
+  </article>
+{% endfor %}
+</section>
+<section class="grid two">
+  <article class="card"><h2>Avant livraison</h2><ol class="steps"><li>Créer puis restaurer une sauvegarde sur une autre machine.</li><li>Tester l’installation sous Windows 10 et Windows 11.</li><li>Tester chaque rôle avec un compte distinct.</li><li>Vérifier la fiche, la carte PVC, les cotisations et les impressions.</li><li>Désactiver le mode démo et nettoyer les données fictives.</li></ol></article>
+  <article class="card"><h2>Informations de la version</h2><p><strong>Version :</strong> {{ app_version }}</p><p><strong>Utilisateurs actifs :</strong> {{ readiness.active_users }}</p><p><strong>Images du carrousel :</strong> {{ readiness.carousel_count }}</p><p><strong>Comptes à sécuriser :</strong> {{ readiness.weak_accounts }}</p><div class="quick-actions-row"><a class="btn primary" href="{{ url_for('download_backup') }}">Créer une sauvegarde</a><a class="btn" href="{{ url_for('production_center_admin') }}">Centre de production</a></div></article>
+</section>
+{% endblock %}

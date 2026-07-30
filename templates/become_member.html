@@ -1,0 +1,131 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-heading form-top-heading centered-heading">
+  <div class="heading-logo-wrap">
+    {% if settings.logo_path %}
+      <img class="heading-form-logo" src="{{ url_for('static', filename=settings.logo_path) }}" alt="Logo FOBAK">
+    {% endif %}
+  </div>
+  <div class="heading-copy">
+    <h1>Demande d’adhésion FOBAK</h1>
+    <p>Complétez les rubriques avec exactitude. Vous pourrez prendre ou importer votre photo, puis imprimer la fiche après validation.</p>
+  </div>
+</section>
+<section class="card adhesion-paper">
+  <div class="paper-head official-form-head">
+    <div class="paper-logo">
+      {% if settings.logo_path %}<img src="{{ url_for('static', filename=settings.logo_path) }}" alt="Logo FOBAK">{% else %}FOBAK{% endif %}
+    </div>
+    <div>
+      <h2>{{ settings.structure_name }}</h2>
+      <p>{{ settings.structure_foundation }}</p>
+      <p>{{ settings.structure_legal }}</p>
+      <h3>{{ settings.secretariat_label }}</h3>
+    </div>
+    <div class="paper-flag"><img src="{{ url_for('static', filename=rdc_flag_rel) }}" alt="Drapeau RDC"></div>
+    <div class="photo-preview">PHOTO</div>
+  </div>
+
+  <h1 class="form-title">FICHE D’ADHÉSION</h1>
+  <p class="muted center">Remplissez cette fiche. L'administration acceptera ou rejettera la demande.</p>
+
+  <form method="post" enctype="multipart/form-data" class="form grid two">
+    <h2 class="full section-line">I. IDENTITÉ</h2>
+    <label>Nom et postnom <input name="last_name" required placeholder="Ex. KANGOLO MANVUGA"></label>
+    <label>Prénom <input name="first_name" required placeholder="Ex. Bébé"></label>
+    <label>Genre
+      <select name="gender"><option>F</option><option>M</option><option>Autre</option></select>
+    </label>
+    <div class="photo-capture-widget full">
+      <label>Photo du membre</label>
+      <div class="camera-preview"><img class="captured-photo" alt="Aperçu photo"><span>PHOTO</span></div>
+      <div class="camera-actions">
+        <label class="btn secondary file-btn">Importer une photo<input type="file" name="photo" accept="image/*" capture="user" class="photo-file-input"></label>
+        <button type="button" class="btn secondary open-camera">Prendre une photo</button>
+        <button type="button" class="btn danger clear-photo">Supprimer</button>
+      </div>
+      <video class="camera-video" playsinline autoplay hidden></video>
+      <canvas class="camera-canvas" hidden></canvas>
+      <input type="hidden" name="photo_capture" class="photo-capture-data">
+      <button type="button" class="btn primary take-snapshot" hidden>Capturer maintenant</button>
+      <small>La photo prise ou importée se place automatiquement dans la case prévue.</small>
+    </div>
+    <label>Lieu de naissance <input name="birth_place" placeholder="Ex. Kinshasa"></label>
+    <label>Date de naissance <input type="date" name="birth_date"></label>
+    <label>État-civil
+      <select name="marital_status"><option value="">Choisir</option>{% for s in marital_status_options %}<option>{{ s }}</option>{% endfor %}</select>
+    </label>
+    <label>Nationalité
+      <select name="nationality"><option>Congolaise</option><option>Autre</option></select>
+    </label>
+    <label>Province
+      <select name="province" class="province-select" required>
+        <option value="">Choisir</option>
+        {% for p in provinces %}<option>{{ p }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Territoire / District
+      <select name="territory" class="territory-select"><option value="">Choisir la province d'abord</option></select>
+    </label>
+    <label>Commune / Secteur <input name="commune" placeholder="Commune, secteur ou chefferie"></label>
+    <label>Coordination locale <input name="localite" placeholder="Locale, cellule ou fédération"></label>
+    <label class="full">Adresse physique <input name="physical_address" placeholder="Avenue, numéro, quartier, commune"></label>
+    <label>Téléphone
+      <div class="phone-composite"><select name="phone_country_code" class="country-code-select" required>{% for iso, code, country in country_codes %}<option value="{{ code }}" {{ 'selected' if iso=='CD' else '' }}>{{ country }} ({{ code }})</option>{% endfor %}</select><input name="phone" inputmode="tel" required placeholder="Numéro sans indicatif"></div>
+    </label>
+    <label>E-mail <input type="email" name="email" required></label>
+
+    <h2 class="full section-line">II. ÉTUDES FAITES</h2>
+    <div class="full checkbox-grid">
+      {% for s in study_checkboxes %}
+        <label><input type="checkbox" name="studies_done" value="{{ s }}"> {{ s }}</label>
+      {% endfor %}
+    </div>
+    <label>Niveau complémentaire
+      <select name="education"><option value="">Choisir si nécessaire</option>{% for e in education_levels %}<option>{{ e }}</option>{% endfor %}</select>
+    </label>
+    <label>Expérience professionnelle
+      <select name="experience">{% for e in experience_levels %}<option>{{ e }}</option>{% endfor %}</select>
+    </label>
+    <label>Profession <input name="profession"></label>
+
+    {% if adhesion_fields %}
+      {% set ns = namespace(section='') %}
+      {% for field in adhesion_fields %}
+        {% if field.section != ns.section %}
+          <h2 class="full section-line">{{ field.section }}</h2>
+          {% set ns.section = field.section %}
+        {% endif %}
+        <label class="{{ 'full' if field.field_type in ['textarea','checkbox'] else '' }}">{{ field.label }}{% if field.required %} *{% endif %}
+          {% if field.field_type == 'textarea' %}
+            <textarea name="custom_{{ field.id }}" rows="3" {{ 'required' if field.required }}></textarea>
+          {% elif field.field_type == 'select' %}
+            <select name="custom_{{ field.id }}" {{ 'required' if field.required }}><option value="">Choisir</option>{% for opt in (field.options or '').split(',') %}<option>{{ opt.strip() }}</option>{% endfor %}</select>
+          {% elif field.field_type == 'checkbox' %}
+            <div class="checkbox-grid compact">{% for opt in (field.options or '').split(',') %}<label><input type="checkbox" name="custom_{{ field.id }}" value="{{ opt.strip() }}"> {{ opt.strip() }}</label>{% endfor %}</div>
+          {% elif field.field_type == 'date' %}
+            <input type="date" name="custom_{{ field.id }}" {{ 'required' if field.required }}>
+          {% else %}
+            <input name="custom_{{ field.id }}" {{ 'required' if field.required }}>
+          {% endif %}
+        </label>
+      {% endfor %}
+    {% endif %}
+
+    <h2 class="full section-line">III. DÉCLARATION DE L’ADHÉRENT</h2>
+    <label class="full">Qualité de membre
+      <select name="member_type" required><option value="">Choisir</option><option>Membre fondateur</option><option>Membre effectif</option><option>Membre d’honneur</option><option>Membre sympathisant</option></select>
+    </label>
+    <p class="full declaration">Je déclare que les renseignements fournis ci-dessus sont exacts et je m’engage à respecter les idéaux et les Statuts de la structure.</p>
+    <label class="full">Motivation / autres informations
+      <textarea name="motivation" rows="4"></textarea>
+    </label>
+    <div class="full form-signatures">
+      <div>Président National<br><strong>{{ settings.president_name }}</strong></div>
+      <div>Secrétaire Général<br><strong>{{ settings.secretary_name }}</strong></div>
+    </div>
+    <button class="btn primary full" type="submit">Envoyer la demande d’adhésion</button>
+  </form>
+</section>
+<script>window.TERRITOIRES={{ territoires|tojson }};</script>
+{% endblock %}

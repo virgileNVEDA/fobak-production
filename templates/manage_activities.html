@@ -1,0 +1,46 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="card">
+  <h1>Publier une activité, communiqué ou message</h1>
+  <p class="muted">Les responsables provinciaux peuvent proposer des activités. Elles deviennent publiques seulement après validation nationale.</p>
+  <form method="post" enctype="multipart/form-data" class="form grid two">
+    <label>Titre à grande taille <input name="title" required></label>
+    <label>Catégorie <select name="category"><option>Activité</option><option>Communiqué</option><option>Formation</option><option>Projet</option><option>Annonce</option></select></label>
+    <label>Sous-titre / nom de l'activité <input name="subtitle"></label>
+    <label>Province {% if session.role in ['super_admin','president','secretary','national_secretary'] %}<select name="province"><option value="">National</option>{% for p in provinces %}<option>{{ p }}</option>{% endfor %}</select>{% else %}<input value="{{ current_user.province if current_user is defined else '' }}" disabled>{% endif %}</label>
+    <label class="full">Message <textarea name="body" rows="5"></textarea></label>
+    <label>Image <input type="file" name="image" accept="image/*"></label>
+    <label>Adaptation de la photo
+      <select name="image_fit">
+        <option value="cover">Remplir le cadre automatiquement</option>
+        <option value="contain">Afficher toute la photo sans couper</option>
+      </select>
+    </label>
+    <label class="full">Lien YouTube facultatif <input name="youtube_url" placeholder="https://www.youtube.com/watch?v=..."></label>
+    <button class="btn primary full">Enregistrer / Envoyer</button>
+  </form>
+</section>
+<section class="card">
+  <h2>Publications existantes</h2>
+  <div class="activity-grid">
+  {% for a in rows %}
+    <article class="activity-card">
+      {% if a.image_path %}<img src="{{ url_for('static', filename=a.image_path) }}" style="object-fit:{{ a.image_fit or 'cover' }}" alt="{{ a.title }}">{% endif %}
+      <span class="badge {{ 'active' if a.status=='approved' else 'inactive' }}">{{ a.status or 'approved' }}</span>
+      <h3>{{ a.title }}</h3><strong>{{ a.subtitle }}</strong><p>{{ a.body }}</p>
+      <small>{{ a.province or 'National' }} — {{ a.published_at }} — {{ a.author_email or '' }}</small>
+      {% if a.youtube_url %}<iframe src="{{ youtube_embed(a.youtube_url) }}" allowfullscreen></iframe>{% endif %}
+      <div class="actions-row">
+        {% if session.role in ['super_admin','president','secretary','national_secretary'] and a.status == 'pending' %}
+          <form method="post" action="{{ url_for('approve_activity', activity_id=a.id) }}"><button class="btn small primary">Valider et publier</button></form>
+          <form method="post" action="{{ url_for('reject_activity', activity_id=a.id) }}"><button class="btn small danger">Rejeter</button></form>
+        {% endif %}
+        <form method="post" action="{{ url_for('delete_activity', activity_id=a.id) }}" onsubmit="return confirm('Supprimer cette activité ?')">
+          <button class="btn small danger">Supprimer</button>
+        </form>
+      </div>
+    </article>
+  {% else %}<p>Aucune publication.</p>{% endfor %}
+  </div>
+</section>
+{% endblock %}

@@ -1,0 +1,198 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="welcome-hero">
+  <div class="welcome-copy">
+    <span class="welcome-kicker">Bienvenue sur la plateforme officielle FOBAK</span>
+    <h1>Adhérez, participez et suivez votre dossier simplement.</h1>
+    <p>{{ settings.mission }}</p>
+    <div class="welcome-actions">
+      <a class="btn primary" href="{{ url_for('become_member') }}">Commencer mon adhésion</a>
+      <a class="btn light" href="{{ url_for('login') }}">Accéder à mon espace</a>
+      <a class="btn light" href="{{ url_for('report_problem') }}">Nous contacter</a>
+    </div>
+    <div class="welcome-trust">
+      <span>✓ Inscription sécurisée</span><span>✓ Suivi en ligne</span><span>✓ Carte avec QR code</span>
+    </div>
+  </div>
+  <div class="welcome-visual">
+    {% if settings.logo_path %}<img src="{{ url_for('static', filename=settings.logo_path) }}" alt="Logo FOBAK">{% endif %}
+    <div class="welcome-badge"><strong>FOBAK</strong><small>Fondation Bakitani</small></div>
+  </div>
+</section>
+
+{% if settings.get('download_section_enabled','1') == '1' %}
+<section class="download-app-section" id="telecharger-application">
+  <div class="download-app-copy">
+    <span class="eyebrow">FOBAK sur tous vos appareils</span>
+    <h2>Installez l’application sur téléphone ou ordinateur</h2>
+    <p>Accédez à FOBAK en ligne, installez-la comme application mobile, ou configurez un poste Windows capable d’utiliser le serveur local du bureau et la version en ligne.</p>
+    <div class="connection-state" id="connection-state" aria-live="polite"><span></span><strong>Vérification de la connexion…</strong></div>
+  </div>
+  <div class="download-app-grid">
+    <article class="download-choice">
+      <div class="download-icon">📱</div>
+      <h3>Téléphone / tablette</h3>
+      <p>Installation rapide depuis Chrome, Edge ou Safari. Une icône FOBAK apparaîtra sur l’écran d’accueil.</p>
+      <button class="btn primary js-install-pwa" type="button">Installer l’application</button>
+      <small>Sur iPhone : Safari → Partager → Sur l’écran d’accueil.</small>
+    </article>
+    <article class="download-choice">
+      <div class="download-icon">💻</div>
+      <h3>Client Windows</h3>
+      <p>Crée un raccourci Bureau qui ouvre le serveur local s’il est disponible, sinon la version en ligne.</p>
+      <a class="btn primary" href="{{ settings.get('windows_client_download_url') or url_for('download_windows_client') }}">Télécharger pour Windows</a>
+      <small>Le client Windows ne contient pas la base locale complète.</small>
+    </article>
+    <article class="download-choice">
+      <div class="download-icon">🖥️</div>
+      <h3>Serveur local autonome</h3>
+      <p>Version complète pour le bureau : membres, cartes, cotisations, impressions et travail sans Internet.</p>
+      {% if settings.get('windows_server_download_url') %}<a class="btn" href="{{ settings.windows_server_download_url }}">Télécharger le serveur local</a>{% else %}<a class="btn" href="{{ url_for('report_problem') }}">Demander l’installation locale</a>{% endif %}
+      <small>Le serveur local doit rester allumé pour les autres postes du réseau.</small>
+    </article>
+    <article class="download-choice">
+      <div class="download-icon">🌐</div>
+      <h3>Version en ligne</h3>
+      <p>Aucune installation nécessaire. Utilisez FOBAK depuis n’importe quel appareil connecté à Internet.</p>
+      <a class="btn" href="{{ url_for('login') }}">Ouvrir la version en ligne</a>
+      <small>La publication finale doit utiliser une adresse HTTPS.</small>
+    </article>
+  </div>
+</section>
+{% endif %}
+
+<section class="public-carousel-compact" data-carousel>
+  <div class="slides">
+    {% if carousel %}
+      {% for img in carousel %}
+        <div class="slide {{ 'is-active' if loop.first else '' }}" style="background-image:url('{{ url_for('static', filename=img.image_path) }}'); background-size:{{ img.image_fit or 'cover' }}">
+          <div class="slide-message"><strong>{{ img.title or settings.structure_name }}</strong>{% if img.message %}<span>{{ img.message }}</span>{% endif %}</div>
+        </div>
+      {% endfor %}
+    {% else %}
+      <div class="slide is-active carousel-fallback-slide">
+        <div class="carousel-fallback-logo">{% if settings.logo_path %}<img src="{{ url_for('static', filename=settings.logo_path) }}" alt="Logo FOBAK">{% endif %}</div>
+        <div class="slide-message"><strong>Bienvenue à la Fondation Bakitani</strong><span>Adhésion, activités, cotisations et suivi des membres sur une même plateforme.</span></div>
+      </div>
+    {% endif %}
+  </div>
+  <button class="carousel-control prev" type="button" aria-label="Image précédente">‹</button>
+  <button class="carousel-control next" type="button" aria-label="Image suivante">›</button>
+  <div class="carousel-dots" aria-label="Navigation du carrousel"></div>
+</section>
+
+<section class="home-intro">
+  <article class="home-intro-card">
+    <span class="eyebrow">Fondation Bakitani — FOBAK</span>
+    <h2>Une plateforme claire pour adhérer, participer et suivre son dossier</h2>
+    <p>{{ settings.mission }}</p>
+    <div class="quick-actions-row">
+      <a class="btn primary" href="{{ url_for('become_member') }}">Remplir ma fiche d’adhésion</a>
+      <a class="btn light" href="{{ url_for('fiche_vierge') }}">Imprimer une fiche vierge</a>
+    </div>
+  </article>
+  <aside class="home-intro-card home-contact-card">
+    <h2>Contact et localisation</h2>
+    <div class="home-contact-list">
+      <a href="{{ maps_url }}" target="_blank" rel="noopener"><b>📍</b><span><strong>Itinéraire Google Maps</strong>{{ settings.headquarters }}</span></a>
+      <div><b>☎</b><span><strong>Téléphones</strong>{{ settings.contact_phones }}</span></div>
+      <a href="{{ url_for('report_problem') }}"><b>✉</b><span><strong>Formulaire de contact</strong>Écrivez-nous et recevez un numéro de suivi.</span></a>
+    </div>
+  </aside>
+</section>
+
+<section class="public-info-strip">
+  <div><strong>Adhésion</strong><span>En ligne ou localement</span></div>
+  <div><strong>Carte QR</strong><span>Vérification publique</span></div>
+  <div><strong>Cotisations</strong><span>Banque, caisse ou Mobile Money</span></div>
+  <div><strong>Activités</strong><span>Publication après validation</span></div>
+</section>
+
+<section class="grid two">
+  <article class="card large-text">
+    <h2>Historique de la structure</h2>
+    <p>{{ settings.history }}</p>
+  </article>
+  <article class="card large-text">
+    <h2>Mission et vision</h2>
+    <p><strong>Mission :</strong> {{ settings.mission }}</p>
+    <p><strong>Vision :</strong> {{ settings.vision }}</p>
+    <p><strong>Valeurs :</strong> {{ settings.values }}</p>
+  </article>
+</section>
+
+<section class="grid two">
+  <article class="card">
+    <h2>Comment devenir membre ?</h2>
+    <ol class="steps">
+      <li>Cliquer sur <strong>{{ _("Devenir membre") }}</strong> et remplir la fiche d’adhésion.</li>
+      <li>L'administration vérifie et accepte ou rejette la demande.</li>
+      <li>Après acceptation, le membre reçoit un espace personnel et une carte avec QR code.</li>
+      <li>Les cotisations peuvent être suivies par banque, caisse ou Mobile Money.</li>
+    </ol>
+    <p><a class="btn small" href="{{ url_for('fiche_vierge') }}">Télécharger une fiche vierge</a></p>
+  </article>
+  <article class="card">
+    <h2>Avantages des membres</h2>
+    <p>{{ settings.advantages }}</p>
+    <h3>Objectifs</h3><p>{{ settings.objectives }}</p>
+    <h3>Partenaires</h3><p>{{ settings.partners }}</p>
+  </article>
+</section>
+
+<section class="card">
+  <h2 class="section-title">Activités récentes</h2>
+  <div class="activity-grid">
+    {% for a in activities %}
+      <article class="activity-card">
+        {% if a.image_path %}<img src="{{ url_for('static', filename=a.image_path) }}" style="object-fit:{{ a.image_fit or 'cover' }}" alt="{{ a.title }}">{% endif %}
+        <span class="badge active">{{ a.category or 'Activité' }}</span>
+        <h3>{{ a.title }}</h3>
+        <strong>{{ a.subtitle }}</strong>
+        <p>{{ a.body }}</p>
+        <small>{{ a.published_at }}</small>
+      </article>
+    {% else %}
+      <p>Aucune activité publiée pour le moment.</p>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="grid two">
+  <article class="card">
+    <h2>Projets en cours</h2>
+    {% for p in projects %}
+      <div class="list-item"><strong>{{ p.title }}</strong><span>{{ p.province or 'National' }} — {{ p.status }}</span></div>
+    {% else %}<p>Les projets seront publiés ici.</p>{% endfor %}
+  </article>
+  <article class="card">
+    <h2>Documents publics</h2>
+    {% for d in docs %}
+      <div class="list-item"><strong>{{ d.title }}</strong><span>{% if d.file_path %}<a href="{{ url_for('static', filename=d.file_path) }}">Ouvrir</a>{% else %}Aucun fichier{% endif %}</span></div>
+    {% else %}<p>Aucun document public pour le moment.</p>{% endfor %}
+  </article>
+</section>
+
+<section class="grid two">
+  <article class="card">
+    <h2>Vidéos</h2>
+    <div class="video-grid">
+      {% for v in videos %}
+        <div>
+          <h3>{{ v.title }}</h3>
+          <iframe src="{{ youtube_embed(v.youtube_url) }}" title="{{ v.title }}" allowfullscreen></iframe>
+        </div>
+      {% else %}
+        <p>Ajoutez des liens YouTube dans l'administration.</p>
+      {% endfor %}
+    </div>
+  </article>
+  <article class="card payment-box">
+    <h2>Paiement des cotisations</h2>
+    <p>{{ settings.payment_info }}</p><p><strong>M-Pesa/Vodacom :</strong> <a href="tel:{{ settings.payment_mpesa_number|replace(' ','') }}">{{ settings.payment_mpesa_number }}</a></p><p><a class="btn primary" href="{{ url_for('public_pay_contribution') }}">Payer / déclarer une cotisation</a></p>
+    <h3>Vérification d’une carte</h3>
+    <p>Chaque carte imprimée contient un QR code. En scannant le QR, on vérifie directement si le membre est reconnu et actif.</p>
+    <p><strong>Contact :</strong> <a href="tel:{{ settings.contact_phones.split(';')[0]|replace(' ','') }}">{{ settings.contact_phones }}</a></p>
+  </article>
+</section>
+{% endblock %}

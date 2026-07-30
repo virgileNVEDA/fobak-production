@@ -1,0 +1,65 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-heading">
+  <div><span class="eyebrow">Fondation Bakitani</span><h1>Gestion des membres</h1><p>Recherchez, filtrez, consultez et imprimez les dossiers des membres selon vos autorisations.</p></div>
+</section>
+<section class="card">
+  <h1>Liste des membres</h1>
+  <form class="filters" method="get">
+    <select name="province"><option value="">Toutes les provinces</option>{% for p in provinces %}<option value="{{ p }}" {{ 'selected' if request.args.get('province')==p else '' }}>{{ p }}</option>{% endfor %}</select>
+    <input name="year" placeholder="Année" value="{{ request.args.get('year','') }}">
+    <input name="month" placeholder="Mois: 1-12" value="{{ request.args.get('month','') }}">
+    <select name="status"><option value="">Tous statuts</option><option value="active" {{ 'selected' if request.args.get('status')=='active' else '' }}>Actifs</option><option value="inactive" {{ 'selected' if request.args.get('status')=='inactive' else '' }}>Désactivés</option></select>
+    <button class="btn">Filtrer</button>
+  </form>
+  <div class="admin-menu" style="margin-bottom:14px">
+    <a class="btn primary" href="{{ url_for('new_member') }}">Ajouter membre</a>
+    <a class="btn" href="{{ url_for('export_members_csv') }}">Exporter CSV</a>
+    <a class="btn" href="{{ url_for('export_members_xlsx') }}">Exporter Excel</a>
+    <a class="btn" href="{{ url_for('import_members') }}">Importer Excel/CSV</a>
+    <a class="btn" href="{{ url_for('print_members', province=request.args.get('province',''), year=request.args.get('year',''), month=request.args.get('month',''), status=request.args.get('status','')) }}">Imprimer avec en-tête</a>
+    <a class="btn" href="{{ url_for('fiche_vierge') }}">Fiche vierge</a>
+  </div>
+  <div class="table-wrap printable">
+    <table>
+      <thead><tr><th>N° adhésion</th><th>Code</th><th>Nom</th><th>Contact</th><th>Zone</th><th>Statut</th><th>Adhésion</th><th>Documents</th><th>Actions</th></tr></thead>
+      <tbody>
+        {% for m in rows %}
+        <tr>
+          <td>{{ m.adhesion_number or '-' }}</td>
+          <td>{{ m.code }}</td>
+          <td><strong>{{ m.last_name }} {{ m.first_name }}</strong><br><small>{{ m.profession }}</small></td>
+          <td>{{ m.phone }}<br><small>{{ m.email }}</small></td>
+          <td>{{ m.province }}<br><small>{{ m.territory }} / {{ m.commune }} / {{ m.localite }}</small></td>
+          <td><span class="badge {{ m.status or 'active' }}">{{ m.status or 'active' }}</span></td>
+          <td>{{ m.joined_at[:10] }}<br><small>Exp. {{ m.expires_at[:10] }}</small></td>
+          <td class="card-actions-cell">
+<a class="btn small" href="{{ url_for('card', member_id=m.id) }}">PDF recto-verso</a>
+<a class="btn small light-btn" href="{{ url_for('card_export', member_id=m.id, side='recto', fmt='png') }}">Recto PNG</a>
+<a class="btn small light-btn" href="{{ url_for('card_export', member_id=m.id, side='verso', fmt='png') }}">Verso PNG</a>
+<a class="btn small light-btn" href="{{ url_for('card_export', member_id=m.id, side='recto', fmt='sources') }}">Sources Photoshop</a>
+<form method="post" action="{{ url_for('renew_member_card', member_id=m.id) }}" class="inline" onsubmit="return confirm('Renouveler cette carte pour une année ?')"><button class="btn small primary" type="submit">Renouveler 1 an</button></form>
+<a class="btn small light-btn" href="{{ url_for('fiche_adhesion', member_id=m.id) }}">Fiche PDF</a>
+<a class="btn small light-btn" href="{{ url_for('verify_member', code=m.code) }}">Vérifier QR</a>
+<a class="btn small light-btn" href="{{ url_for('member_history', member_id=m.id) }}">Historique</a>
+</td>
+          <td class="actions-cell">
+            {% if session.role in ['super_admin','president','secretary','national_secretary','provincial_admin','provincial_secretary','local_admin'] %}
+            <form method="post" action="{{ url_for('toggle_member', member_id=m.id) }}" class="inline"><button class="btn small">Activer/Désactiver</button></form>
+            {% endif %}
+            {% if session.role in ['super_admin','president','secretary','national_secretary','provincial_admin','provincial_secretary'] %}
+            <form method="post" action="{{ url_for('delete_member', member_id=m.id) }}" class="inline" onsubmit="return confirm('Archiver ce membre ?')"><button class="btn small danger">Archiver</button></form>
+            {% endif %}
+            {% if session.role in ['super_admin','secretary','national_secretary'] %}
+            <form method="post" action="{{ url_for('delete_member_permanent', member_id=m.id) }}" class="inline" onsubmit="return confirm('Suppression définitive : action irréversible. Continuer ?')"><button class="btn small danger">Définitif</button></form>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="9">Aucun membre trouvé.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

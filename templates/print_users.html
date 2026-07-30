@@ -1,0 +1,16 @@
+<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>Liste des utilisateurs FOBAK</title><link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}"><style>.print-list-head{display:grid;grid-template-columns:180px 1fr 120px;gap:12px;align-items:center;border-bottom:3px solid #0B3A66;padding-bottom:10px;margin-bottom:12px}.print-list-logo img{width:100%;max-height:56px;object-fit:contain}.print-list-flag img{width:118px;height:72px;object-fit:contain;border:1px solid #0B3A66;border-radius:6px;background:#fff} .print-list-head h1{text-align:center;margin:0;color:#0B3A66}.print-list-head p,.print-list-head small{text-align:center;display:block}.print-list-page{padding:14mm;font-family:Arial,Helvetica,sans-serif}.print-list-page table{width:100%;border-collapse:collapse}.print-list-page th,.print-list-page td{border:1px solid #444;padding:5px;text-align:left}.print-list-page th{background:#eaf1f9;color:#0B3A66}</style>
+<style id="fobak-print-watermark">
+body::before{content:"";position:fixed;inset:18% 18%;background:url('{{ url_for('static', filename=settings.logo_watermark_path or settings.logo_path) if (settings.logo_watermark_path or settings.logo_path) else '' }}') center/contain no-repeat;opacity:.045;pointer-events:none;z-index:0}
+.page,.print-page{position:relative;z-index:1}
+@media print{body::before{position:fixed;opacity:.045}}
+</style>
+</head>
+<body onload="window.print()"><main class="print-list-page">
+<header class="print-list-head">
+  <div class="print-list-logo">{% if settings.logo_path %}<img src="{{ url_for('static', filename=settings.logo_path) }}" alt="FOBAK">{% endif %}</div>
+  <div><h1>Liste des utilisateurs</h1><p>{{ settings.structure_name }}</p><small>{{ settings.headquarters }} — {{ settings.contact_phones }}</small></div>
+  <div class="print-list-flag"><img src="{{ url_for('static', filename=rdc_flag_rel) }}" alt="Drapeau RDC"></div>
+</header>
+<table><thead><tr><th>N°</th><th>Personne</th><th>Contacts</th><th>Rôle</th><th>Zone</th><th>Statut</th><th>Connexion</th><th>Dernière connexion</th></tr></thead><tbody>
+{% for u in rows %}<tr><td>{{ loop.index }}</td><td>{{ u.first_name or '' }} {{ u.last_name or '' }}</td><td>{{ u.email or '' }}<br>{{ u.phone or '' }}</td><td>{{ role_labels.get(u.role,u.role) }}</td><td>{{ u.province or 'National' }} {{ u.localite or '' }}</td><td>{{ 'Actif' if u.active else 'Désactivé' }}</td><td>{{ 'En ligne' if u.is_connected else 'Hors ligne' }}</td><td>{{ u.last_login or '-' }}</td></tr>{% endfor %}
+</tbody></table><footer>Imprimé le {{ current_year }} — {{ settings.structure_name }}</footer></main></body></html>

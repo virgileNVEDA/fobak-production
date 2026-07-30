@@ -1,0 +1,17 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="dashboard-welcome"><div><span class="eyebrow">Aide</span><h1>Guide rapide intégré</h1><p>Les actions principales de l’application expliquées simplement.</p></div><div class="dashboard-seal">📘</div></section>
+<section class="grid two">
+  {% set items = [
+    ('Ajouter un membre','Allez dans Membres → Ajouter membre, remplissez la fiche, puis enregistrez. La carte et la fiche PDF seront disponibles automatiquement.'),
+    ('Créer un administratif','Allez dans Utilisateurs & rôles. Les administratifs sont aussi créés comme personnes/membres avec carte et profil.'),
+    ('Imprimer une carte','Dans Membres, cliquez sur Carte + QR. Vérifiez la photo, le code et la date d’expiration.'),
+    ('Enregistrer une cotisation','Allez dans Cotisations, choisissez le membre, le montant, la méthode et imprimez le reçu PDF.'),
+    ('Importer Excel','Dans Membres → Importer Excel/CSV. Préparez les colonnes nom, prénom, téléphone, province.'),
+    ('Sauvegarder','Dans Production & sécurité, téléchargez une sauvegarde avant chaque grande mise à jour.'),
+    ('Restaurer','Réservé à l’Administrateur Général. Importez une archive de sauvegarde valide depuis Production & sécurité.'),
+    ('Signaler un problème','Cliquez sur Aide ou Signaler un problème. L’administration traite le ticket dans Support.')
+  ] %}
+  {% for title, body in items %}<article class="card"><h2>{{ title }}</h2><p>{{ body }}</p></article>{% endfor %}
+</section>
+{% endblock %}

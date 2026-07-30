@@ -1,0 +1,18 @@
+{
+  "name": "FOBAK Manager Pro",
+  "short_name": "FOBAK",
+  "description": "Gestion des adhésions, membres, cartes, cotisations et activités de la Fondation Bakitani.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#ffffff",
+  "theme_color": "#0b3a66",
+  "icons": [
+    {"src":"/static/img/fobak_app_icon_v21.png","sizes":"512x512","type":"image/png","purpose":"any maskable"}
+  ],
+  "shortcuts": [
+    {"name":"Adhérer","short_name":"Adhésion","url":"/devenir-membre"},
+    {"name":"Connexion","short_name":"Connexion","url":"/login"}
+  ]
+}

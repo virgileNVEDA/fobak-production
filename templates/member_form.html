@@ -1,0 +1,76 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="card adhesion-paper">
+  <h1>Ajout local d’un membre</h1>
+  <p class="muted">Cette fiche permet au Secrétariat ou à l’administration autorisée d’enregistrer un membre directement au bureau.</p>
+  <form method="post" enctype="multipart/form-data" class="form grid two">
+    <h3 class="full section-line">I. Identité</h3>
+    <label>Nom / Postnom <input name="last_name" required></label>
+    <label>Prénom <input name="first_name" required></label>
+    <label>Genre <select name="gender"><option value="M">M</option><option value="F">F</option><option value="Autre">Autre</option></select></label>
+    <label>État-civil <select name="marital_status"><option value=""></option>{% for s in marital_status_options %}<option>{{ s }}</option>{% endfor %}</select></label>
+    <label>Lieu de naissance <input name="birth_place"></label>
+    <label>Date de naissance <input type="date" name="birth_date"></label>
+    <label>Nationalité <input name="nationality" value="Congolaise"></label>
+    <label>Province <select name="province" class="province-select" required><option value="">Choisir</option>{% for p in provinces %}<option value="{{ p }}" {{ 'selected' if default_province==p else '' }}>{{ p }}</option>{% endfor %}</select></label>
+    <label>Territoire <select name="territory" class="territory-select"><option value="">Choisir</option></select></label>
+    <label>Commune <input name="commune" placeholder="Commune ou secteur"></label>
+    <label>Localité / Cellule <input name="localite" value="{{ default_localite }}"></label>
+    <label>Téléphone
+      <div class="phone-composite"><select name="phone_country_code" class="country-code-select" required>{% for iso, code, country in country_codes %}<option value="{{ code }}" {{ 'selected' if iso=='CD' else '' }}>{{ country }} ({{ code }})</option>{% endfor %}</select><input name="phone" inputmode="tel" required placeholder="Numéro sans indicatif"></div>
+    </label>
+    <label>E-mail <input type="email" name="email" placeholder="facultatif"></label>
+    <label class="full">Adresse physique <input name="physical_address"></label>
+    <div class="photo-capture-widget full">
+      <label>Photo du membre</label>
+      <div class="camera-preview"><img class="captured-photo" alt="Aperçu photo"><span>PHOTO</span></div>
+      <div class="camera-actions">
+        <label class="btn secondary file-btn">Importer une photo<input type="file" name="photo" accept="image/*" capture="user" class="photo-file-input"></label>
+        <button type="button" class="btn secondary open-camera">Prendre une photo</button>
+        <button type="button" class="btn danger clear-photo">Supprimer</button>
+      </div>
+      <video class="camera-video" playsinline autoplay hidden></video>
+      <canvas class="camera-canvas" hidden></canvas>
+      <input type="hidden" name="photo_capture" class="photo-capture-data">
+      <button type="button" class="btn primary take-snapshot" hidden>Capturer maintenant</button>
+      <small>La photo prise ou importée se place automatiquement dans la case prévue.</small>
+    </div>
+
+    <h3 class="full section-line">II. Études faites</h3>
+    <div class="checkbox-grid full">
+      {% for s in study_checkboxes %}<label><input type="checkbox" name="studies_done" value="{{ s }}"> {{ s }}</label>{% endfor %}
+    </div>
+    <label>Niveau d'étude <select name="education"><option value=""></option>{% for e in education_levels %}<option>{{ e }}</option>{% endfor %}</select></label>
+    <label>Expérience professionnelle <select name="experience"><option value=""></option>{% for e in experience_levels %}<option>{{ e }}</option>{% endfor %}</select></label>
+    <label>Profession / Service <input name="profession"></label>
+
+    {% if adhesion_fields %}
+      {% set ns = namespace(section='') %}
+      {% for field in adhesion_fields %}
+        {% if field.section != ns.section %}<h3 class="full section-line">{{ field.section }}</h3>{% set ns.section = field.section %}{% endif %}
+        <label class="{{ 'full' if field.field_type in ['textarea','checkbox'] else '' }}">{{ field.label }}{% if field.required %} *{% endif %}
+          {% if field.field_type == 'textarea' %}
+            <textarea name="custom_{{ field.id }}" rows="3" {{ 'required' if field.required }}></textarea>
+          {% elif field.field_type == 'select' %}
+            <select name="custom_{{ field.id }}" {{ 'required' if field.required }}><option value="">Choisir</option>{% for opt in (field.options or '').split(',') %}<option>{{ opt.strip() }}</option>{% endfor %}</select>
+          {% elif field.field_type == 'checkbox' %}
+            <div class="checkbox-grid compact">{% for opt in (field.options or '').split(',') %}<label><input type="checkbox" name="custom_{{ field.id }}" value="{{ opt.strip() }}"> {{ opt.strip() }}</label>{% endfor %}</div>
+          {% elif field.field_type == 'date' %}
+            <input type="date" name="custom_{{ field.id }}" {{ 'required' if field.required }}>
+          {% else %}
+            <input name="custom_{{ field.id }}" {{ 'required' if field.required }}>
+          {% endif %}
+        </label>
+      {% endfor %}
+    {% endif %}
+
+    <h3 class="full section-line">III. Déclaration de l’adhérent</h3>
+    <label>Qualité de membre<select name="member_type" required><option value="">Choisir</option><option>Membre fondateur</option><option>Membre effectif</option><option>Membre d’honneur</option><option>Membre sympathisant</option></select></label>
+    <label>Date d’adhésion <input type="date" name="joined_at"></label>
+    <label>Date d’expiration <input type="date" name="expires_at" placeholder="Automatique 5 ans si vide"></label>
+    <p class="declaration full">Après enregistrement, l’application crée automatiquement le compte du membre, la fiche PDF, la carte de membre et le QR code de vérification.</p>
+    <button class="btn primary full">Enregistrer le membre</button>
+  </form>
+</section>
+<script>window.TERRITOIRES={{ territoires|tojson }};</script>
+{% endblock %}

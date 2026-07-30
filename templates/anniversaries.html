@@ -1,0 +1,18 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="card">
+  <h1>Rappels automatiques d'anniversaire d'adhésion</h1>
+  <p class="muted">Chaque année, l'application calcule automatiquement l'anniversaire à partir de la date d'adhésion du membre. La visibilité respecte les droits : national voit tout, province voit sa province.</p>
+  <form method="get" class="filters"><input name="days" value="{{ days }}" placeholder="Nombre de jours à venir"><button class="btn primary">Afficher</button></form>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Membre</th><th>Province</th><th>Date d'adhésion</th><th>Prochain anniversaire</th><th>Dans</th><th>Années</th><th>Action</th></tr></thead>
+      <tbody>
+      {% for item in rows %}
+        <tr><td><strong>{{ item.member.last_name }} {{ item.member.first_name }}</strong><br><small>{{ item.member.code }}</small></td><td>{{ item.member.province }}</td><td>{{ item.member.joined_at[:10] }}</td><td>{{ item.next_date }}</td><td>{{ item.days }} jour(s)</td><td>{{ item.years }} an(s)</td><td><a class="btn small" href="{{ url_for('notifications') }}">Préparer notification</a></td></tr>
+      {% else %}<tr><td colspan="7">Aucun rappel dans cette période.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

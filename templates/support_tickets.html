@@ -1,0 +1,21 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="card mobile-card">
+  <div class="panel-head"><h1>Gestion des tickets de support</h1><a class="btn" href="{{ url_for('report_problem') }}">Créer un ticket</a></div>
+  <form class="filters mobile-filters" method="get">
+    <label>Statut <select name="status"><option value="">Tous</option>{% for s in ['new','in_progress','resolved','closed'] %}<option value="{{ s }}" {% if filters.get('status')==s %}selected{% endif %}>{{ s }}</option>{% endfor %}</select></label>
+    <label>Catégorie <input name="category" value="{{ filters.get('category','') }}" placeholder="Connexion, Carte..."></label>
+    <button class="btn primary">Filtrer</button>
+  </form>
+  <div class="table-wrap mobile-table">
+    <table>
+      <thead><tr><th>Ticket</th><th>Demandeur</th><th>Province</th><th>Catégorie</th><th>Statut</th><th>Date</th><th></th></tr></thead>
+      <tbody>
+      {% for t in rows %}
+        <tr><td><strong>{{ t.tracking_code or ('SUP-' ~ t.id) }}</strong><br>{{ t.title }}</td><td>{{ t.full_name }}<br><small>{{ t.phone }} {{ t.email }}</small></td><td>{{ t.province or '-' }}</td><td>{{ t.category }}</td><td><span class="badge {{ t.status }}">{{ t.status }}</span></td><td>{{ t.created_at }}</td><td><a class="btn small" href="{{ url_for('support_ticket_detail', ticket_id=t.id) }}">Ouvrir</a></td></tr>
+      {% else %}<tr><td colspan="7">Aucun ticket trouvé.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

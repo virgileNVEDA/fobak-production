@@ -1,0 +1,129 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="card">
+  <h1>Paramètres modifiables de la structure</h1>
+  <p>Cette page permet d'adapter l'application à une autre ASBL sans modifier le code.</p>
+  <form method="post" enctype="multipart/form-data" class="form grid two">
+    <label>Nom de la structure <input name="structure_name" value="{{ settings.structure_name }}"></label>
+    <label>Devise <input name="structure_motto" value="{{ settings.structure_motto }}"></label>
+    <label class="full">En-tête officiel <input name="structure_header" value="{{ settings.structure_header }}"></label>
+    <label>Fondation <input name="structure_foundation" value="{{ settings.structure_foundation }}" placeholder="Fondée en ..."></label>
+    <label>Référence légale <input name="structure_legal" value="{{ settings.structure_legal }}" placeholder="Arrêté Ministériel N° ..."></label>
+    <label>Libellé du secrétariat <input name="secretariat_label" value="{{ settings.secretariat_label }}"></label>
+    <label>Siège national <input name="headquarters" value="{{ settings.headquarters }}"></label>
+    <label>Adresse officielle complète <input name="structure_address" value="{{ settings.get('structure_address','') }}"></label>
+    <label>Langue par défaut <select name="default_language">{% for code,label in lang_options.items() %}<option value="{{ code }}" {{ 'selected' if settings.get('default_language','fr')==code else '' }}>{{ label }}</option>{% endfor %}</select></label>
+    <label class="full">Téléphones officiels <input name="contact_phones" value="{{ settings.contact_phones }}"></label>
+    <label class="full">Communiqués dans la bande passante en bas <textarea name="public_communiques" rows="3">{{ settings.public_communiques }}</textarea></label>
+    <label class="full">Message du dashboard <textarea name="dashboard_message" rows="2">{{ settings.dashboard_message }}</textarea></label>
+    <label class="full">Note du footer <textarea name="footer_note" rows="2">{{ settings.footer_note }}</textarea></label>
+    <label class="full">Initiateur / mention de copyright <input name="initiator" value="{{ settings.get('initiator', 'Comité fondateur') }}"></label>
+    <label class="full">Historique <textarea name="history" rows="5">{{ settings.history }}</textarea></label>
+    <label class="full">Mission <textarea name="mission" rows="3">{{ settings.mission }}</textarea></label>
+    <label class="full">Vision <textarea name="vision" rows="3">{{ settings.vision }}</textarea></label>
+    <label class="full">Valeurs <input name="values" value="{{ settings.values }}"></label>
+    <label class="full">Objectifs <textarea name="objectives" rows="3">{{ settings.objectives }}</textarea></label>
+    <label class="full">Avantages des membres <textarea name="advantages" rows="3">{{ settings.advantages }}</textarea></label>
+    <label class="full">Partenaires <textarea name="partners" rows="2">{{ settings.partners }}</textarea></label>
+    <label>Nom du Président National <input name="president_name" value="{{ settings.president_name }}"></label>
+    <label>Nom du Secrétaire Général <input name="secretary_name" value="{{ settings.secretary_name }}"></label>
+    <label>Logo / filigrane des pages <input type="file" name="logo" accept="image/*"></label>
+    <label>Signature Président <input type="file" name="president_signature" accept="image/*"></label>
+    <label>Signature Secrétaire <input type="file" name="secretary_signature" accept="image/*"></label>
+    <label>Cachet / sceau officiel <input type="file" name="official_stamp" accept="image/png,image/jpeg,image/webp"></label>
+    <label>Application du sceau
+      <select name="stamp_application_mode"><option value="validated" {{ 'selected' if settings.stamp_application_mode=='validated' else '' }}>Après validation</option><option value="registered" {{ 'selected' if settings.stamp_application_mode=='registered' else '' }}>Dès l’enregistrement</option></select>
+    </label>
+    <p class="full muted">Utilisez de préférence une image PNG transparente. Le sceau sera ajouté automatiquement aux PDF et impressions selon le mode choisi.</p>
+    <label>YouTube <input name="youtube" value="{{ settings.youtube }}"></label>
+    <label>Facebook <input name="facebook" value="{{ settings.facebook }}"></label>
+    <label>WhatsApp <input name="whatsapp" value="{{ settings.whatsapp }}"></label>
+    <label>Instagram <input name="instagram" value="{{ settings.instagram }}"></label>
+    <label class="full">Informations paiement <textarea name="payment_info" rows="4">{{ settings.payment_info }}</textarea></label>
+    <label>Numéro M-Pesa / Vodacom des cotisations <input name="payment_mpesa_number" value="{{ settings.get('payment_mpesa_number','') }}"></label>
+    <label>Nom affiché du compte Mobile Money <input name="payment_mpesa_name" value="{{ settings.get('payment_mpesa_name','Fondation Bakitani') }}"></label>
+    <label class="full">Instructions de confirmation <textarea name="payment_confirmation_instructions" rows="3">{{ settings.get('payment_confirmation_instructions','') }}</textarea></label>
+    <label class="full">URL API Vodacom / agrégateur <input name="payment_vodacom_api_url" value="{{ settings.get('payment_vodacom_api_url','') }}" placeholder="À fournir par Vodacom ou le prestataire SMS/M-Pesa"></label>
+    <label>Clé API Vodacom <input type="password" name="payment_vodacom_api_key" value="{{ settings.get('payment_vodacom_api_key','') }}" autocomplete="new-password"></label>
+    <label>Activer l’API de paiement <select name="payment_vodacom_enabled"><option value="0" {{ 'selected' if settings.get('payment_vodacom_enabled','0')=='0' else '' }}>Non</option><option value="1" {{ 'selected' if settings.get('payment_vodacom_enabled','0')=='1' else '' }}>Oui</option></select></label>
+    <label class="full">Phrase de la carte <input name="card_notice" value="{{ settings.card_notice }}"></label>
+    <label class="full">Adresse publique du site pour le QR code <input name="public_base_url" value="{{ settings.public_base_url }}" placeholder="https://votre-domaine.org"></label>
+    <label>Nom mobile / icône écran d'accueil <input name="mobile_app_name" value="{{ settings.get('mobile_app_name','FOBAK Manager Pro') }}"></label>
+    <label class="full">Lien téléchargement client Windows <input name="windows_client_download_url" value="{{ settings.get('windows_client_download_url','/telecharger-client-windows') }}" placeholder="/telecharger-client-windows ou https://..."></label>
+    <label class="full">Lien téléchargement serveur local Windows <input name="windows_server_download_url" value="{{ settings.get('windows_server_download_url','') }}" placeholder="https://.../FOBAK_Serveur_Local.zip"></label>
+    <label class="full">Lien Android APK (facultatif) <input name="android_download_url" value="{{ settings.get('android_download_url','') }}" placeholder="https://.../FOBAK.apk"></label>
+    <label>Afficher la section Téléchargements <select name="download_section_enabled"><option value="1" {{ 'selected' if settings.get('download_section_enabled','1')=='1' else '' }}>Oui</option><option value="0" {{ 'selected' if settings.get('download_section_enabled','1')=='0' else '' }}>Non</option></select></label>
+    <label class="full">Texte de la recherche globale <input name="global_search_placeholder" value="{{ settings.get('global_search_placeholder','') }}"></label>
+    <label class="full">Introduction de l’aide intelligente <textarea name="ai_help_intro" rows="3">{{ settings.get('ai_help_intro','') }}</textarea></label>
+    <label class="full">Introduction de la page Statuts <textarea name="statute_intro" rows="3">{{ settings.get('statute_intro','') }}</textarea></label>
+    <label class="full">Centre de stabilité publique <textarea name="stability_center_text" rows="3">{{ settings.get('stability_center_text','') }}</textarea></label>
+    <label class="full">Introduction du support <textarea name="support_intro" rows="3">{{ settings.get('support_intro','') }}</textarea></label>
+    <label class="full">Politique de confidentialité <textarea name="privacy_policy" rows="5">{{ settings.get('privacy_policy','') }}</textarea></label>
+    <label class="full">Conditions d’utilisation <textarea name="terms_of_use" rows="5">{{ settings.get('terms_of_use','') }}</textarea></label>
+    <button class="btn primary full">Enregistrer les paramètres</button>
+  </form>
+</section>
+
+<section class="card mobile-card">
+  <h2>Mode démonstration</h2>
+  <p>Activez ce mode pour présenter l'application avec des données fictives sans exposer les vrais membres et vraies cotisations.</p>
+  <form method="post" action="{{ url_for('toggle_demo_mode') }}" class="quick-actions-row">
+    <input type="hidden" name="enabled" value="{{ '0' if demo_mode else '1' }}">
+    <button class="btn {{ 'danger' if demo_mode else 'primary' }}">{{ 'Désactiver le mode démonstration' if demo_mode else 'Activer le mode démonstration' }}</button>
+    <a class="btn" href="{{ url_for('public_demo_mode') }}">Voir la présentation démo</a>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Rubriques supplémentaires de la fiche d’adhésion</h2>
+  <p class="muted">Ajoutez ici les champs qui doivent apparaître dans le formulaire “Devenir membre”, l’ajout local et la fiche PDF. Options : séparez les choix par des virgules.</p>
+  <form method="post" action="{{ url_for('add_adhesion_field') }}" class="form grid two rubric-form">
+    <label>Section <input name="section" value="Autres informations"></label>
+    <label>Libellé de la rubrique <input name="label" required placeholder="Ex. Fonction dans la structure"></label>
+    <label>Type
+      <select name="field_type"><option value="text">Texte court</option><option value="textarea">Texte long</option><option value="select">Liste de choix</option><option value="checkbox">Cases à cocher</option><option value="date">Date</option></select>
+    </label>
+    <label>Options <input name="options" placeholder="Option 1, Option 2, Option 3"></label>
+    <label>Ordre <input type="number" name="sort_order" value="100"></label>
+    <label>Obligatoire <select name="required"><option value="0">Non</option><option value="1">Oui</option></select></label>
+    <button class="btn primary full">Ajouter la rubrique</button>
+  </form>
+
+  <div class="rubric-list">
+    {% for f in fields %}
+    <div class="rubric-item">
+      <form method="post" action="{{ url_for('update_adhesion_field', field_id=f.id) }}" class="mini-form grid two">
+        <input name="section" value="{{ f.section }}" placeholder="Section">
+        <input name="label" value="{{ f.label }}" placeholder="Libellé">
+        <select name="field_type"><option value="text" {{ 'selected' if f.field_type=='text' else '' }}>Texte court</option><option value="textarea" {{ 'selected' if f.field_type=='textarea' else '' }}>Texte long</option><option value="select" {{ 'selected' if f.field_type=='select' else '' }}>Liste</option><option value="checkbox" {{ 'selected' if f.field_type=='checkbox' else '' }}>Cases</option><option value="date" {{ 'selected' if f.field_type=='date' else '' }}>Date</option></select>
+        <input name="options" value="{{ f.options or '' }}" placeholder="Options séparées par virgules">
+        <input type="number" name="sort_order" value="{{ f.sort_order or 100 }}">
+        <select name="required"><option value="0" {{ 'selected' if not f.required else '' }}>Facultatif</option><option value="1" {{ 'selected' if f.required else '' }}>Obligatoire</option></select>
+        <select name="active"><option value="1" {{ 'selected' if f.active else '' }}>Visible</option><option value="0" {{ 'selected' if not f.active else '' }}>Masqué</option></select>
+        <button class="btn small">Mettre à jour</button>
+      </form>
+      <form method="post" action="{{ url_for('delete_adhesion_field', field_id=f.id) }}" onsubmit="return confirm('Supprimer cette rubrique ?')">
+        <button class="btn small danger">Supprimer</button>
+      </form>
+    </div>
+    {% else %}<p>Aucune rubrique supplémentaire.</p>{% endfor %}
+  </div>
+</section>
+
+<section class="grid two">
+  <article class="card">
+    <h2>Ajouter image au carrousel</h2>
+    <form method="post" action="{{ url_for('add_carousel') }}" enctype="multipart/form-data" class="form">
+      <label>Titre / légende courte <input name="title"></label><label class="full">Message affiché avec la photo <textarea name="message" rows="3"></textarea></label><label>Image <input type="file" name="image" accept="image/*" required></label><label>Adaptation <select name="image_fit"><option value="cover">Remplir le cadre</option><option value="contain">Afficher toute la photo</option></select></label><button class="btn">Ajouter</button>
+    </form>
+    {% for c in carousel %}<div class="list-item"><strong>{{ c.title }}</strong><span>{{ c.created_at }} — {{ 'Actif' if c.active else 'Masqué' }}</span></div><div class="actions-row"><form method="post" action="{{ url_for('toggle_carousel', item_id=c.id) }}"><button class="btn small">Activer/Masquer</button></form><form method="post" action="{{ url_for('delete_carousel', item_id=c.id) }}" onsubmit="return confirm('Supprimer cette image du carrousel ?')"><button class="btn small danger">Supprimer</button></form></div>{% endfor %}
+  </article>
+  <article class="card">
+    <h2>Ajouter vidéo YouTube</h2>
+    <form method="post" action="{{ url_for('add_video') }}" class="form">
+      <label>Titre <input name="title" required></label><label>Lien YouTube <input name="youtube_url" required></label><button class="btn">Ajouter</button>
+    </form>
+    {% for v in videos %}<div class="list-item"><strong>{{ v.title }}</strong><span>{{ v.youtube_url }}</span></div>{% endfor %}
+  </article>
+</section>
+{% endblock %}

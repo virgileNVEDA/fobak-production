@@ -1,0 +1,16 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="card">
+  <h1>Recherche globale</h1>
+  <form class="form search-large" action="{{ url_for('global_search') }}" method="get"><input name="q" value="{{ q }}" placeholder="{{ settings.get('global_search_placeholder','Recherche...') }}"><button class="btn primary">Rechercher</button></form>
+</section>
+{% if q %}
+<section class="grid two">
+  <article class="card"><h2>Membres</h2>{% for m in results.members %}<div class="list-item"><strong>{{ m.last_name }} {{ m.first_name }}</strong><span>{{ m.code }} — {{ m.province }} — <a href="{{ url_for('card', member_id=m.id) }}">Carte</a></span></div>{% else %}<p>Aucun membre trouvé.</p>{% endfor %}</article>
+  <article class="card"><h2>Utilisateurs</h2>{% for u in results.users %}<div class="list-item"><strong>{{ u.first_name or '' }} {{ u.last_name or '' }}</strong><span>{{ u.email }} — {{ role_labels.get(u.role,u.role) }}</span></div>{% else %}<p>Aucun utilisateur ou accès limité.</p>{% endfor %}</article>
+  <article class="card"><h2>Cotisations</h2>{% for p in results.payments %}<div class="list-item"><strong>{{ p.amount }} {{ p.currency }}</strong><span>{{ p.last_name }} {{ p.first_name }} — {{ p.reference or '-' }}</span></div>{% else %}<p>Aucune cotisation trouvée.</p>{% endfor %}</article>
+  <article class="card"><h2>Activités</h2>{% for a in results.activities %}<div class="list-item"><strong>{{ a.title }}</strong><span>{{ a.province or 'National' }} — {{ a.status }}</span></div>{% else %}<p>Aucune activité trouvée.</p>{% endfor %}</article>
+  <article class="card"><h2>Tickets</h2>{% for t in results.tickets %}<div class="list-item"><strong>{{ t.tracking_code or ('SUP-' ~ t.id) }} — {{ t.title }}</strong><span>{{ t.status }} — {{ t.created_at }}</span></div>{% else %}<p>Aucun ticket trouvé.</p>{% endfor %}</article>
+</section>
+{% endif %}
+{% endblock %}
