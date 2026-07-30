@@ -1,0 +1,20 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="auth-card card">
+  <h1>Connexion</h1>
+  <p>Utilisez votre e-mail ou votre numéro de téléphone. Pour un nouveau membre accepté, le mot de passe initial est son numéro de téléphone.</p>
+  <form method="post" class="form">
+    <label>E-mail ou téléphone
+      <input name="identifier" required placeholder="ex: membre@email.com ou 099...">
+    </label>
+    <label>Mot de passe
+      <input type="password" name="password" required>
+    </label>
+    <button class="btn primary" type="submit">Se connecter</button>
+  </form>
+  <div class="links-row">
+    <a href="{{ url_for('become_member') }}">Devenir membre ?</a>
+    <a href="{{ url_for('reset_password') }}">Mot de passe oublié ?</a>
+  </div>
+</section>
+{% endblock %}

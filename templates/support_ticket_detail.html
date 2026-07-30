@@ -1,0 +1,37 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="grid two">
+  <article class="card mobile-card">
+    <span class="eyebrow">{{ ticket.tracking_code }}</span>
+    <h1>{{ ticket.title }}</h1>
+    <p><strong>Demandeur :</strong> {{ ticket.full_name }} — {{ ticket.phone }} — {{ ticket.email }}</p>
+    <p><strong>Province :</strong> {{ ticket.province or '-' }} / {{ ticket.localite or '-' }}</p>
+    <p><strong>Catégorie :</strong> {{ ticket.category }} — <strong>Priorité :</strong> {{ ticket.priority }}</p>
+    <p><strong>Statut :</strong> {{ ticket.status }}</p>
+    <div class="legal-text"><p>{{ ticket.message }}</p></div>
+    {% if ticket.attachment_path %}<a class="btn" href="{{ url_for('static', filename=ticket.attachment_path) }}" target="_blank">Voir la pièce jointe</a>{% endif %}
+  </article>
+  <article class="card mobile-card">
+    <h2>Traiter le ticket</h2>
+    <form method="post" class="form mobile-form">
+      <label>Statut
+        <select name="status"><option value="new" {% if ticket.status=='new' %}selected{% endif %}>Nouveau</option><option value="in_progress" {% if ticket.status=='in_progress' %}selected{% endif %}>En cours</option><option value="resolved" {% if ticket.status=='resolved' %}selected{% endif %}>Résolu</option><option value="closed" {% if ticket.status=='closed' %}selected{% endif %}>Fermé</option></select>
+      </label>
+      <label>Priorité
+        <select name="priority"><option value="low" {% if ticket.priority=='low' %}selected{% endif %}>Faible</option><option value="normal" {% if ticket.priority=='normal' %}selected{% endif %}>Normale</option><option value="high" {% if ticket.priority=='high' %}selected{% endif %}>Urgente</option></select>
+      </label>
+      <label>Assigner à
+        <select name="assigned_to"><option value="">Moi-même</option>{% for a in admins %}<option value="{{ a.id }}" {% if ticket.assigned_to==a.id %}selected{% endif %}>{{ a.email }} — {{ role_labels.get(a.role,a.role) }} — {{ a.province or 'National' }}</option>{% endfor %}</select>
+      </label>
+      <label class="full">Réponse / note interne
+        <textarea name="reply" rows="5" placeholder="Écrire une réponse ou une note de suivi"></textarea>
+      </label>
+      <button class="btn primary wide-mobile">Enregistrer le traitement</button>
+    </form>
+  </article>
+</section>
+<section class="card mobile-card">
+  <h2>Historique du ticket</h2>
+  {% for m in messages %}<div class="list-item"><strong>{{ m.author_name or 'Administration' }}</strong><span>{{ m.message }} — {{ m.created_at }}</span></div>{% else %}<p>Aucune réponse pour l'instant.</p>{% endfor %}
+</section>
+{% endblock %}

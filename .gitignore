@@ -1,0 +1,9 @@
+static/uploads/official_docs/statut_bakitani_original.pdf
+*.db
+*.zip
+.env
+secret.key
+venv/
+__pycache__/
+logs/
+backups/

@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="{{ lang_code or 'fr' }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title or settings.structure_name }}</title>
+  <meta name="theme-color" content="#0b3a66">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="{{ settings.mobile_app_name or 'ASBL Manager' }}">
+  <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
+  <link rel="icon" href="{{ url_for('static', filename=settings.favicon_path) }}">
+  <link rel="apple-touch-icon" href="{{ url_for('static', filename=settings.favicon_path) }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=30">
+</head>
+<body class="{{ 'has-watermark' if settings.logo_path else '' }} {{ 'admin-layout' if current_user else 'public-layout' }}"
+      data-voice-enabled="1"
+      data-voice-first-name="{{ voice_first_name|e }}"
+      data-voice-role="{{ voice_role|e }}"
+      data-voice-welcome="{{ '1' if voice_welcome_pending else '0' }}"
+      {% if settings.logo_path %}style="--watermark-url:url('{{ url_for('static', filename=settings.logo_watermark_path) }}')"{% endif %}>
+  <div id="page-loader" class="page-loader">
+    <div class="loader-card loader-professional">
+      <div class="loader-logo-ring">
+        <div class="loader-logo">
+          {% if settings.logo_dark_path %}<img src="{{ url_for('static', filename=settings.logo_dark_path) }}" alt="Logo FOBAK">{% else %}<span>FOBAK</span>{% endif %}
+        </div>
+      </div>
+      <small>Chargement sécurisé</small>
+      <strong>{{ settings.structure_name }}</strong>
+      <div class="loader-progress"><span></span></div>
+      <em>Veuillez patienter...</em>
+    </div>
+  </div>
+
+  {% if current_user %}
+  <div class="app-shell">
+    <aside class="side-dashboard">
+      <div class="side-top">
+        <button class="menu-round" type="button" aria-label="Menu">☰</button>
+        <div class="side-brand">
+          <div class="side-logo">
+            {% if settings.logo_dark_path %}<img src="{{ url_for('static', filename=settings.logo_dark_path) }}" alt="Logo FOBAK">{% else %}<span>FOBAK</span>{% endif %}
+          </div>
+          <div>
+            <strong>{{ settings.structure_name }}</strong>
+            <small>ASBL Manager Pro</small>
+          </div>
+        </div>
+      </div>
+
+      <div class="side-menu-search no-print">
+        <span aria-hidden="true">🔎</span>
+        <input id="side-menu-search-input" type="search" placeholder="Rechercher un menu…" autocomplete="off" aria-label="Rechercher dans le menu latéral">
+        <button id="side-menu-search-clear" type="button" title="Effacer la recherche" aria-label="Effacer la recherche">×</button>
+      </div>
+      <small id="side-menu-search-empty" class="side-menu-search-empty" hidden>Aucune rubrique trouvée.</small>
+
+      <nav class="side-menu">
+        <a href="{{ url_for('dashboard') }}" class="{{ 'active' if request.endpoint in ['dashboard','admin_dashboard','member_dashboard'] else '' }}"><span>🏠</span> {{ _("Tableau de bord") }} <b>›</b></a>
+        {% if session.role != 'member' %}
+        <a href="{{ url_for('members') }}" class="{{ 'active' if request.endpoint in ['members','new_member','print_members'] else '' }}"><span>👥</span> {{ _("Membres") }} <b>›</b></a>
+        <a href="{{ url_for('applications') }}" class="{{ 'active' if request.endpoint == 'applications' else '' }}"><span>🪪</span> {{ _("Adhésions") }} <b>›</b></a>
+        <a href="{{ url_for('payments') }}" class="{{ 'active' if request.endpoint in ['payments','print_payments'] else '' }}"><span>💰</span> Cotisations <b>›</b></a>
+        <a href="{{ url_for('treasury_page') }}" class="{{ 'active' if request.endpoint in ['treasury_page','treasury_print'] else '' }}"><span>🏦</span> Trésorerie <b>›</b></a>
+        <a href="{{ url_for('alerts_page') }}" class="{{ 'active' if request.endpoint == 'alerts_page' else '' }}"><span>🔔</span> Alertes <b>›</b></a>
+        <a href="{{ url_for('manage_activities') }}" class="{{ 'active' if request.endpoint == 'manage_activities' else '' }}"><span>📅</span> {{ _("Activités") }} <b>›</b></a>
+        <a href="{{ url_for('projects_page') }}" class="{{ 'active' if request.endpoint == 'projects_page' else '' }}"><span>🚀</span> Projets <b>›</b></a>
+        <a href="{{ url_for('documents_page') }}" class="{{ 'active' if request.endpoint == 'documents_page' else '' }}"><span>📁</span> Documents <b>›</b></a>
+        <a href="{{ url_for('manage_statutes') }}" class="{{ 'active' if request.endpoint in ['manage_statutes','update_statute_section','add_statute_section'] else '' }}"><span>📘</span> Statuts & règlement <b>›</b></a>
+        <a href="{{ url_for('notifications') }}" class="{{ 'active' if request.endpoint == 'notifications' else '' }}"><span>🔔</span> {{ _("Notifications") }} {% if unread_notification_count %}<small class="menu-badge">{{ unread_notification_count }}</small>{% else %}<b>›</b>{% endif %}</a>
+        <a href="{{ url_for('support_tickets_page') }}" class="{{ 'active' if request.endpoint in ['support_tickets_page','support_ticket_detail'] else '' }}"><span>🛟</span> Support / tickets <b>›</b></a>
+        <a href="{{ url_for('anniversaries_page') }}" class="{{ 'active' if request.endpoint == 'anniversaries_page' else '' }}"><span>🎂</span> Anniversaires <b>›</b></a>
+        {% if session.role in ['super_admin','president','secretary','national_secretary'] %}
+        <a href="{{ url_for('users_page') }}" class="{{ 'active' if request.endpoint == 'users_page' else '' }}"><span>🛡️</span> Utilisateurs & rôles <b>›</b></a>
+        {% if session.role == 'super_admin' %}<a href="{{ url_for('roles_permissions_page') }}" class="{{ 'active' if request.endpoint == 'roles_permissions_page' else '' }}"><span>☑️</span> Droits personnalisés <b>›</b></a>{% endif %}
+        {% endif %}
+        {% if session.role in ['super_admin','president','secretary','national_secretary'] %}
+        <a href="{{ url_for('year_closure') }}" class="{{ 'active' if request.endpoint == 'year_closure' else '' }}"><span>📦</span> Clôture d’exercice <b>›</b></a>
+        <a href="{{ url_for('production_center_admin') }}" class="{{ 'active' if request.endpoint in ['production_center_admin','run_production_migration'] else '' }}"><span>🛡️</span> Production & sécurité <b>›</b></a>
+        <a href="{{ url_for('synchronization_center') }}" class="{{ 'active' if request.endpoint in ['synchronization_center','run_synchronization'] else '' }}"><span>🔄</span> Synchronisation <b>›</b></a>
+        <a href="{{ url_for('recycle_bin') }}" class="{{ 'active' if request.endpoint in ['recycle_bin','restore_deleted_member'] else '' }}"><span>🗑️</span> Corbeille <b>›</b></a>
+        <a href="{{ url_for('audit_center') }}" class="{{ 'active' if request.endpoint == 'audit_center' else '' }}"><span>🧾</span> Journal d’audit <b>›</b></a>
+        <a href="{{ url_for('diagnostic_center') }}" class="{{ 'active' if request.endpoint == 'diagnostic_center' else '' }}"><span>🩺</span> Diagnostic général <b>›</b></a>
+        {% if session.role == 'super_admin' %}<a href="{{ url_for('setup_wizard') }}" class="{{ 'active' if request.endpoint == 'setup_wizard' else '' }}"><span>🧭</span> Assistant démarrage <b>›</b></a>{% endif %}
+        {% if session.role == 'super_admin' %}<a href="{{ url_for('settings_page') }}" class="{{ 'active' if request.endpoint == 'settings_page' else '' }}"><span>⚙️</span> Paramètres <b>›</b></a>{% endif %}
+        {% endif %}
+        {% else %}
+        <a href="{{ url_for('member_dashboard') }}"><span>🪪</span> Ma carte / mon espace <b>›</b></a>
+        <a href="{{ url_for('member_dashboard') }}"><span>🧾</span> Mon profil <b>›</b></a>
+        {% endif %}
+        <a href="{{ url_for('my_profile') }}"><span>👤</span> Mon profil / ma carte <b>›</b></a>
+        <a href="{{ url_for('intelligent_help') }}"><span>🤖</span> Aide intelligente <b>›</b></a>
+        <a href="{{ url_for('quick_guide') }}"><span>📘</span> Guide rapide <b>›</b></a>
+        <a href="{{ url_for('index') }}"><span>🌐</span> Site public <b>›</b></a>
+      </nav>
+
+      <div class="side-user">
+        <div class="avatar-letter">{{ (current_user.email or current_user.phone or 'A')[:1]|upper }}</div>
+        <div>
+          <strong>{{ current_user_display_name }}</strong>
+          <small>{{ role_labels.get(session.role, session.role) }}</small>
+          {% if current_user.province %}<small>{{ current_user.province }}</small>{% endif %}
+        </div>
+      </div>
+      <a class="logout-btn" href="{{ url_for('logout') }}">⎋ {{ _("Déconnexion") }}</a>
+    </aside>
+
+    <section class="workspace">
+      <header class="workspace-topbar">
+        <div>
+          <strong>{{ _("Bienvenue") }}, {{ current_user_display_name }}</strong>
+          <small>{{ settings.dashboard_message }}</small>
+        </div>
+        <form class="global-search-form" action="{{ url_for('global_search') }}" method="get"><input name="q" placeholder="{{ settings.get('global_search_placeholder', 'Recherche rapide...') }}"><button>🔎</button></form>
+        <select class="language-select" onchange="if(this.value) location.href=this.value">{% for code,label in lang_options.items() %}<option value="{{ url_for('set_language', code=code) }}" {{ 'selected' if code==lang_code else '' }}>{{ label }}</option>{% endfor %}</select>
+        <div class="top-actions">
+          <a href="{{ url_for('notifications') }}" title="Notifications">🔔{% if unread_notification_count %}<sup>{{ unread_notification_count }}</sup>{% endif %}</a>
+          <a href="{{ url_for('report_problem') }}" title="Signaler un problème">🛟</a>
+          <a href="{{ url_for('change_password') }}" title="Changer mot de passe">🔐</a>
+          <a href="{{ url_for('index') }}" title="Accueil public">🌐</a>
+          <div class="top-date"><span id="today-label">Aujourd’hui</span><strong id="clock-label">--:--</strong></div>
+        </div>
+      </header>
+
+      <main class="main-content workspace-content">
+  {% else %}
+  <header class="site-header public-header">
+    <div class="logo-box">
+      {% if settings.logo_dark_path %}<img src="{{ url_for('static', filename=settings.logo_dark_path) }}" alt="Logo FOBAK">{% else %}<span>FOBAK</span>{% endif %}
+    </div>
+    <div class="brand-block">
+      <strong>{{ settings.structure_name }}</strong>
+      <span>{{ settings.structure_header }}</span>
+      <em>{{ settings.structure_motto }}</em>
+    </div>
+    <div class="flag-real" aria-label="Drapeau RDC"><img src="{{ url_for('static', filename=rdc_flag_rel) }}" alt="Drapeau RDC"></div>
+  </header>
+
+  <nav class="top-nav public-nav">
+    <a href="{{ url_for('index') }}">{{ _("Accueil") }}</a>
+    <a href="{{ url_for('become_member') }}">{{ _("Devenir membre") }}</a>
+    <a href="{{ url_for('fiche_vierge') }}">Fiche vierge</a>
+    <a href="{{ url_for('public_statutes') }}">Statuts</a>
+    <a href="{{ url_for('stability_center') }}">Stabilité</a>
+    <a href="{{ url_for('report_problem') }}">Contact</a>
+    <a href="{{ maps_url }}" target="_blank" rel="noopener">Nous trouver</a>
+    <a href="{{ url_for('public_demo_mode') }}">Mode démo</a>
+    <a href="{{ url_for('intelligent_help') }}">{{ _("Aide intelligente") }}</a>
+    <a href="{{ url_for('quick_guide') }}">Guide rapide</a>
+    <select class="language-select public-language" onchange="if(this.value) location.href=this.value">{% for code,label in lang_options.items() %}<option value="{{ url_for('set_language', code=code) }}" {{ 'selected' if code==lang_code else '' }}>{{ label }}</option>{% endfor %}</select>
+    <a href="{{ url_for('login') }}">{{ _("Connexion") }}</a>
+  </nav>
+
+  <main class="main-content public-content">
+  {% endif %}
+
+    {% if demo_mode %}<div class="demo-banner">🧪 Mode démonstration actif : les données affichées servent uniquement à la présentation. <a href="{{ url_for('quit_demo_mode') }}">Quitter</a></div>{% endif %}
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div class="flash-zone">
+          {% for category, message in messages %}
+            <div class="flash {{ category }}">{{ message }}</div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+    {% block content %}{% endblock %}
+  </main>
+
+  {% if current_user %}
+      <footer class="app-footer dashboard-style-footer">
+        <div class="footer-about">
+          <div class="footer-logo">{% if settings.logo_dark_path %}<img src="{{ url_for('static', filename=settings.logo_dark_path) }}" alt="Logo FOBAK">{% else %}<span>FOBAK</span>{% endif %}</div>
+          <p>{{ settings.footer_note }}</p>
+        </div>
+        <div>
+          <h3>Adresse & contacts</h3>
+          <p>📍 <a class="footer-map-link" href="{{ maps_url }}" target="_blank" rel="noopener">{{ settings.headquarters }}</a></p>
+          <p>☎ <a href="tel:{{ settings.contact_phones|replace(' ','')|replace(';',',') }}">{{ settings.contact_phones }}</a></p>
+          <p>🌍 {{ settings.public_base_url }}</p>
+          <div class="socials"><a href="{{ settings.facebook }}">f</a><a href="{{ settings.youtube }}">▶</a><a href="{{ settings.whatsapp }}">☎</a><a href="{{ settings.instagram }}">◎</a></div>
+        </div>
+        <div>
+          <h3>Accès rapides</h3>
+          <a href="{{ url_for('dashboard') }}">› {{ _("Tableau de bord") }}</a>
+          {% if session.role != 'member' %}
+          <a href="{{ url_for('members') }}">› Membres</a>
+          <a href="{{ url_for('payments') }}">› Cotisations</a>
+          <a href="{{ url_for('treasury_page') }}">› Trésorerie</a>
+          <a href="{{ url_for('manage_activities') }}">› Activités</a>
+          <a href="{{ url_for('manage_statutes') }}">› Statuts & règlement</a>
+          <a href="{{ url_for('monthly_reports_page') }}">› Rapports mensuels</a><a href="{{ url_for('print_members') }}">› Liste imprimable</a>
+          {% endif %}
+        </div>
+        <div>
+          <h3>Vie associative</h3>
+          <a href="{{ url_for('index') }}">› À propos de nous</a>
+          {% if session.role != 'member' %}<a href="{{ url_for('documents_page') }}">› Documents utiles</a><a href="{{ url_for('projects_page') }}">› Projets & programmes</a>{% endif %}
+          <a href="{{ url_for('index') }}">› Vérification carte</a>
+          <a href="{{ url_for('support_tickets_page') }}">› Support / tickets</a>
+          <a href="{{ url_for('quick_guide') }}">› Guide rapide</a>
+          {% if session.role in ['super_admin','president','secretary','national_secretary'] %}<a href="{{ url_for('year_closure') }}">› Clôture d’exercice</a><a href="{{ url_for('production_center_admin') }}">› Production & sécurité</a>{% endif %}
+          <div class="language-card"><strong>Langue / Language</strong><span>{{ lang_options.get(lang_code, "Français") }}</span><small>Choisissez la langue en haut ou ici.</small><div class="footer-language-list">{% for code,label in lang_options.items() %}<a href="{{ url_for('set_language', code=code) }}">{{ label }}</a>{% endfor %}</div></div>
+        </div>
+        <div class="footer-bottom">© {{ current_year }} {{ settings.structure_name }} — Tous droits réservés. Version {{ app_version }} — Initiateur : {{ settings.get('initiator', 'Comité fondateur') }}</div>
+      </footer>
+    </section>
+  </div>
+  {% else %}
+  <footer class="app-footer public-footer dashboard-style-footer">
+    <div class="footer-about">
+      <div class="footer-logo">{% if settings.logo_dark_path %}<img src="{{ url_for('static', filename=settings.logo_dark_path) }}" alt="Logo FOBAK">{% else %}<span>FOBAK</span>{% endif %}</div>
+      <p>{{ settings.footer_note }}</p>
+    </div>
+    <div><h3>Adresse & contacts</h3><p>📍 <a class="footer-map-link" href="{{ maps_url }}" target="_blank" rel="noopener">{{ settings.headquarters }}</a></p><p>☎ <a href="tel:{{ settings.contact_phones|replace(' ','')|replace(';',',') }}">{{ settings.contact_phones }}</a></p><p>🌍 {{ settings.public_base_url }}</p><div class="socials"><a href="{{ settings.facebook }}">f</a><a href="{{ settings.youtube }}">▶</a><a href="{{ settings.whatsapp }}">☎</a><a href="{{ settings.instagram }}">◎</a></div></div>
+    <div><h3>Accès rapides</h3><a href="{{ url_for('index') }}">› Accueil</a><a href="{{ url_for('become_member') }}">› Adhésion en ligne</a><a href="{{ url_for('fiche_vierge') }}">› Fiche d’adhésion</a><a href="{{ url_for('public_statutes') }}">› Statuts & règlement</a><a href="{{ url_for('public_demo_mode') }}">› Mode démonstration</a><a href="{{ url_for('login') }}">› Connexion sécurisée</a></div>
+    <div><h3>Vie associative</h3><a href="{{ url_for('index') }}">› Mission et vision</a><a href="{{ url_for('index') }}">› Activités récentes</a><a href="{{ url_for('index') }}">› Projets</a><a href="{{ url_for('stability_center') }}">› Centre de stabilité</a><a href="{{ url_for('privacy_policy') }}">› Confidentialité</a><a href="{{ url_for('terms_of_use') }}">› Conditions d’utilisation</a><a href="{{ url_for('report_problem') }}">› Nous contacter</a><div class="language-card"><strong>Langue / Language</strong><span>{{ lang_options.get(lang_code, "Français") }}</span><small>Choisissez la langue en haut ou ici.</small><div class="footer-language-list">{% for code,label in lang_options.items() %}<a href="{{ url_for('set_language', code=code) }}">{{ label }}</a>{% endfor %}</div></div></div>
+    <div class="footer-bottom">© {{ current_year }} {{ settings.structure_name }} — Tous droits réservés. Version {{ app_version }}</div>
+  </footer>
+  {% endif %}
+
+  {% if settings.public_communiques %}
+  <div class="communique-ticker enhanced-ticker">
+    <strong>Communiqués</strong>
+    <div class="ticker-track"><span>{{ settings.public_communiques }}</span></div>
+  </div>
+  {% endif %}
+
+  <button id="install-pwa-button" class="install-pwa-button" type="button" hidden title="Installer FOBAK sur cet appareil">⬇️<span>Installer</span></button>
+  <a class="floating-help" href="{{ url_for('intelligent_help') }}" title="Aide intelligente">🤖<span>Aide</span></a>
+  <script>window.TERRITOIRES = {{ territoires|tojson }};</script>
+  <script>
+    window.FOBAK_PRINT = {
+      name: {{ settings.structure_name|tojson }},
+      header: {{ settings.structure_header|tojson }},
+      address: {{ settings.headquarters|tojson }},
+      phones: {{ settings.contact_phones|tojson }},
+      logo: {{ url_for('static', filename=settings.logo_print_path or settings.logo_path)|tojson }},
+      flag: {{ url_for('static', filename=rdc_flag_rel)|tojson }}
+    };
+  </script>
+  <script src="{{ url_for('static', filename='js/app.js') }}?v=30"></script>
+</body>
+</html>

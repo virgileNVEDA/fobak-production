@@ -1,0 +1,66 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-heading">
+  <div><span class="eyebrow">Fondation Bakitani</span><h1>Cotisations des membres</h1><p>Enregistrez, vérifiez et imprimez les opérations financières autorisées.</p></div>
+</section>
+<section class="grid two">
+  <article class="card">
+    <h1>Enregistrer une cotisation</h1>
+    <form method="post" class="form">
+      <label>Membre
+        <select name="member_id" required>{% for m in members_rows %}<option value="{{ m.id }}">{{ m.code }} — {{ m.last_name }} {{ m.first_name }} — {{ m.province }}</option>{% endfor %}</select>
+      </label>
+      <label>Type de cotisation <select name="contribution_type"><option>Cotisation</option><option>Adhésion</option><option>Don</option><option>Activité</option><option>Pénalité</option><option>Autre</option></select></label>
+      <label>Montant <input type="number" step="0.01" name="amount" required></label>
+      <label>Devise <select name="currency"><option>CDF</option><option>USD</option></select></label>
+      <label>Méthode <select name="method"><option>Mobile Money</option><option>Banque</option><option>Caisse</option><option>Autre</option></select></label>
+      <label>Référence <input name="reference"></label>
+      <label>Date du paiement <input type="date" name="paid_at"></label>
+      <label>Statut <select name="status"><option value="paid">Payé</option><option value="pending">En attente</option><option value="failed">Échoué</option></select></label>
+      <button class="btn primary">Enregistrer</button>
+    </form>
+  </article>
+  <article class="card">
+    <h2>Totaux filtrés</h2>
+    {% for t in totals %}
+      <div class="list-item"><strong>{{ t.total or 0 }} {{ t.currency }}</strong><span>{{ t.status }} — {{ t.n }} opération(s)</span></div>
+    {% else %}<p>Aucun total.</p>{% endfor %}
+    <p class="muted">Les responsables provinciaux voient seulement les cotisations de leur province.</p>
+  </article>
+</section>
+
+<section class="card">
+  <h2>Filtrer, imprimer et exporter</h2>
+  <form method="get" class="filters payments-filters">
+    {% if session.role in ['super_admin','president','secretary','national_secretary'] %}
+    <select name="province"><option value="">Toutes provinces</option>{% for p in provinces %}<option value="{{ p }}" {{ 'selected' if filters.get('province')==p else '' }}>{{ p }}</option>{% endfor %}</select>
+    {% endif %}
+    <select name="status"><option value="">Tous statuts</option><option value="paid" {{ 'selected' if filters.get('status')=='paid' else '' }}>Payé</option><option value="pending" {{ 'selected' if filters.get('status')=='pending' else '' }}>En attente</option><option value="failed" {{ 'selected' if filters.get('status')=='failed' else '' }}>Échoué</option></select>
+    <select name="method"><option value="">Toutes méthodes</option><option {{ 'selected' if filters.get('method')=='Mobile Money' else '' }}>Mobile Money</option><option {{ 'selected' if filters.get('method')=='Banque' else '' }}>Banque</option><option {{ 'selected' if filters.get('method')=='Caisse' else '' }}>Caisse</option><option {{ 'selected' if filters.get('method')=='Autre' else '' }}>Autre</option></select>
+    <select name="currency"><option value="">Toutes devises</option><option {{ 'selected' if filters.get('currency')=='CDF' else '' }}>CDF</option><option {{ 'selected' if filters.get('currency')=='USD' else '' }}>USD</option></select>
+    <select name="contribution_type"><option value="">Tous types</option><option>Cotisation</option><option>Adhésion</option><option>Don</option><option>Activité</option><option>Pénalité</option><option>Autre</option></select>
+    <input name="year" placeholder="Année" value="{{ filters.get('year','') }}">
+    <input name="month" placeholder="Mois" value="{{ filters.get('month','') }}">
+    <input type="date" name="date_start" value="{{ filters.get('date_start','') }}">
+    <input type="date" name="date_end" value="{{ filters.get('date_end','') }}">
+    <button class="btn primary">Filtrer</button>
+    <a class="btn" href="{{ url_for('print_payments') }}?{{ query_string }}">Imprimer</a>
+    <a class="btn" href="{{ url_for('export_payments_csv') }}?{{ query_string }}">Exporter CSV</a>
+    <a class="btn" href="{{ url_for('export_payments_xlsx') }}?{{ query_string }}">Exporter Excel</a>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Historique des cotisations</h2>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Date</th><th>Membre</th><th>Province</th><th>Type</th><th>Montant</th><th>Méthode</th><th>Référence</th><th>Statut</th><th>Reçu</th></tr></thead>
+      <tbody>
+        {% for p in rows %}
+        <tr><td>{{ p.paid_at or p.created_at[:10] }}</td><td><strong>{{ p.code }}</strong><br>{{ p.last_name }} {{ p.first_name }}</td><td>{{ p.province }}</td><td>{{ p.contribution_type }}</td><td><strong>{{ p.amount }} {{ p.currency }}</strong></td><td>{{ p.method }}</td><td>{{ p.reference }}</td><td><span class="badge {{ 'active' if p.status=='paid' else 'inactive' }}">{{ p.status }}</span></td><td><a class="btn small" href="{{ url_for('payment_receipt', payment_id=p.id) }}">PDF</a> <a class="btn small" target="_blank" href="{{ url_for('payment_receipt_print', payment_id=p.id, paper='80mm') }}">Thermique 80</a> <a class="btn small" target="_blank" href="{{ url_for('payment_receipt_print', payment_id=p.id, paper='58mm') }}">58</a> <a class="btn small" target="_blank" href="{{ url_for('payment_receipt_print', payment_id=p.id, paper='a4') }}">A4</a></td></tr>
+        {% else %}<tr><td colspan="9">Aucune cotisation trouvée.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

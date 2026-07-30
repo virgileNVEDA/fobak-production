@@ -1,0 +1,103 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-heading statute-heading">
+  <div>
+    <span class="eyebrow">Documents institutionnels</span>
+    <h1>Statuts et Règlement intérieur</h1>
+    <p>{{ settings.get('statute_intro','Consultez et gérez les documents officiels de la Fondation Bakitani.') }}</p>
+  </div>
+  {% if document and document.file_path %}
+  <div class="page-heading-actions">
+    <a class="btn primary" href="{{ url_for('static', filename=document.file_path) }}" target="_blank" rel="noopener">Ouvrir le PDF</a>
+    <a class="btn" href="{{ url_for('static', filename=document.file_path) }}" download>Télécharger</a>
+    <button class="btn" type="button" onclick="window.print()">Imprimer la page</button>
+  </div>
+  {% endif %}
+</section>
+
+{% if document %}
+<section class="card official-document-summary">
+  <div>
+    <h2>{{ document.title }}</h2>
+    <p>{{ document.description }}</p>
+    <div class="document-meta">
+      <span><strong>Version :</strong> {{ document.version_label or 'Non précisée' }}</span>
+      <span><strong>Adoption :</strong> {{ document.adoption_date or 'Non précisée' }}</span>
+      <span><strong>Entrée en vigueur :</strong> {{ document.effective_date or 'Non précisée' }}</span>
+    </div>
+  </div>
+  <div class="document-icon">📘</div>
+</section>
+{% else %}
+<div class="flash warning">Aucun document statutaire actif n’est disponible.</div>
+{% endif %}
+
+<section class="statute-grid">
+  {% for s in sections %}
+  <article class="card statute-section">
+    <h2>{{ s.title }}</h2>
+    <p>{{ s.content }}</p>
+    {% if admin_mode %}
+    <details>
+      <summary class="btn small">Modifier cette rubrique</summary>
+      <form method="post" action="{{ url_for('update_statute_section', section_id=s.id) }}" class="form statute-edit-form">
+        <label>Titre <input name="title" value="{{ s.title }}" required></label>
+        <label>Contenu <textarea name="content" rows="5">{{ s.content }}</textarea></label>
+        <label>Ordre <input type="number" name="sort_order" value="{{ s.sort_order }}"></label>
+        <label>Visible au public <select name="public"><option value="1" {{ 'selected' if s.public else '' }}>Oui</option><option value="0" {{ 'selected' if not s.public else '' }}>Non</option></select></label>
+        <label>État <select name="active"><option value="1" {{ 'selected' if s.active else '' }}>Active</option><option value="0" {{ 'selected' if not s.active else '' }}>Masquée</option></select></label>
+        <button class="btn primary">Enregistrer</button>
+      </form>
+      <form method="post" action="{{ url_for('delete_statute_section', section_id=s.id) }}" onsubmit="return confirm('Supprimer définitivement cette rubrique ?')"><button class="btn danger small">Supprimer</button></form>
+    </details>
+    {% endif %}
+  </article>
+  {% endfor %}
+</section>
+
+{% if document and document.file_path %}
+<section class="card statute-viewer no-print">
+  <div class="panel-head"><h2>Aperçu du document officiel</h2><a href="{{ url_for('static', filename=document.file_path) }}" target="_blank" rel="noopener">Ouvrir dans un nouvel onglet</a></div>
+  <iframe src="{{ url_for('static', filename=document.file_path) }}#toolbar=1&navpanes=1" title="Statuts FOBAK"></iframe>
+</section>
+{% endif %}
+
+{% if admin_mode %}
+<section class="grid two admin-statute-tools">
+  <article class="card">
+    <h2>Importer une nouvelle version</h2>
+    <p class="muted">L’ancienne version est conservée dans l’historique et peut être restaurée.</p>
+    <form method="post" enctype="multipart/form-data" class="form">
+      <label>Titre <input name="title" value="Statuts et Règlement intérieur FOBAK" required></label>
+      <label>Description <textarea name="description" rows="3"></textarea></label>
+      <label>Version <input name="version_label" placeholder="Ex. Mars 2026"></label>
+      <label>Date d’adoption <input type="date" name="adoption_date"></label>
+      <label>Date d’entrée en vigueur <input type="date" name="effective_date"></label>
+      <label>Visibilité <select name="public"><option value="1">Publique</option><option value="0">Administration uniquement</option></select></label>
+      <label>Document <input type="file" name="file" accept=".pdf,.png,.jpg,.jpeg,.webp" required></label>
+      <button class="btn primary">Importer et activer</button>
+    </form>
+  </article>
+  <article class="card">
+    <h2>Ajouter une rubrique synthétique</h2>
+    <form method="post" action="{{ url_for('add_statute_section') }}" class="form">
+      <label>Titre <input name="title" required></label>
+      <label>Contenu <textarea name="content" rows="6"></textarea></label>
+      <label>Ordre <input type="number" name="sort_order" value="130"></label>
+      <button class="btn primary">Ajouter</button>
+    </form>
+  </article>
+</section>
+
+<section class="card">
+  <h2>Historique des versions</h2>
+  <div class="table-wrap"><table><thead><tr><th>Version</th><th>Titre</th><th>Date</th><th>État</th><th>Actions</th></tr></thead><tbody>
+  {% for v in versions %}<tr><td>{{ v.version_label or '-' }}</td><td>{{ v.title }}</td><td>{{ v.created_at }}</td><td>{{ 'Active' if v.active and not v.deleted_at else ('Retirée' if v.deleted_at else 'Archivée') }}</td><td>
+    {% if v.file_path %}<a class="btn small" href="{{ url_for('static', filename=v.file_path) }}" target="_blank">Ouvrir</a>{% endif %}
+    {% if not v.active %}<form class="inline" method="post" action="{{ url_for('activate_statute_document', document_id=v.id) }}"><button class="btn small primary">Restaurer</button></form>{% endif %}
+    {% if not v.deleted_at %}<form class="inline" method="post" action="{{ url_for('delete_statute_document', document_id=v.id) }}" onsubmit="return confirm('Retirer cette version ?')"><button class="btn small danger">Supprimer</button></form>{% endif %}
+  </td></tr>{% else %}<tr><td colspan="5">Aucune version.</td></tr>{% endfor %}
+  </tbody></table></div>
+</section>
+{% endif %}
+{% endblock %}

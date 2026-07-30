@@ -1,0 +1,102 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="dashboard-welcome">
+  <div>
+    <span class="eyebrow">Plateforme officielle de gestion ASBL</span>
+    <h1>Bienvenue, {{ role_labels.get(session.role, session.role) }}</h1>
+    <p>{{ settings.dashboard_message }}</p>
+    {% if session.role not in ['super_admin','president','secretary','national_secretary'] %}
+      <span class="badge scope">Vue limitée : {{ current_user.province or 'Province' }}{% if current_user.localite %} / {{ current_user.localite }}{% endif %}</span>
+    {% else %}
+      <span class="badge active">Vue nationale complète</span>
+    {% endif %}
+    {% if session.role in ['super_admin','president','secretary','national_secretary'] %}
+      <form method="post" action="{{ url_for('toggle_demo_mode') }}" class="inline demo-toggle-form">
+        <input type="hidden" name="enabled" value="{{ '0' if demo_mode else '1' }}">
+        <button class="btn small {{ '' if demo_mode else 'primary' }}" type="submit">{{ 'Désactiver le mode démo' if demo_mode else 'Activer le mode démo' }}</button>
+      </form>
+    {% endif %}
+  </div>
+  <div class="dashboard-seal large-seal logo-seal">
+    {% if settings.logo_path %}<img src="{{ url_for('static', filename=settings.logo_path) }}" alt="Logo">{% else %}ASBL{% endif %}
+  </div>
+</section>
+
+<section class="kpi-grid">
+  <article class="kpi-card"><div class="kpi-icon blue">👥</div><div><small>Membres actifs</small><strong>{{ active_members }}</strong><span>Selon les droits d'accès</span></div></article>
+  <article class="kpi-card"><div class="kpi-icon yellow">🪪</div><div><small>Adhésions en attente</small><strong>{{ pending|length }}</strong><span>À vérifier ou valider</span></div></article>
+  <article class="kpi-card"><div class="kpi-icon red">💰</div><div><small>Cotisations ce mois</small><strong>{{ contribution_total|round(2) }} {{ contribution_currency }}</strong><span>Filtré selon votre rôle</span></div></article>
+  <article class="kpi-card"><div class="kpi-icon blue">📅</div><div><small>Activités suivies</small><strong>{{ activities|length }}</strong><span>Publiées ou en validation</span></div></article>
+</section>
+
+<section class="dashboard-panels">
+  <article class="panel-card cotisation-panel">
+    <div class="panel-head"><h2>Aperçu des cotisations</h2><a href="{{ url_for('payments') }}">Voir tout</a></div>
+    <div class="chart-line-demo" aria-hidden="true">
+      <span style="height:24%"></span><span style="height:34%"></span><span style="height:42%"></span><span style="height:38%"></span><span style="height:58%"></span><span style="height:70%"></span><span style="height:62%"></span><span style="height:78%"></span><span style="height:86%"></span>
+    </div>
+    <div class="quick-actions-row">
+      <a class="btn primary" href="{{ url_for('payments') }}">Enregistrer cotisation</a>
+      <a class="btn" href="{{ url_for('print_payments') }}">Imprimer rapport</a>
+      <a class="btn" href="{{ url_for('export_payments_csv') }}">Exporter CSV</a>
+    </div>
+  </article>
+
+  <article class="panel-card">
+    <div class="panel-head"><h2>Activités récentes</h2><a href="{{ url_for('manage_activities') }}">Gérer</a></div>
+    {% for a in activities[:5] %}
+      <div class="dash-list"><span>📌</span><div><strong>{{ a.title }}</strong><small>{{ a.province or 'National' }} — {{ a.published_at[:10] }} — {{ a.status or 'approved' }}</small></div></div>
+    {% else %}<p>Aucune activité.</p>{% endfor %}
+  </article>
+
+  <article class="panel-card notification-panel">
+    <div class="panel-head"><h2>Notifications</h2><a href="{{ url_for('notifications') }}">Tout voir</a></div>
+    {% for n in recent_notifications %}
+      <div class="dash-list"><span>🔔</span><div><strong>{{ n.message[:58] }}{% if n.message|length > 58 %}...{% endif %}</strong><small>{{ n.province or n.target_scope }} — {{ n.created_at }}</small></div><b class="dot"></b></div>
+    {% else %}<p>Aucune notification.</p>{% endfor %}
+  </article>
+</section>
+
+<section class="admin-action-grid">
+  <a class="admin-shortcut primary" href="{{ url_for('new_member') }}"><span>➕</span><strong>Ajouter membre localement</strong><small>Enregistrement rapide au bureau</small></a>
+  <a class="admin-shortcut" href="{{ url_for('applications') }}"><span>🪪</span><strong>Demandes d'adhésion</strong><small>Accepter ou rejeter</small></a>
+  <a class="admin-shortcut" href="{{ url_for('members') }}"><span>👥</span><strong>Liste des membres</strong><small>Filtrer, imprimer, exporter</small></a>
+  <a class="admin-shortcut" href="{{ url_for('manage_activities') }}"><span>📰</span><strong>Activités & publications</strong><small>Publier après validation nationale</small></a>
+  <a class="admin-shortcut" href="{{ url_for('anniversaries_page') }}"><span>🎂</span><strong>Anniversaires d’adhésion</strong><small>Rappels automatiques annuels</small></a>
+  <a class="admin-shortcut" href="{{ url_for('support_tickets_page') }}"><span>🛟</span><strong>Tickets de support</strong><small>Problèmes signalés et suivi</small></a>
+  <a class="admin-shortcut" href="{{ url_for('projects_page') }}"><span>🚀</span><strong>Projets</strong><small>Suivi des programmes</small></a>
+  <a class="admin-shortcut" href="{{ url_for('documents_page') }}"><span>📁</span><strong>Documents</strong><small>Statuts, rapports et pièces</small></a>
+  {% if session.role in ['super_admin','president','secretary','national_secretary'] %}<a class="admin-shortcut" href="{{ url_for('year_closure') }}"><span>📦</span><strong>Clôture d’exercice</strong><small>Fermer l’année sans effacer</small></a><a class="admin-shortcut" href="{{ url_for('production_center_admin') }}"><span>🛡️</span><strong>Production & sécurité</strong><small>Sauvegarde, audit, migrations</small></a>{% endif %}{% if session.role == 'super_admin' %}<a class="admin-shortcut" href="{{ url_for('settings_page') }}"><span>⚙️</span><strong>Paramètres</strong><small>Réservé à l’administrateur général informaticien</small></a>{% endif %}
+</section>
+
+<section class="dashboard-panels two-columns">
+  <article class="panel-card">
+    <div class="panel-head"><h2>Demandes récentes</h2><a href="{{ url_for('applications') }}">Ouvrir</a></div>
+    {% for a in pending %}
+      <div class="dash-list"><span>🧾</span><div><strong>{{ a.last_name }} {{ a.first_name }}</strong><small>{{ a.province }} — {{ a.created_at }}</small></div></div>
+    {% else %}<p>Aucune demande en attente.</p>{% endfor %}
+  </article>
+
+  <article class="panel-card anniversary-card">
+    <div class="panel-head"><h2>Rappels d'anniversaire d'adhésion</h2><a href="{{ url_for('anniversaries_page') }}">Voir</a></div>
+    {% for item in anniversaries %}
+      <div class="dash-list"><span>🎉</span><div><strong>{{ item.member.last_name }} {{ item.member.first_name }}</strong><small>{{ item.next_date }} — {{ item.days }} jour(s) — {{ item.years }} an(s)</small></div></div>
+    {% else %}<p>Aucun anniversaire d'adhésion dans les 30 prochains jours.</p>{% endfor %}
+  </article>
+</section>
+
+<section class="dashboard-panels two-columns">
+  <article class="panel-card">
+    <div class="panel-head"><h2>Tickets de support récents</h2><a href="{{ url_for('support_tickets_page') }}">Ouvrir</a></div>
+    {% for t in support_tickets %}
+      <div class="dash-list"><span>🛟</span><div><strong>{{ t.tracking_code or ('SUP-' ~ t.id) }} — {{ t.title }}</strong><small>{{ t.province or 'National' }} — {{ t.status }} — {{ t.created_at }}</small></div></div>
+    {% else %}<p>Aucun ticket ouvert.</p>{% endfor %}
+  </article>
+  <article class="panel-card">
+    <div class="panel-head"><h2>Stabilité de l’application</h2><a href="{{ url_for('stability_center') }}">Voir</a></div>
+    <div class="dash-list"><span>✅</span><div><strong>Migrations automatiques</strong><small>Les nouvelles tables sont vérifiées au lancement.</small></div></div>
+    <div class="dash-list"><span>📱</span><div><strong>Mode mobile / PWA</strong><small>Icône écran d'accueil, boutons larges, aide flottante.</small></div></div>
+    <div class="dash-list"><span>🔐</span><div><strong>Droits respectés</strong><small>Les provinces restent limitées à leurs données.</small></div></div>
+  </article>
+</section>
+{% endblock %}

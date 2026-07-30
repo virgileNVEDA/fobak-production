@@ -1,0 +1,18 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="dashboard-welcome">
+  <div><span class="eyebrow">Importation</span><h1>Importer les anciens membres</h1><p>Chargez un fichier CSV ou Excel avec les colonnes : nom, prénom, téléphone, email, province, territoire, commune, localité, profession, date adhésion.</p></div>
+  <div class="dashboard-seal">📥</div>
+</section>
+<section class="card">
+  <form method="post" enctype="multipart/form-data" class="form">
+    <label>Fichier CSV ou Excel (.xlsx)<input type="file" name="file" accept=".csv,.xlsx" required></label>
+    <button class="btn primary">Importer</button>
+    <a class="btn" href="{{ url_for('members') }}">Retour aux membres</a>
+  </form>
+  <div class="declaration"><strong>Conseil :</strong> le téléphone devient le mot de passe initial. L’utilisateur devra le changer à sa première connexion.</div>
+</section>
+{% if report %}
+<section class="card"><h2>Rapport d’import</h2>{% for r in report %}<div class="list-item"><span>{{ r }}</span></div>{% endfor %}</section>
+{% endif %}
+{% endblock %}

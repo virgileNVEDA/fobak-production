@@ -1,0 +1,37 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-heading">
+  <div><span class="eyebrow">Fondation Bakitani</span><h1>Demandes d’adhésion</h1><p>Traitez les nouvelles demandes, vérifiez les informations et appliquez le statut approprié.</p></div>
+</section>
+<section class="card">
+  <h1>Demandes d'adhésion</h1>
+  <div class="tabs">
+    <a href="?status=pending" class="{{ 'active' if status=='pending' else '' }}">En attente</a>
+    <a href="?status=accepted" class="{{ 'active' if status=='accepted' else '' }}">Acceptées</a>
+    <a href="?status=rejected" class="{{ 'active' if status=='rejected' else '' }}">Rejetées</a>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Identité</th><th>Contact</th><th>Adresse / Fédération</th><th>Études</th><th>Expérience</th><th>Date</th><th>Action</th></tr></thead>
+      <tbody>
+        {% for a in rows %}
+        <tr>
+          <td><strong>{{ a.last_name }} {{ a.first_name }}</strong><br><small>{{ a.gender }} — {{ a.marital_status or '' }}</small><br><small>{{ a.birth_place or '' }} {{ a.birth_date or '' }}</small></td>
+          <td>{{ a.phone }}<br>{{ a.email }}</td>
+          <td>{{ a.province }}<br><small>{{ a.territory }} / {{ a.commune }}</small><br><small>{{ a.physical_address or a.localite }}</small></td>
+          <td>{{ a.studies_done or a.education }}</td>
+          <td>{{ a.profession or '-' }}<br><small>{{ a.experience }}</small></td>
+          <td>{{ a.created_at }}</td>
+          <td>
+            {% if a.status == 'pending' %}
+              <form method="post" action="{{ url_for('accept_application', app_id=a.id) }}" class="inline"><button class="btn small primary">Accepter</button></form>
+              <form method="post" action="{{ url_for('reject_application', app_id=a.id) }}" class="inline"><button class="btn small danger">Rejeter</button></form>
+            {% else %}{{ a.status }}{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

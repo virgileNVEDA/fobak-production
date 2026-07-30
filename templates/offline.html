@@ -1,0 +1,13 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="offline-screen card">
+  <div class="offline-symbol">📡</div>
+  <span class="eyebrow">Mode hors connexion</span>
+  <h1>Internet est momentanément indisponible</h1>
+  <p>Les pages publiques déjà enregistrées restent accessibles. Pour gérer complètement les membres, cartes et cotisations sans Internet, utilisez le serveur local FOBAK du bureau.</p>
+  <div class="quick-actions-row">
+    <button class="btn primary" type="button" onclick="location.reload()">Réessayer</button>
+    <a class="btn" href="/">Retour à l’accueil</a>
+  </div>
+</section>
+{% endblock %}

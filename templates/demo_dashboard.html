@@ -1,0 +1,19 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="dashboard-welcome">
+  <div><span class="eyebrow">Mode démonstration</span><h1>Présentation sans données réelles</h1><p>Ce tableau de bord utilise des données fictives pour présenter l’application sans exposer les vrais membres, paiements ou activités.</p></div>
+  <div class="dashboard-seal large-seal">🧪</div>
+</section>
+<section class="kpi-grid">
+  <article class="kpi-card"><div class="kpi-icon blue">👥</div><div><small>Membres actifs</small><strong>{{ nums.active_members }}</strong><span>Données fictives</span></div></article>
+  <article class="kpi-card"><div class="kpi-icon yellow">🪪</div><div><small>Adhésions en cours</small><strong>{{ nums.pending_count }}</strong><span>Données fictives</span></div></article>
+  <article class="kpi-card"><div class="kpi-icon red">💰</div><div><small>Cotisations</small><strong>{{ nums.contribution_total }} {{ nums.contribution_currency }}</strong><span>Données fictives</span></div></article>
+  <article class="kpi-card"><div class="kpi-icon blue">📅</div><div><small>Activités</small><strong>{{ nums.activities_count }}</strong><span>Données fictives</span></div></article>
+</section>
+<section class="dashboard-panels">
+  <article class="panel-card"><div class="panel-head"><h2>Aperçu démonstration</h2></div><div class="chart-line-demo"><span style="height:30%"></span><span style="height:45%"></span><span style="height:40%"></span><span style="height:70%"></span><span style="height:66%"></span><span style="height:84%"></span></div></article>
+  <article class="panel-card"><h2>Activités fictives</h2>{% for a in activities %}<div class="dash-list"><span>📌</span><div><strong>{{ a.title }}</strong><small>{{ a.province }} — {{ a.published_at }}</small></div></div>{% endfor %}</article>
+  <article class="panel-card"><h2>Notifications fictives</h2>{% for n in notifications %}<div class="dash-list"><span>🔔</span><div><strong>{{ n.message }}</strong><small>{{ n.created_at }}</small></div></div>{% endfor %}</article>
+</section>
+<div class="quick-actions-row"><a class="btn" href="{{ url_for('quit_demo_mode') }}">Quitter le mode démo</a><a class="btn primary" href="{{ url_for('login') }}">Connexion administration</a></div>
+{% endblock %}

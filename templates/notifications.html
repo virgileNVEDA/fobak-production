@@ -1,0 +1,23 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="grid two">
+  <article class="card">
+    <h1>Envoyer / préparer une notification</h1>
+    <p>Cette version garde les messages dans l'espace membre. Pour l'envoi SMS/e-mail réel, il faut connecter un service comme SMTP, WhatsApp Business ou SMS Gateway.</p>
+    <form method="post" class="form">
+      <label>Cible
+        <select name="target_scope"><option value="members">Tous les membres</option><option value="all">Tous</option><option value="province">Une province</option></select>
+      </label>
+      <label>Province facultative
+        <select name="province"><option value="">Toutes</option>{% for p in provinces %}<option>{{ p }}</option>{% endfor %}</select>
+      </label>
+      <label>Message <textarea name="message" rows="5" required></textarea></label>
+      <button class="btn primary">Préparer la notification</button>
+    </form>
+  </article>
+  <article class="card">
+    <h2>Notifications créées</h2>
+    {% for n in rows %}<div class="list-item"><strong>{{ n.target_scope }} {{ n.province or '' }}</strong><span>{{ n.message }} — {{ n.created_at }}</span></div>{% else %}<p>Aucune notification.</p>{% endfor %}
+  </article>
+</section>
+{% endblock %}

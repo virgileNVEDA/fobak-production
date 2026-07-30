@@ -1,0 +1,45 @@
+{% extends 'base.html' %}
+{% block content %}
+{% if member %}
+<section class="grid two">
+  <article class="card member-card-view">
+    <h1>Mon espace membre</h1>
+    {% if member.photo_path %}<img class="avatar" src="{{ url_for('static', filename=member.photo_path) }}" alt="Photo">{% endif %}
+    <h2>{{ member.last_name }} {{ member.first_name }}</h2>
+    <p><strong>Code :</strong> {{ member.code }}</p>
+    <p><strong>Province :</strong> {{ member.province }} — {{ member.localite }}</p>
+    <p><strong>Expiration :</strong> {{ member.expires_at }}</p>
+    <a class="btn primary" href="{{ url_for('card', member_id=member.id) }}">Carte PDF recto-verso</a>
+<a class="btn" href="{{ url_for('card_export', member_id=member.id, side='recto', fmt='png') }}">Recto PNG</a>
+<a class="btn" href="{{ url_for('card_export', member_id=member.id, side='verso', fmt='png') }}">Verso PNG</a>
+<a class="btn" href="{{ url_for('card_export', member_id=member.id, side='recto', fmt='sources') }}">Sources Photoshop</a>
+    <a class="btn" href="{{ url_for('fiche_adhesion', member_id=member.id) }}">Télécharger ma fiche d’adhésion</a>
+  </article>
+  <article class="card">
+    <h2>Modifier mon profil</h2>
+    <form method="post" enctype="multipart/form-data" action="{{ url_for('update_profile') }}" class="form">
+      <label>Changer la photo <input type="file" name="photo" accept="image/*"></label>
+      <label>Téléphone <input name="phone" value="{{ member.phone }}"></label>
+      <label>Profession <input name="profession" value="{{ member.profession or '' }}"></label>
+      <label>Adresse physique <input name="physical_address" value="{{ member.physical_address or '' }}"></label>
+      <label>Nouveau mot de passe <input type="password" name="new_password" minlength="6"></label>
+      <button class="btn primary">Mettre à jour</button>
+    </form>
+  </article>
+</section>
+<section class="grid two">
+  <article class="card">
+    <h2>Historique des cotisations</h2>
+    {% for p in payments %}<div class="list-item"><strong>{{ p.amount }} {{ p.currency }}</strong><span>{{ p.method }} — {{ p.status }} — {{ p.created_at }}</span></div>{% else %}<p>Aucune cotisation enregistrée.</p>{% endfor %}
+  </article>
+  <article class="card mobile-card">
+    <h2>Notifications internes</h2>
+    {% for n in internal_notes %}<div class="list-item"><strong>{{ n.title }}</strong><span>{{ n.message }} — {{ n.created_at }}</span></div>{% else %}<p>Aucune notification interne.</p>{% endfor %}
+    <h3>Communiqués</h3>
+    {% for n in notes %}<div class="list-item"><strong>{{ n.created_at }}</strong><span>{{ n.message }}</span></div>{% else %}<p>Aucun communiqué.</p>{% endfor %}
+  </article>
+</section>
+{% else %}
+<section class="card"><h1>Aucun dossier membre trouvé</h1><p>Contactez l'administration.</p></section>
+{% endif %}
+{% endblock %}

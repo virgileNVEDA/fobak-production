@@ -1,0 +1,25 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="dashboard-welcome">
+  <div><span class="eyebrow">Sécurité</span><h1>Rôles personnalisables</h1><p>Modifiez les libellés et les droits de base. Les paramètres restent réservés à l’Administrateur Général informaticien.</p></div>
+  <div class="dashboard-seal">🛡️</div>
+</section>
+<section class="card">
+  <form method="post">
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Rôle</th>{% for p in perms %}<th>{{ p|capitalize }}</th>{% endfor %}</tr></thead>
+        <tbody>
+        {% for role_key, perms_dict in data.items() %}
+          <tr>
+            <td><strong>{{ role_key }}</strong><br><input name="label_{{ role_key }}" value="{{ labels.get(role_key, role_key) }}"></td>
+            {% for p in perms %}<td><input type="checkbox" name="{{ role_key }}_{{ p }}" value="1" {{ 'checked' if perms_dict.get(p) else '' }} {% if role_key=='super_admin' and p=='parametres' %}checked{% endif %}></td>{% endfor %}
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <button class="btn primary">Enregistrer les droits</button>
+  </form>
+</section>
+{% endblock %}

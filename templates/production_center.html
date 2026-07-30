@@ -1,0 +1,92 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="dashboard-welcome production-welcome">
+  <div>
+    <span class="eyebrow">Avant publication</span>
+    <h1>Centre de production & sécurité</h1>
+    <p>Vérifiez la stabilité, les migrations, les sauvegardes, les comptes verrouillés et le journal des actions avant de publier l'application.</p>
+  </div>
+  <div class="dashboard-seal">🛡️</div>
+</section>
+
+<section class="kpi-grid production-checks">
+  {% for item in status.checks %}
+  <article class="kpi-card {{ 'ok' if item.ok else 'warning' }}">
+    <div class="kpi-icon {{ 'blue' if item.ok else 'red' }}">{{ '✅' if item.ok else '⚠️' }}</div>
+    <div><small>{{ item.label }}</small><strong>{{ 'OK' if item.ok else 'À vérifier' }}</strong><span>{{ item.detail }}</span></div>
+  </article>
+  {% endfor %}
+</section>
+
+<section class="admin-action-grid">
+  <a class="admin-shortcut primary" href="{{ url_for('download_backup') }}"><span>💾</span><strong>Télécharger une sauvegarde</strong><small>Base de données + uploads</small></a>
+  <form method="post" action="{{ url_for('run_production_migration') }}" class="admin-shortcut form-shortcut">
+    <span>🧩</span><strong>Vérifier les migrations</strong><small>Réduit les erreurs 500 après mise à jour</small>
+    <button class="btn small primary" type="submit">Lancer</button>
+  </form>
+  <a class="admin-shortcut" href="{{ url_for('users_page') }}"><span>👤</span><strong>Utilisateurs & rôles</strong><small>Forcer changement mot de passe, activer/désactiver</small></a>
+  <a class="admin-shortcut" href="{{ url_for('support_tickets_page') }}"><span>🛟</span><strong>Tickets support</strong><small>Suivre les problèmes signalés</small></a>
+  <a class="admin-shortcut" href="{{ url_for('release_readiness') }}"><span>✅</span><strong>Prêt pour la vente ?</strong><small>Contrôle automatique de livraison</small></a>
+  {% if session.role == 'super_admin' %}<form method="post" action="{{ url_for('restore_backup') }}" enctype="multipart/form-data" class="admin-shortcut form-shortcut" onsubmit="return confirm('Restaurer cette sauvegarde ? Une copie de sécurité sera créée avant.');"><span>♻️</span><strong>Restaurer une sauvegarde</strong><small>Archive .zip générée par l'application</small><input type="file" name="backup_file" accept=".zip" required><button class="btn small primary" type="submit">Restaurer</button></form>{% endif %}
+</section>
+
+<section class="dashboard-panels two-columns">
+  <article class="panel-card">
+    <div class="panel-head"><h2>Dernières migrations</h2></div>
+    {% for m in status.migrations %}
+      <div class="dash-list"><span>🧩</span><div><strong>{{ m.name }}</strong><small>{{ m.applied_at }} — {{ m.details }}</small></div></div>
+    {% else %}<p>Aucune migration enregistrée.</p>{% endfor %}
+  </article>
+
+  <article class="panel-card">
+    <div class="panel-head"><h2>Sauvegardes récentes</h2></div>
+    {% for b in status.backups %}
+      <div class="dash-list"><span>💾</span><div><strong>{{ b.name }}</strong><small>{{ b.created }} — {{ (b.size / 1024)|round(1) }} Ko</small></div></div>
+    {% else %}<p>Aucune sauvegarde disponible. Cliquez sur “Télécharger une sauvegarde”.</p>{% endfor %}
+  </article>
+</section>
+
+<section class="dashboard-panels two-columns">
+  <article class="panel-card">
+    <div class="panel-head"><h2>Comptes verrouillés</h2></div>
+    {% for u in locked_users %}
+      <div class="dash-list"><span>🔒</span><div><strong>{{ u.email or u.phone }}</strong><small>{{ role_labels.get(u.role, u.role) }} — verrouillé jusqu’au {{ u.locked_until }}</small></div>
+      {% if session.role in ['super_admin','secretary','national_secretary'] %}<form method="post" action="{{ url_for('unlock_user', user_id=u.id) }}"><button class="btn small" type="submit">Déverrouiller</button></form>{% endif %}
+      </div>
+    {% else %}<p>Aucun compte verrouillé.</p>{% endfor %}
+  </article>
+
+  <article class="panel-card">
+    <div class="panel-head"><h2>Checklist publication</h2></div>
+    <div class="declaration">
+      <strong>À faire avant mise en ligne :</strong><br>
+      1. Changer le mot de passe admin.<br>
+      2. Télécharger une sauvegarde.<br>
+      3. Vérifier les rôles national/province/local.<br>
+      4. Tester carte, fiche, cotisations, support, mobile.<br>
+      5. Configurer domaine, HTTPS et sauvegardes serveur.
+    </div>
+  </article>
+</section>
+
+<section class="card">
+  <h2>Journal des actions récentes</h2>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Date</th><th>Utilisateur</th><th>Rôle</th><th>Action</th><th>Cible</th><th>Détails</th></tr></thead>
+      <tbody>
+      {% for a in audit_logs %}
+        <tr>
+          <td>{{ a.created_at }}</td>
+          <td>{{ a.email or a.phone or ('Utilisateur #' ~ a.user_id) }}</td>
+          <td>{{ role_labels.get(a.role, a.role or '-') }}</td>
+          <td>{{ a.action }}</td>
+          <td>{{ a.target_type }} {{ a.target_id or '' }}</td>
+          <td>{{ a.details }}</td>
+        </tr>
+      {% else %}<tr><td colspan="6">Aucune action enregistrée.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

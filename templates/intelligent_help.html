@@ -1,0 +1,17 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="card intelligent-help-card">
+  <h1>🤖 Aide intelligente</h1>
+  <p>{{ settings.get('ai_help_intro','Posez une question sur l’application.') }}</p>
+  <form method="post" class="form help-question-form">
+    <label>Votre question <textarea name="question" rows="3" placeholder="Ex. Comment ajouter un membre ? Comment imprimer une carte ?">{{ question }}</textarea></label>
+    <button class="btn primary">Obtenir une réponse</button>
+  </form>
+  {% if answer %}<div class="ai-answer"><strong>Réponse rapide :</strong><p>{{ answer }}</p></div>{% endif %}
+</section>
+<section class="grid three">
+  <article class="card"><h3>Membres</h3><p>Ajout local, adhésion en ligne, profil, photo et carte QR.</p></article>
+  <article class="card"><h3>Cotisations</h3><p>Enregistrement, filtrage, impression et export selon les droits.</p></article>
+  <article class="card"><h3>Support</h3><p>Signaler un problème et suivre les tickets côté administration.</p></article>
+</section>
+{% endblock %}
