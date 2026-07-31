@@ -21,7 +21,7 @@ from datetime import datetime, timedelta
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
-from flask import Flask, render_template, request, redirect, url_for, session, flash, send_file, Response, abort
+from flask import Flask, render_template, request, redirect, url_for, session, flash, send_file, Response, abort, has_request_context, jsonify
 from reportlab.lib.pagesizes import landscape, A6, A4
 from reportlab.lib.units import mm
 from reportlab.lib import colors
@@ -32,6 +32,13 @@ from reportlab.graphics.shapes import Drawing
 from reportlab.graphics import renderPDF
 from PIL import Image, ImageDraw, ImageFont, ImageEnhance, ImageFilter
 import qrcode
+
+try:
+    from webauthn import generate_registration_options, verify_registration_response, generate_authentication_options, verify_authentication_response, options_to_json, base64url_to_bytes
+    from webauthn.helpers.structs import PublicKeyCredentialDescriptor, AuthenticatorSelectionCriteria, AuthenticatorAttachment, ResidentKeyRequirement, UserVerificationRequirement
+    WEBAUTHN_AVAILABLE = True
+except Exception:
+    WEBAUTHN_AVAILABLE = False
 
 SOURCE_DIR = os.path.abspath(os.path.dirname(__file__))
 if getattr(sys, "frozen", False):
@@ -52,13 +59,13 @@ BUNDLED_STATIC_DIR = os.path.join(RESOURCE_DIR, "static")
 if getattr(sys, "frozen", False) and os.path.isdir(BUNDLED_STATIC_DIR):
     shutil.copytree(BUNDLED_STATIC_DIR, STATIC_DIR, dirs_exist_ok=True)
 
-DB_PATH = os.path.join(BASE_DIR, "asbl.db")
-UPLOAD_ROOT = os.path.join(STATIC_DIR, "uploads")
+DB_PATH = os.environ.get("DATABASE_PATH", os.path.join(BASE_DIR, "asbl.db"))
+UPLOAD_ROOT = os.environ.get("UPLOAD_ROOT", os.path.join(STATIC_DIR, "uploads"))
 RDC_FLAG_REL = "img/drapeau_rdc.jpg"
 RDC_FLAG_ABS = os.path.join(STATIC_DIR, RDC_FLAG_REL)
 ALLOWED_IMAGE_EXT = {"png", "jpg", "jpeg", "webp", "pdf", "doc", "docx", "xls", "xlsx"}
-APP_VERSION = "33.0.0"
-APP_RELEASE_NAME = "FOBAK Manager Pro — Cartes professionnelles et impressions filigranées"
+APP_VERSION = "46.0.0"
+APP_RELEASE_NAME = "FOBAK Manager Pro — Connexion PIN et biométrie propre V46"
 LOG_DIR = os.path.join(BASE_DIR, "logs")
 os.makedirs(LOG_DIR, exist_ok=True)
 logging.basicConfig(filename=os.path.join(LOG_DIR, "application.log"), level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -261,6 +268,19 @@ def init_db():
     );
     CREATE INDEX IF NOT EXISTS idx_active_sessions_user ON active_sessions(user_id);
     CREATE INDEX IF NOT EXISTS idx_active_sessions_active ON active_sessions(active,last_seen);
+    CREATE TABLE IF NOT EXISTS passkey_credentials (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        credential_id TEXT NOT NULL UNIQUE,
+        public_key TEXT NOT NULL,
+        sign_count INTEGER NOT NULL DEFAULT 0,
+        transports TEXT,
+        label TEXT,
+        created_at TEXT NOT NULL,
+        last_used_at TEXT,
+        active INTEGER DEFAULT 1
+    );
+    CREATE INDEX IF NOT EXISTS idx_passkey_user ON passkey_credentials(user_id,active);
     CREATE TABLE IF NOT EXISTS member_applications (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         first_name TEXT NOT NULL,
@@ -395,9 +415,25 @@ def init_db():
     ''')
     # Migration douce : ajoute les nouvelles colonnes si la base existe déjà.
     def ensure_column(table, column, definition):
-        existing = [r[1] for r in cur.execute(f"PRAGMA table_info({table})").fetchall()]
+        """Ajoute une colonne uniquement si la table existe déjà.
+
+        Certaines installations démarrent avec une base vide ou une ancienne base
+        partielle. La migration ne doit jamais échouer simplement parce qu'une table
+        sera créée quelques lignes plus loin.
+        """
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", table or ""):
+            raise ValueError(f"Nom de table invalide: {table!r}")
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", column or ""):
+            raise ValueError(f"Nom de colonne invalide: {column!r}")
+        table_exists = cur.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)
+        ).fetchone()
+        if not table_exists:
+            return False
+        existing = [r[1] for r in cur.execute(f'PRAGMA table_info("{table}")').fetchall()]
         if column not in existing:
-            cur.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+            cur.execute(f'ALTER TABLE "{table}" ADD COLUMN "{column}" {definition}')
+        return True
 
     for table in ["member_applications", "members"]:
         ensure_column(table, "birth_place", "TEXT")
@@ -433,6 +469,16 @@ def init_db():
     ensure_column("carousel_images", "image_fit", "TEXT DEFAULT 'cover'")
     ensure_column("payments", "contribution_type", "TEXT DEFAULT 'Cotisation'")
     ensure_column("payments", "created_by", "INTEGER")
+    ensure_column("audit_logs", "ip_address", "TEXT")
+    ensure_column("audit_logs", "user_agent", "TEXT")
+    ensure_column("audit_logs", "route", "TEXT")
+    ensure_column("audit_logs", "status", "TEXT DEFAULT 'success'")
+    ensure_column("users", "pin_hash", "TEXT")
+    ensure_column("users", "pin_length", "INTEGER")
+    ensure_column("users", "pin_failed_count", "INTEGER DEFAULT 0")
+    ensure_column("users", "pin_locked_until", "TEXT")
+    ensure_column("users", "passkey_enabled", "INTEGER DEFAULT 0")
+
     cur.executescript("""
     CREATE TABLE IF NOT EXISTS support_tickets (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -499,7 +545,11 @@ def init_db():
         "created_at": "TEXT", "updated_at": "TEXT", "closed_at": "TEXT"
     }.items():
         ensure_column("support_tickets", col, definition)
-    for col, definition in {"user_id":"INTEGER", "role":"TEXT", "province":"TEXT", "title":"TEXT", "message":"TEXT", "link":"TEXT", "read_at":"TEXT", "created_at":"TEXT"}.items():
+    for col, definition in {
+        "user_id":"INTEGER", "role":"TEXT", "province":"TEXT", "title":"TEXT", "message":"TEXT",
+        "link":"TEXT", "read_at":"TEXT", "created_at":"TEXT",
+        "category":"TEXT DEFAULT 'general'", "sound_enabled":"INTEGER DEFAULT 0"
+    }.items():
         ensure_column("internal_notifications", col, definition)
     cur.execute("UPDATE members SET created_by=approved_by WHERE (created_by IS NULL OR created_by='') AND approved_by IS NOT NULL")
     cur.execute("UPDATE members SET is_administrative=0 WHERE is_administrative IS NULL")
@@ -712,6 +762,365 @@ def init_db():
         "entry_date": "TEXT", "created_by": "INTEGER", "created_at": "TEXT"
     }.items():
         ensure_column("treasury_entries", col, definition)
+
+    # ===== V35 : Services nationaux et Centre de santé =====
+    cur.executescript("""
+    CREATE TABLE IF NOT EXISTS foundation_services (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        code TEXT NOT NULL UNIQUE,
+        name TEXT NOT NULL,
+        description TEXT,
+        scope TEXT DEFAULT 'national',
+        active INTEGER DEFAULT 1,
+        created_at TEXT NOT NULL,
+        created_by INTEGER,
+        updated_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS service_structures (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        service_id INTEGER NOT NULL,
+        parent_id INTEGER,
+        code TEXT NOT NULL UNIQUE,
+        name TEXT NOT NULL,
+        structure_type TEXT DEFAULT 'antenne',
+        province TEXT,
+        territory TEXT,
+        commune TEXT,
+        address TEXT,
+        phone TEXT,
+        email TEXT,
+        manager_member_id INTEGER,
+        active INTEGER DEFAULT 1,
+        created_at TEXT NOT NULL,
+        created_by INTEGER,
+        updated_at TEXT,
+        updated_by INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS service_roles (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        service_id INTEGER,
+        name TEXT NOT NULL,
+        description TEXT,
+        level TEXT DEFAULT 'structure',
+        active INTEGER DEFAULT 1,
+        created_at TEXT NOT NULL,
+        created_by INTEGER,
+        UNIQUE(service_id,name)
+    );
+    CREATE TABLE IF NOT EXISTS service_staff_assignments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        member_id INTEGER NOT NULL,
+        service_id INTEGER NOT NULL,
+        structure_id INTEGER,
+        role_id INTEGER NOT NULL,
+        start_date TEXT,
+        end_date TEXT,
+        status TEXT DEFAULT 'active',
+        notes TEXT,
+        created_at TEXT NOT NULL,
+        created_by INTEGER,
+        UNIQUE(member_id,service_id,structure_id,role_id)
+    );
+    CREATE TABLE IF NOT EXISTS service_modules (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        service_id INTEGER NOT NULL,
+        code TEXT NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT,
+        active INTEGER DEFAULT 1,
+        config_json TEXT DEFAULT '{}',
+        created_at TEXT NOT NULL,
+        created_by INTEGER,
+        UNIQUE(service_id,code)
+    );
+    CREATE TABLE IF NOT EXISTS health_centers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        code TEXT NOT NULL UNIQUE,
+        name TEXT NOT NULL,
+        province TEXT NOT NULL,
+        territory TEXT,
+        commune TEXT,
+        address TEXT,
+        phone TEXT,
+        email TEXT,
+        manager_member_id INTEGER,
+        opening_date TEXT,
+        active INTEGER DEFAULT 1,
+        created_at TEXT NOT NULL,
+        created_by INTEGER,
+        updated_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS health_roles (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        description TEXT,
+        level TEXT DEFAULT 'centre',
+        active INTEGER DEFAULT 1,
+        created_at TEXT NOT NULL,
+        created_by INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS health_staff (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        member_id INTEGER NOT NULL,
+        center_id INTEGER NOT NULL,
+        role_id INTEGER NOT NULL,
+        specialty TEXT,
+        professional_number TEXT,
+        diploma TEXT,
+        engagement_date TEXT,
+        status TEXT DEFAULT 'active',
+        created_at TEXT NOT NULL,
+        created_by INTEGER,
+        UNIQUE(member_id, center_id, role_id)
+    );
+    CREATE TABLE IF NOT EXISTS patients (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        patient_code TEXT NOT NULL UNIQUE,
+        center_id INTEGER NOT NULL,
+        first_name TEXT NOT NULL,
+        last_name TEXT NOT NULL,
+        gender TEXT,
+        birth_date TEXT,
+        phone TEXT,
+        address TEXT,
+        province TEXT,
+        emergency_contact TEXT,
+        blood_group TEXT,
+        allergies TEXT,
+        medical_history TEXT,
+        photo_path TEXT,
+        created_at TEXT NOT NULL,
+        created_by INTEGER,
+        updated_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS consultations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        consultation_code TEXT NOT NULL UNIQUE,
+        patient_id INTEGER NOT NULL,
+        center_id INTEGER NOT NULL,
+        staff_id INTEGER,
+        consultation_date TEXT NOT NULL,
+        reason TEXT,
+        complaints TEXT,
+        disease_history TEXT,
+        temperature TEXT,
+        blood_pressure TEXT,
+        heart_rate TEXT,
+        respiratory_rate TEXT,
+        weight TEXT,
+        height TEXT,
+        clinical_exam TEXT,
+        diagnosis TEXT,
+        requested_tests TEXT,
+        treatment TEXT,
+        orientation TEXT,
+        next_appointment TEXT,
+        notes TEXT,
+        status TEXT DEFAULT 'draft',
+        created_at TEXT NOT NULL,
+        created_by INTEGER,
+        validated_at TEXT,
+        validated_by INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS medical_form_templates (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        form_type TEXT NOT NULL,
+        scope TEXT DEFAULT 'national',
+        province TEXT,
+        center_id INTEGER,
+        fields_json TEXT NOT NULL DEFAULT '[]',
+        source_file TEXT,
+        import_status TEXT DEFAULT 'ready',
+        active INTEGER DEFAULT 1,
+        version INTEGER DEFAULT 1,
+        created_at TEXT NOT NULL,
+        created_by INTEGER,
+        updated_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS executive_numbers (id INTEGER PRIMARY KEY AUTOINCREMENT,number TEXT NOT NULL UNIQUE,position_name TEXT NOT NULL,member_id INTEGER,status TEXT DEFAULT 'reserved',assigned_at TEXT,assigned_by INTEGER,released_at TEXT,notes TEXT,created_at TEXT NOT NULL,created_by INTEGER,updated_at TEXT,deleted_at TEXT,deleted_by INTEGER);
+    CREATE TABLE IF NOT EXISTS health_card_requests (id INTEGER PRIMARY KEY AUTOINCREMENT,request_code TEXT NOT NULL UNIQUE,staff_id INTEGER NOT NULL,center_id INTEGER NOT NULL,province TEXT,reason TEXT DEFAULT 'creation',status TEXT DEFAULT 'requested',requested_at TEXT NOT NULL,requested_by INTEGER,provincial_review_at TEXT,provincial_review_by INTEGER,national_approval_at TEXT,national_approval_by INTEGER,printed_at TEXT,printed_by INTEGER,delivered_at TEXT,delivered_by INTEGER,card_number TEXT UNIQUE,expires_at TEXT,notes TEXT,deleted_at TEXT,deleted_by INTEGER);
+    """)
+    for col, definition in {
+        "icon": "TEXT DEFAULT '🏛️'", "color": "TEXT DEFAULT '#0f766e'", "manager_member_id": "INTEGER",
+        "updated_by": "INTEGER", "settings_json": "TEXT DEFAULT '{}'"
+    }.items():
+        ensure_column("foundation_services", col, definition)
+    cur.execute("INSERT OR IGNORE INTO foundation_services(code,name,description,scope,active,created_at,created_by) VALUES(?,?,?,?,?,?,?)",
+                ('SANTE','Centre de santé','Réseau national des structures sanitaires de la Fondation','national',1,now(),1))
+    health_service = cur.execute("SELECT id FROM foundation_services WHERE code='SANTE'").fetchone()
+    if health_service:
+        hs_id = health_service['id']
+        for mcode,mname in [('PATIENTS','Patients'),('CONSULTATIONS','Consultations'),('LABORATOIRE','Laboratoire'),('PHARMACIE','Pharmacie'),('STOCKS','Stocks'),('FACTURATION','Facturation'),('HOSPITALISATION','Hospitalisation'),('RAPPORTS','Rapports')]:
+            cur.execute("INSERT OR IGNORE INTO service_modules(service_id,code,name,description,active,created_at,created_by) VALUES(?,?,?,?,1,?,?)",(hs_id,mcode,mname,'Module du service Centre de santé',now(),1))
+        for rname,rlevel in [('Responsable national','national'),('Coordonnateur provincial','province'),('Responsable de structure','structure')]:
+            cur.execute("INSERT OR IGNORE INTO service_roles(service_id,name,description,level,active,created_at,created_by) VALUES(?,?,?,?,1,?,?)",(hs_id,rname,'Rôle générique du service',rlevel,now(),1))
+
+    for col, definition in {
+        'header_title': 'TEXT', 'header_subtitle': 'TEXT', 'header_address': 'TEXT', 'header_contact': 'TEXT',
+        'logo_path': 'TEXT', 'footer_note': 'TEXT'
+    }.items():
+        ensure_column('health_centers', col, definition)
+    for table in ['health_centers','health_roles','health_staff','patients','consultations','medical_form_templates',
+                  'health_appointments','health_visits','health_lab_orders','health_products','health_stock_batches',
+                  'health_admissions','health_invoices','health_social_support','health_equipment','health_suppliers',
+                  'health_referrals','health_losses','health_monthly_reports','foundation_services','service_structures','service_roles',
+                  'service_staff_assignments','service_modules']:
+        ensure_column(table, 'deleted_at', 'TEXT')
+        ensure_column(table, 'deleted_by', 'INTEGER')
+
+    ensure_column('members', 'executive_number', 'TEXT')
+    ensure_column('members', 'executive_position', 'TEXT')
+
+    for role_name, level in [('Médecin directeur','centre'),('Docteur / Médecin','centre'),('Infirmier','centre'),('Sage-femme','centre'),('Laborantin','centre'),('Pharmacien','centre'),('Réceptionniste','centre'),('Caissier','centre'),('Gestionnaire de stock','centre'),('Coordonnateur provincial de santé','province'),('Administrateur national de santé','national')]:
+        cur.execute("INSERT OR IGNORE INTO health_roles(name,description,level,active,created_at,created_by) VALUES(?,?,?,?,?,?)", (role_name,'Rôle sanitaire configurable',level,1,now(),1))
+    default_patient_fields = json.dumps([
+        {'key':'first_name','label':'Prénom','type':'text','required':True},
+        {'key':'last_name','label':'Nom et postnom','type':'text','required':True},
+        {'key':'gender','label':'Sexe','type':'select','required':False},
+        {'key':'birth_date','label':'Date de naissance','type':'date','required':False},
+        {'key':'phone','label':'Téléphone','type':'tel','required':False},
+        {'key':'address','label':'Adresse','type':'textarea','required':False},
+        {'key':'blood_group','label':'Groupe sanguin','type':'text','required':False},
+        {'key':'allergies','label':'Allergies','type':'textarea','required':False},
+        {'key':'medical_history','label':'Antécédents','type':'textarea','required':False}
+    ], ensure_ascii=False)
+    default_consult_fields = json.dumps([
+        {'key':'reason','label':'Motif de consultation','type':'textarea','required':True},
+        {'key':'complaints','label':'Plaintes principales','type':'textarea','required':False},
+        {'key':'temperature','label':'Température','type':'text','required':False},
+        {'key':'blood_pressure','label':'Tension artérielle','type':'text','required':False},
+        {'key':'weight','label':'Poids','type':'text','required':False},
+        {'key':'clinical_exam','label':'Examen clinique','type':'textarea','required':False},
+        {'key':'diagnosis','label':'Diagnostic','type':'textarea','required':True},
+        {'key':'treatment','label':'Traitement / prescription','type':'textarea','required':False}
+    ], ensure_ascii=False)
+    if not cur.execute("SELECT id FROM medical_form_templates WHERE form_type='patient' AND scope='national' LIMIT 1").fetchone():
+        cur.execute("INSERT INTO medical_form_templates(name,form_type,scope,fields_json,active,version,created_at,created_by) VALUES(?,?,?,?,1,1,?,1)", ('Fiche nationale de renseignements du patient','patient','national',default_patient_fields,now()))
+    if not cur.execute("SELECT id FROM medical_form_templates WHERE form_type='consultation' AND scope='national' LIMIT 1").fetchone():
+        cur.execute("INSERT INTO medical_form_templates(name,form_type,scope,fields_json,active,version,created_at,created_by) VALUES(?,?,?,?,1,1,?,1)", ('Fiche nationale de consultation','consultation','national',default_consult_fields,now()))
+
+    # ===== V36 : Circuit clinique, pharmacie, laboratoire, hospitalisation et gestion =====
+    cur.executescript("""
+    CREATE TABLE IF NOT EXISTS health_appointments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT NOT NULL UNIQUE, patient_id INTEGER NOT NULL, center_id INTEGER NOT NULL,
+        service_name TEXT, professional_id INTEGER, appointment_date TEXT NOT NULL, appointment_time TEXT, reason TEXT,
+        status TEXT DEFAULT 'scheduled', reminder_status TEXT DEFAULT 'pending', created_at TEXT NOT NULL, created_by INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS health_visits (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT NOT NULL UNIQUE, patient_id INTEGER NOT NULL, center_id INTEGER NOT NULL,
+        visit_date TEXT NOT NULL, arrival_time TEXT, service_name TEXT, priority TEXT DEFAULT 'normal', queue_number INTEGER,
+        status TEXT DEFAULT 'waiting', started_at TEXT, completed_at TEXT, created_at TEXT NOT NULL, created_by INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS health_triage (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, visit_id INTEGER NOT NULL UNIQUE, patient_id INTEGER NOT NULL, center_id INTEGER NOT NULL,
+        temperature REAL, systolic INTEGER, diastolic INTEGER, heart_rate INTEGER, respiratory_rate INTEGER, oxygen_saturation REAL,
+        weight REAL, height REAL, glucose REAL, pain_score INTEGER, consciousness TEXT, danger_signs TEXT, pregnancy_status TEXT,
+        triage_level TEXT DEFAULT 'normal', notes TEXT, recorded_at TEXT NOT NULL, recorded_by INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS health_lab_orders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT NOT NULL UNIQUE, patient_id INTEGER NOT NULL, consultation_id INTEGER, center_id INTEGER NOT NULL,
+        test_name TEXT NOT NULL, sample_type TEXT, priority TEXT DEFAULT 'normal', status TEXT DEFAULT 'ordered',
+        requested_at TEXT NOT NULL, requested_by INTEGER, collected_at TEXT, received_at TEXT, result_text TEXT, reference_range TEXT,
+        validated_at TEXT, validated_by INTEGER, attachment_path TEXT
+    );
+    CREATE TABLE IF NOT EXISTS health_products (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, center_id INTEGER NOT NULL, code TEXT NOT NULL, name TEXT NOT NULL, category TEXT DEFAULT 'medicament',
+        unit TEXT, minimum_stock REAL DEFAULT 0, sale_price REAL DEFAULT 0, active INTEGER DEFAULT 1, UNIQUE(center_id,code)
+    );
+    CREATE TABLE IF NOT EXISTS health_stock_batches (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, product_id INTEGER NOT NULL, batch_number TEXT, expiry_date TEXT, quantity REAL DEFAULT 0,
+        purchase_price REAL DEFAULT 0, supplier_id INTEGER, received_at TEXT, created_at TEXT NOT NULL, created_by INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS health_prescriptions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT NOT NULL UNIQUE, consultation_id INTEGER, patient_id INTEGER NOT NULL, center_id INTEGER NOT NULL,
+        prescribed_at TEXT NOT NULL, prescribed_by INTEGER, status TEXT DEFAULT 'pending', notes TEXT
+    );
+    CREATE TABLE IF NOT EXISTS health_prescription_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, prescription_id INTEGER NOT NULL, product_id INTEGER, medication_name TEXT NOT NULL, dosage TEXT,
+        frequency TEXT, duration TEXT, quantity REAL DEFAULT 0, dispensed_quantity REAL DEFAULT 0, substitution_note TEXT
+    );
+    CREATE TABLE IF NOT EXISTS health_admissions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT NOT NULL UNIQUE, patient_id INTEGER NOT NULL, center_id INTEGER NOT NULL, ward TEXT, room TEXT, bed TEXT,
+        admitted_at TEXT NOT NULL, diagnosis TEXT, responsible_staff_id INTEGER, status TEXT DEFAULT 'admitted', discharged_at TEXT,
+        discharge_summary TEXT, outcome TEXT, created_by INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS health_invoices (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT NOT NULL UNIQUE, patient_id INTEGER NOT NULL, center_id INTEGER NOT NULL, invoice_date TEXT NOT NULL,
+        subtotal REAL DEFAULT 0, discount REAL DEFAULT 0, social_support REAL DEFAULT 0, total REAL DEFAULT 0, paid REAL DEFAULT 0,
+        status TEXT DEFAULT 'unpaid', payment_method TEXT, notes TEXT, created_at TEXT NOT NULL, created_by INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS health_invoice_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, invoice_id INTEGER NOT NULL, item_type TEXT, description TEXT NOT NULL, quantity REAL DEFAULT 1,
+        unit_price REAL DEFAULT 0, total REAL DEFAULT 0, source_id INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS health_social_support (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, patient_id INTEGER NOT NULL, center_id INTEGER NOT NULL, category TEXT, reason TEXT, requested_amount REAL DEFAULT 0,
+        approved_amount REAL DEFAULT 0, status TEXT DEFAULT 'pending', valid_until TEXT, approved_by INTEGER, created_at TEXT NOT NULL, created_by INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS health_suppliers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, phone TEXT, email TEXT, address TEXT, province TEXT, active INTEGER DEFAULT 1, created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS health_equipment (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, center_id INTEGER NOT NULL, inventory_code TEXT NOT NULL UNIQUE, name TEXT NOT NULL, category TEXT,
+        location TEXT, state TEXT DEFAULT 'operational', acquisition_date TEXT, warranty_end TEXT, next_maintenance TEXT, supplier_id INTEGER,
+        notes TEXT, created_at TEXT NOT NULL, created_by INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS health_referrals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT NOT NULL UNIQUE, patient_id INTEGER NOT NULL, from_center_id INTEGER NOT NULL, to_center_id INTEGER,
+        external_destination TEXT, urgency TEXT DEFAULT 'normal', reason TEXT NOT NULL, clinical_summary TEXT, treatment_given TEXT,
+        status TEXT DEFAULT 'sent', sent_at TEXT NOT NULL, received_at TEXT, feedback TEXT, created_by INTEGER
+    );
+    """)
+
+
+    # ===== V40 : Rapports sanitaires hiérarchiques et pertes =====
+    cur.executescript("""
+    CREATE TABLE IF NOT EXISTS health_losses (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        center_id INTEGER NOT NULL,
+        loss_date TEXT NOT NULL,
+        category TEXT NOT NULL,
+        description TEXT NOT NULL,
+        quantity REAL DEFAULT 0,
+        amount REAL DEFAULT 0,
+        currency TEXT DEFAULT 'CDF',
+        reason TEXT,
+        responsible_member_id INTEGER,
+        status TEXT DEFAULT 'declared',
+        created_at TEXT NOT NULL,
+        created_by INTEGER,
+        validated_at TEXT,
+        validated_by INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS health_monthly_reports (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        report_month TEXT NOT NULL,
+        scope_type TEXT NOT NULL DEFAULT 'center',
+        center_id INTEGER,
+        province TEXT,
+        status TEXT DEFAULT 'draft',
+        narrative_activities TEXT,
+        difficulties TEXT,
+        needs TEXT,
+        recommendations TEXT,
+        important_events TEXT,
+        snapshot_json TEXT DEFAULT '{}',
+        generated_at TEXT NOT NULL,
+        generated_by INTEGER,
+        updated_at TEXT,
+        updated_by INTEGER,
+        submitted_at TEXT,
+        submitted_by INTEGER,
+        validated_at TEXT,
+        validated_by INTEGER,
+        UNIQUE(report_month, scope_type, center_id, province)
+    );
+    CREATE INDEX IF NOT EXISTS idx_health_reports_month ON health_monthly_reports(report_month);
+    CREATE INDEX IF NOT EXISTS idx_health_reports_scope ON health_monthly_reports(scope_type,province,center_id);
+    CREATE INDEX IF NOT EXISTS idx_health_losses_center_date ON health_losses(center_id,loss_date);
+    """)
+
     default_permissions = ['voir','ajouter','modifier','supprimer','imprimer','exporter','valider','parametres','imprimer_cartes','telecharger_cartes']
     for role_key, role_label in ROLE_LABELS.items():
         for perm in default_permissions:
@@ -727,6 +1136,22 @@ def init_db():
             exists = cur.execute("SELECT id FROM role_permissions WHERE role_key=? AND permission_key=? LIMIT 1", (role_key, perm)).fetchone()
             if not exists:
                 cur.execute("INSERT INTO role_permissions(role_key,role_label,permission_key,allowed,updated_at) VALUES(?,?,?,?,?)", (role_key, role_label, perm, allowed, now()))
+
+    permission_modules = list(PERMISSION_MODULES.keys())
+    permission_actions = ['voir','ajouter','modifier','supprimer','valider','imprimer','exporter','parametrer']
+    for role_key, role_label in ROLE_LABELS.items():
+        for module in permission_modules:
+            for action in permission_actions:
+                pkey = f'{module}.{action}'
+                allowed = 1 if role_key == 'super_admin' else 0
+                if role_key in NATIONAL_ROLES and action in ['voir','ajouter','modifier','valider','imprimer','exporter']:
+                    allowed = 1
+                if role_key in PROVINCIAL_ROLES and action in ['voir','ajouter','modifier','imprimer','exporter'] and module not in ['parametres','roles']:
+                    allowed = 1
+                if role_key == 'member' and module == 'dashboard' and action == 'voir':
+                    allowed = 1
+                cur.execute("INSERT OR IGNORE INTO role_permissions(role_key,role_label,permission_key,allowed,updated_at) VALUES(?,?,?,?,?)", (role_key,role_label,pkey,allowed,now()))
+
     cur.execute("INSERT OR IGNORE INTO app_setup(id,completed) VALUES(1,0)")
     cur.execute("INSERT OR IGNORE INTO db_migrations(name, applied_at, details) VALUES(?,?,?)", ("2026_publication_plus", now(), "Sauvegarde/restauration, reçus PDF, import Excel, rôles personnalisables, guide rapide, trésorerie, alertes"))
 
@@ -757,6 +1182,9 @@ def init_db():
         "youtube": "#",
         "whatsapp": "#",
         "instagram": "#",
+        "tiktok": "#",
+        "x_twitter": "#",
+        "linkedin": "#",
         "payment_info": "Paiement possible par banque, Airtel Money, M-Pesa, Orange Money ou autre Mobile Money. Configurez ici les numéros et comptes officiels.",
         "card_notice": "Les autorités civiles, militaires que policières sont priées d'apporter leur assistance en cas de nécessité",
         "public_base_url": "http://127.0.0.1:5000",
@@ -800,15 +1228,11 @@ def init_db():
                     ("admin@asbl.local", "0990000000", generate_password_hash("admin123"), "super_admin", "National", "National", 1, now(), 1))
     else:
         cur.execute("UPDATE users SET force_password_change=1 WHERE email='admin@asbl.local' AND (password_changed_at IS NULL OR password_changed_at='')")
+    # V45 : le compte administrateur technique n'est plus automatiquement un membre.
     admin_row = cur.execute("SELECT * FROM users WHERE email=?", ("admin@asbl.local",)).fetchone()
     if admin_row:
-        existing_admin_member = cur.execute("SELECT id FROM members WHERE user_id=? AND deleted_at IS NULL", (admin_row["id"],)).fetchone()
-        if not existing_admin_member:
-            joined = today(); expires = (datetime.now() + timedelta(days=365)).strftime("%Y-%m-%d")
-            cur.execute("""INSERT INTO members(user_id, code, first_name, last_name, gender, email, phone, nationality, province, territory, commune, localite, physical_address, birth_date, birth_place, marital_status, profession, education, studies_done, experience, photo_path, custom_fields, adhesion_number, joined_at, expires_at, approved_by, created_by, status, updated_at, is_administrative, role_label)
-                           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (admin_row["id"], "TEMP", "Administrateur", "Général", "", admin_row["email"], admin_row["phone"], "Congolaise", "National", "", "", "National", "", "", "", "", "Administrateur général informaticien", "", "", "", "", "{}", "TEMP", joined, expires, admin_row["id"], admin_row["id"], "active", now(), 1, "Administrateur général informaticien"))
-            mid = cur.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
-            cur.execute("UPDATE members SET code=?, adhesion_number=? WHERE id=?", (create_member_code(mid, "NAT"), create_adhesion_number(mid, joined), mid))
+        cur.execute("UPDATE members SET deleted_at=COALESCE(deleted_at, ?), status='archived', updated_at=? WHERE user_id=? AND COALESCE(is_administrative,0)=1 AND (code='TEMP' OR adhesion_number='TEMP' OR lower(COALESCE(role_label,'')) LIKE 'administrateur%')", (now(), now(), admin_row['id']))
+
     cur.execute("SELECT id FROM activities LIMIT 1")
     if not cur.fetchone():
         cur.execute("INSERT INTO activities(title, subtitle, body, published_at, author_id) VALUES(?,?,?,?,?)",
@@ -926,19 +1350,51 @@ def draw_actual_rdc_flag(c, x, y, w, h):
 
 
 @app.before_request
-def update_active_session_heartbeat():
+def enforce_idle_timeout_and_heartbeat():
+    if request.endpoint == "static":
+        return
     user_id = session.get("user_id")
     token = session.get("session_token")
-    if not user_id or not token or request.endpoint == "static":
-        return
+    now_ts = int(datetime.now().timestamp())
+    last_ts = int(session.get("last_activity_ts") or now_ts)
+    if user_id and now_ts - last_ts >= 600:
+        try:
+            con = db()
+            if token:
+                con.execute("UPDATE active_sessions SET active=0, logout_at=? WHERE session_token=?", (now(), token))
+                con.commit()
+            con.close()
+        except Exception:
+            pass
+        session.clear()
+        if request.path.startswith("/api/") or request.is_json:
+            return jsonify({"ok": False, "error": "session_expired"}), 401
+        flash("Votre session a été fermée après 10 minutes d’inactivité.", "warning")
+        return redirect(url_for("login"))
+    if user_id:
+        session["last_activity_ts"] = now_ts
+        if token:
+            try:
+                con = db()
+                con.execute("UPDATE active_sessions SET last_seen=?, active=1 WHERE session_token=? AND user_id=?", (now(), token, user_id))
+                con.execute("UPDATE active_sessions SET active=0 WHERE active=1 AND datetime(last_seen) < datetime('now','-10 minutes')")
+                con.commit(); con.close()
+            except Exception:
+                pass
+
+
+def get_latest_login_sound_alert(user):
+    if not user or user['role'] not in ('super_admin','president'):
+        return None
     try:
-        con = db()
-        con.execute("UPDATE active_sessions SET last_seen=?, active=1 WHERE session_token=? AND user_id=?", (now(), token, user_id))
-        # Une session sans activité depuis plus de 15 minutes n'est plus considérée connectée.
-        con.execute("UPDATE active_sessions SET active=0 WHERE active=1 AND datetime(last_seen) < datetime('now','-15 minutes')")
-        con.commit(); con.close()
+        con=db()
+        row=con.execute("""SELECT id,title,message,created_at FROM internal_notifications
+                           WHERE user_id=? AND category='login_alert' AND sound_enabled=1 AND read_at IS NULL
+                           ORDER BY id DESC LIMIT 1""", (user['id'],)).fetchone()
+        con.close()
+        return dict(row) if row else None
     except Exception:
-        pass
+        return None
 
 
 @app.context_processor
@@ -953,7 +1409,8 @@ def inject_globals():
                 voice_first_name=(current_user_display_name().split()[0] if current_user_display_name() else ""),
                 voice_role=ROLE_LABELS.get(session.get("role"), session.get("role", "utilisateur")),
                 voice_welcome_pending=bool(session.pop("voice_welcome_pending", 0)),
-                app_version=APP_VERSION, app_release_name=APP_RELEASE_NAME)
+                login_sound_alert=get_latest_login_sound_alert(current_user()),
+                app_version=APP_VERSION, app_release_name=APP_RELEASE_NAME, module_allowed=module_allowed)
 
 
 def current_user():
@@ -1098,11 +1555,40 @@ def save_data_url_image(data_url, subfolder="photos"):
         folder = os.path.join(UPLOAD_ROOT, subfolder)
         os.makedirs(folder, exist_ok=True)
         name = f"camera_{uuid.uuid4().hex}.{ext}"
-        with open(os.path.join(folder, name), "wb") as f:
+        file_path = os.path.join(folder, name)
+        with open(file_path, "wb") as f:
             f.write(raw)
+        if subfolder == 'photos':
+            _normalize_passport_image(file_path)
         return f"uploads/{subfolder}/{name}"
     except Exception:
         return ""
+
+def _normalize_passport_image(abs_path, target_size=(600, 800)):
+    """Normalise une photo au format passeport 3:4 sans déformer le visage."""
+    try:
+        with Image.open(abs_path) as im:
+            im = im.convert('RGB')
+            w, h = im.size
+            if not w or not h:
+                return
+            target_ratio = 3 / 4
+            current_ratio = w / h
+            if current_ratio > target_ratio:
+                crop_w = int(h * target_ratio)
+                crop_h = h
+            else:
+                crop_w = w
+                crop_h = int(w / target_ratio)
+            left = max(0, (w - crop_w) // 2)
+            top = max(0, (h - crop_h) // 2)
+            im = im.crop((left, top, left + crop_w, top + crop_h))
+            if target_size:
+                im = im.resize(target_size, Image.Resampling.LANCZOS)
+            im.save(abs_path, quality=92, optimize=True)
+    except Exception:
+        pass
+
 
 def normalized_phone(prefix, number):
     prefix=(prefix or "+243").strip()
@@ -1116,10 +1602,13 @@ def save_upload(file, folder):
     safe = secure_filename(file.filename)
     stamp = datetime.now().strftime("%Y%m%d%H%M%S%f")
     name = f"{stamp}_{safe}"
-    rel = os.path.join("uploads", folder, name).replace("\\", "/")
-    abs_path = os.path.join(BASE_DIR, "static", rel)
+    target_dir = os.path.join(UPLOAD_ROOT, folder)
+    os.makedirs(target_dir, exist_ok=True)
+    abs_path = os.path.join(target_dir, name)
     file.save(abs_path)
-    return rel
+    if folder == 'photos':
+        _normalize_passport_image(abs_path)
+    return f"uploads/{folder}/{name}"
 
 
 def save_logo_upload(file):
@@ -1269,13 +1758,41 @@ def can_manage_member(user, member):
     return False
 
 
-def log_action(user_id, action, target_type="", target_id=None, details="", link=""):
+def log_action(user_id, action, target_type="", target_id=None, details="", link="", status="success"):
+    """Journalise qui a fait quoi, où et depuis quel appareil."""
     try:
         con = db()
-        con.execute("INSERT INTO audit_logs(user_id,action,target_type,target_id,details,created_at) VALUES(?,?,?,?,?,?)", (user_id, action, target_type, target_id, details, now()))
+        ip = request.remote_addr if has_request_context() else ""
+        agent = (request.user_agent.string or "")[:500] if has_request_context() else ""
+        route = (request.path or "")[:255] if has_request_context() else ""
+        con.execute("""INSERT INTO audit_logs(user_id,action,target_type,target_id,details,created_at,ip_address,user_agent,route,status)
+                       VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                    (user_id, action, target_type, target_id, details, now(), ip, agent, route, status))
         if user_id:
             message = action + (f" — {details}" if details else "")
-            con.execute("INSERT INTO internal_notifications(user_id,title,message,link,created_at) VALUES(?,?,?,?,?)", (user_id, "Action enregistrée", message[:500], link or "", now()))
+            con.execute("""INSERT INTO internal_notifications(user_id,title,message,link,category,sound_enabled,created_at)
+                           VALUES(?,?,?,?,?,?,?)""",
+                        (user_id, "Action enregistrée", message[:500], link or "", "audit", 0, now()))
+        con.commit(); con.close()
+    except Exception:
+        pass
+
+def notify_national_login(user):
+    """Avertit par notification sonore les administrateurs nationaux et le Président national."""
+    try:
+        con = db()
+        full_name = (f"{user['first_name'] or ''} {user['last_name'] or ''}".strip()
+                     or user['email'] or user['phone'] or f"Utilisateur #{user['id']}")
+        role_name = ROLE_LABELS.get(user['role'], user['role'])
+        message = f"{full_name} ({role_name}) vient de se connecter à {now()}."
+        recipients = con.execute("""SELECT id FROM users WHERE active=1 AND deleted_at IS NULL
+                                  AND role IN ('super_admin','president')""").fetchall()
+        for recipient in recipients:
+            if recipient['id'] == user['id']:
+                continue
+            con.execute("""INSERT INTO internal_notifications(user_id,title,message,link,category,sound_enabled,created_at)
+                           VALUES(?,?,?,?,?,?,?)""",
+                        (recipient['id'], "Connexion détectée", message, url_for('audit_center'), 'login_alert', 1, now()))
         con.commit(); con.close()
     except Exception:
         pass
@@ -2107,6 +2624,30 @@ def fiche_vierge():
     return send_file(pdf_path, as_attachment=True, download_name="fiche_adhesion_vierge.pdf")
 
 
+def start_user_session(user, method="password"):
+    session.clear()
+    session["user_id"] = user["id"]
+    session["role"] = user["role"]
+    session["session_token"] = secrets.token_urlsafe(24)
+    session["voice_welcome_pending"] = 1
+    session["last_activity_ts"] = int(datetime.now().timestamp())
+    con = db()
+    con.execute("UPDATE active_sessions SET active=0, logout_at=? WHERE user_id=? AND active=1", (now(), user["id"]))
+    con.execute("INSERT INTO active_sessions(session_token,user_id,login_at,last_seen,ip_address,user_agent,active) VALUES(?,?,?,?,?,?,1)", (session["session_token"], user["id"], now(), now(), request.remote_addr or "", (request.user_agent.string or "")[:500]))
+    con.execute("UPDATE users SET last_login=?, failed_login_count=0, locked_until=NULL WHERE id=?", (now(), user["id"]))
+    con.commit(); con.close()
+    log_action(user["id"], f"Connexion réussie ({method})", "user", user["id"])
+    notify_national_login(user)
+
+
+def webauthn_rp_id():
+    return os.environ.get("WEBAUTHN_RP_ID", (request.host or "app.fondationbakitani.org").split(":")[0])
+
+
+def webauthn_origin():
+    return os.environ.get("WEBAUTHN_ORIGIN", request.host_url.rstrip("/"))
+
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
@@ -2119,19 +2660,8 @@ def login():
             flash("Compte temporairement verrouillé après plusieurs tentatives. Réessayez plus tard ou contactez l'administration.", "danger")
             return render_template("login.html")
         if user and check_password_hash(user["password_hash"], password):
-            con.execute("UPDATE users SET last_login=?, failed_login_count=0, locked_until=NULL WHERE id=?", (now(), user["id"]))
-            con.commit()
             con.close()
-            session["user_id"] = user["id"]
-            session["role"] = user["role"]
-            session["session_token"] = secrets.token_urlsafe(24)
-            session["voice_welcome_pending"] = 1
-            con = db()
-            con.execute("UPDATE active_sessions SET active=0, logout_at=? WHERE user_id=? AND active=1", (now(), user["id"]))
-            con.execute("INSERT INTO active_sessions(session_token,user_id,login_at,last_seen,ip_address,user_agent,active) VALUES(?,?,?,?,?,?,1)",
-                        (session["session_token"], user["id"], now(), now(), request.remote_addr or "", (request.user_agent.string or "")[:500]))
-            con.commit(); con.close()
-            log_action(user["id"], "Connexion réussie", "user", user["id"])
+            start_user_session(user, "mot de passe")
             if should_force_password_change(user):
                 flash("Connexion réussie. Changez votre mot de passe initial avant de continuer.", "warning")
                 return redirect(url_for("change_password"))
@@ -2187,6 +2717,132 @@ def logout():
     return redirect(url_for("index"))
 
 
+@app.route("/security", methods=["GET", "POST"])
+@login_required
+def security_settings():
+    user = current_user()
+    con = db()
+    if request.method == "POST":
+        action = request.form.get("action", "set_pin")
+        if action == "set_pin":
+            pin = request.form.get("pin", "").strip()
+            confirm = request.form.get("pin_confirm", "").strip()
+            if not check_password_hash(user["password_hash"], request.form.get("current_password", "")):
+                flash("Mot de passe actuel incorrect.", "danger")
+            elif not pin.isdigit() or len(pin) not in (4, 6):
+                flash("Le code PIN doit contenir exactement 4 ou 6 chiffres.", "danger")
+            elif pin != confirm:
+                flash("La confirmation du PIN ne correspond pas.", "danger")
+            else:
+                con.execute("UPDATE users SET pin_hash=?, pin_length=?, pin_failed_count=0, pin_locked_until=NULL WHERE id=?", (generate_password_hash(pin), len(pin), user["id"]))
+                con.commit(); flash("Code PIN enregistré.", "success")
+        elif action == "remove_pin":
+            if check_password_hash(user["password_hash"], request.form.get("current_password", "")):
+                con.execute("UPDATE users SET pin_hash=NULL, pin_length=NULL, pin_failed_count=0, pin_locked_until=NULL WHERE id=?", (user["id"],))
+                con.commit(); flash("Code PIN supprimé.", "success")
+            else:
+                flash("Mot de passe actuel incorrect.", "danger")
+    credentials = con.execute("SELECT * FROM passkey_credentials WHERE user_id=? AND active=1 ORDER BY created_at DESC", (user["id"],)).fetchall()
+    refreshed = con.execute("SELECT * FROM users WHERE id=?", (user["id"],)).fetchone()
+    con.close()
+    return render_template("security_settings.html", security_user=refreshed, credentials=credentials, webauthn_available=WEBAUTHN_AVAILABLE)
+
+
+@app.post("/login/pin")
+def login_pin():
+    ident = request.form.get("identifier", "").strip()
+    pin = request.form.get("pin", "").strip()
+    con = db()
+    user = con.execute("SELECT * FROM users WHERE active=1 AND deleted_at IS NULL AND (email=? OR phone=?)", (ident, ident)).fetchone()
+    if not user or not user["pin_hash"]:
+        con.close(); flash("Aucun code PIN n’est configuré pour ce compte.", "danger"); return redirect(url_for("login"))
+    if user["pin_locked_until"] and user["pin_locked_until"] > now():
+        con.close(); flash("PIN temporairement verrouillé. Utilisez le mot de passe.", "danger"); return redirect(url_for("login"))
+    if pin.isdigit() and check_password_hash(user["pin_hash"], pin):
+        con.execute("UPDATE users SET pin_failed_count=0, pin_locked_until=NULL WHERE id=?", (user["id"],)); con.commit(); con.close()
+        start_user_session(user, "code PIN")
+        return redirect(url_for("dashboard"))
+    attempts = int(user["pin_failed_count"] or 0) + 1
+    locked_until = None
+    if attempts >= 5:
+        attempts = 0
+        locked_until = (datetime.now() + timedelta(minutes=15)).strftime("%Y-%m-%d %H:%M:%S")
+    con.execute("UPDATE users SET pin_failed_count=?, pin_locked_until=? WHERE id=?", (attempts, locked_until, user["id"]))
+    con.commit(); con.close(); flash("Code PIN incorrect.", "danger"); return redirect(url_for("login"))
+
+
+@app.post("/api/passkeys/register/options")
+@login_required
+def passkey_register_options():
+    if not WEBAUTHN_AVAILABLE:
+        return jsonify({"ok": False, "error": "WebAuthn indisponible"}), 503
+    user = current_user()
+    con = db(); rows = con.execute("SELECT credential_id FROM passkey_credentials WHERE user_id=? AND active=1", (user["id"],)).fetchall(); con.close()
+    options = generate_registration_options(
+        rp_id=webauthn_rp_id(), rp_name="Fondation Bakitani",
+        user_id=str(user["id"]).encode(), user_name=user["email"] or user["phone"] or str(user["id"]),
+        user_display_name=user["email"] or user["phone"] or f"Utilisateur {user['id']}",
+        exclude_credentials=[PublicKeyCredentialDescriptor(id=base64url_to_bytes(r["credential_id"])) for r in rows],
+        authenticator_selection=AuthenticatorSelectionCriteria(authenticator_attachment=AuthenticatorAttachment.PLATFORM, resident_key=ResidentKeyRequirement.PREFERRED, user_verification=UserVerificationRequirement.REQUIRED),
+    )
+    payload = json.loads(options_to_json(options))
+    session["webauthn_registration_challenge"] = payload["challenge"]
+    return jsonify(payload)
+
+
+@app.post("/api/passkeys/register/verify")
+@login_required
+def passkey_register_verify():
+    challenge = session.pop("webauthn_registration_challenge", None)
+    if not WEBAUTHN_AVAILABLE or not challenge:
+        return jsonify({"ok": False, "error": "Challenge expiré"}), 400
+    credential = request.get_json(force=True)
+    verification = verify_registration_response(credential=credential, expected_challenge=base64url_to_bytes(challenge), expected_rp_id=webauthn_rp_id(), expected_origin=webauthn_origin(), require_user_verification=True)
+    public_key = base64.urlsafe_b64encode(verification.credential_public_key).decode().rstrip("=")
+    con = db()
+    con.execute("INSERT OR REPLACE INTO passkey_credentials(user_id,credential_id,public_key,sign_count,transports,label,created_at,active) VALUES(?,?,?,?,?,?,?,1)", (session["user_id"], credential["id"], public_key, verification.sign_count, json.dumps(credential.get("response", {}).get("transports", [])), "Empreinte / visage", now()))
+    con.execute("UPDATE users SET passkey_enabled=1 WHERE id=?", (session["user_id"],))
+    con.commit(); con.close()
+    return jsonify({"ok": True})
+
+
+@app.post("/api/passkeys/login/options")
+def passkey_login_options():
+    if not WEBAUTHN_AVAILABLE:
+        return jsonify({"ok": False, "error": "WebAuthn indisponible"}), 503
+    ident = (request.get_json(silent=True) or {}).get("identifier", "").strip()
+    con = db(); user = con.execute("SELECT * FROM users WHERE active=1 AND deleted_at IS NULL AND (email=? OR phone=?)", (ident, ident)).fetchone()
+    if not user:
+        con.close(); return jsonify({"ok": False, "error": "Compte introuvable"}), 404
+    rows = con.execute("SELECT credential_id FROM passkey_credentials WHERE user_id=? AND active=1", (user["id"],)).fetchall(); con.close()
+    if not rows:
+        return jsonify({"ok": False, "error": "Aucune biométrie enregistrée"}), 404
+    options = generate_authentication_options(rp_id=webauthn_rp_id(), allow_credentials=[PublicKeyCredentialDescriptor(id=base64url_to_bytes(r["credential_id"])) for r in rows], user_verification=UserVerificationRequirement.REQUIRED)
+    payload = json.loads(options_to_json(options)); session["webauthn_auth_challenge"] = payload["challenge"]; session["webauthn_auth_user_id"] = user["id"]
+    return jsonify(payload)
+
+
+@app.post("/api/passkeys/login/verify")
+def passkey_login_verify():
+    challenge = session.pop("webauthn_auth_challenge", None); user_id = session.pop("webauthn_auth_user_id", None)
+    credential = request.get_json(force=True); cid = credential.get("id")
+    if not WEBAUTHN_AVAILABLE or not challenge or not user_id or not cid:
+        return jsonify({"ok": False, "error": "Challenge expiré"}), 400
+    con = db(); row = con.execute("SELECT * FROM passkey_credentials WHERE user_id=? AND credential_id=? AND active=1", (user_id, cid)).fetchone(); user = con.execute("SELECT * FROM users WHERE id=? AND active=1", (user_id,)).fetchone()
+    if not row or not user:
+        con.close(); return jsonify({"ok": False, "error": "Clé inconnue"}), 404
+    verification = verify_authentication_response(credential=credential, expected_challenge=base64url_to_bytes(challenge), expected_rp_id=webauthn_rp_id(), expected_origin=webauthn_origin(), credential_public_key=base64url_to_bytes(row["public_key"]), credential_current_sign_count=row["sign_count"], require_user_verification=True)
+    con.execute("UPDATE passkey_credentials SET sign_count=?, last_used_at=? WHERE id=?", (verification.new_sign_count, now(), row["id"])); con.commit(); con.close()
+    start_user_session(user, "empreinte / visage")
+    return jsonify({"ok": True, "redirect": url_for("dashboard")})
+
+
+@app.post("/security/passkeys/<int:credential_id>/delete")
+@login_required
+def delete_passkey(credential_id):
+    user = current_user(); con = db(); con.execute("UPDATE passkey_credentials SET active=0 WHERE id=? AND user_id=?", (credential_id, user["id"])); con.commit(); con.close(); flash("Méthode biométrique supprimée.", "success"); return redirect(url_for("security_settings"))
+
+
 @app.route("/reset-password", methods=["GET", "POST"])
 def reset_password():
     if request.method == "POST":
@@ -2209,7 +2865,7 @@ def reset_password():
 @app.route("/devenir-membre", methods=["GET", "POST"])
 def become_member():
     if request.method == "POST":
-        photo_path = save_upload(request.files.get("photo"), "photos") or save_data_url_image(request.form.get("photo_capture", ""), "photos")
+        photo_path = save_data_url_image(request.form.get("photo_capture", ""), "photos") or save_upload(request.files.get("photo"), "photos")
         phone_prefix = request.form.get("phone_country_code", "+243")
         phone_value = normalized_phone(phone_prefix, request.form.get("phone", ""))
         studies_done = ", ".join(request.form.getlist("studies_done"))
@@ -2275,8 +2931,14 @@ def my_profile():
     if member:
         payments = con.execute("SELECT * FROM payments WHERE member_id=? ORDER BY created_at DESC", (member["id"],)).fetchall()
         notes = con.execute("SELECT * FROM notifications WHERE target_scope IN ('all','members') OR province=? ORDER BY created_at DESC LIMIT 10", (member["province"],)).fetchall()
+    total_paid=sum(float(p['amount'] or 0) for p in payments if (p['status'] or '').lower() in ('paid','payé','paye','confirmed','confirmé'))
+    unread_notes=sum(1 for n in internal_notes if not n['read_at'])
+    completeness=0
+    if member:
+        fields=['first_name','last_name','gender','email','phone','province','localite','physical_address','birth_date','profession','photo_path']
+        completeness=round(100*sum(1 for f in fields if member[f])/len(fields))
     con.close()
-    return render_template("member_dashboard.html", member=member, payments=payments, notes=notes, internal_notes=internal_notes, profile_title="Mon profil")
+    return render_template("member_dashboard.html", member=member, payments=payments, notes=notes, internal_notes=internal_notes, profile_title="Mon profil", total_paid=total_paid, unread_notes=unread_notes, completeness=completeness)
 
 
 @app.route("/recherche")
@@ -2802,9 +3464,49 @@ def notifications():
         rows = con.execute("SELECT * FROM notifications ORDER BY created_at DESC").fetchall()
     else:
         rows = con.execute("SELECT * FROM notifications WHERE province=? OR target_scope='all' ORDER BY created_at DESC", (user["province"],)).fetchall()
+    internal_rows = con.execute("""SELECT * FROM internal_notifications
+        WHERE (user_id=? OR user_id IS NULL)
+          AND (role IS NULL OR role=? OR role='all')
+          AND (province IS NULL OR province='' OR province=? OR ? IN ('super_admin','president','secretary','national_secretary'))
+        ORDER BY created_at DESC LIMIT 100""", (user['id'],user['role'],user['province'] or '',user['role'])).fetchall()
+    selected_id=request.args.get('selected',type=int)
+    selected=next((n for n in internal_rows if n['id']==selected_id),None)
     con.close()
-    return render_template("notifications.html", rows=rows)
+    return render_template("notifications.html", rows=rows, internal_rows=internal_rows, selected=selected)
 
+
+
+@app.route("/notifications/<int:notification_id>/open")
+@login_required
+def open_internal_notification(notification_id):
+    """Marque une notification comme lue puis ouvre sa destination interne."""
+    user = current_user(); con = db()
+    row = con.execute("""SELECT * FROM internal_notifications WHERE id=?
+        AND (user_id=? OR user_id IS NULL)
+        AND (role IS NULL OR role=? OR role='all')
+        AND (province IS NULL OR province='' OR province=? OR ? IN ('super_admin','president','secretary','national_secretary'))""",
+        (notification_id, user['id'], user['role'], user['province'] or '', user['role'])).fetchone()
+    if not row:
+        con.close(); abort(404)
+    con.execute("UPDATE internal_notifications SET read_at=COALESCE(read_at,?) WHERE id=?", (now(), notification_id))
+    con.commit(); con.close()
+    link=(row['link'] or '').strip()
+    # Sécurité : seules les URL internes relatives sont acceptées.
+    if link.startswith('/') and not link.startswith('//'):
+        return redirect(link)
+    return redirect(url_for('notifications', selected=notification_id))
+
+@app.route("/notifications/read-all", methods=["POST"])
+@login_required
+def mark_all_notifications_read():
+    user=current_user(); con=db()
+    con.execute("""UPDATE internal_notifications SET read_at=? WHERE read_at IS NULL
+        AND (user_id=? OR user_id IS NULL)
+        AND (role IS NULL OR role=? OR role='all')
+        AND (province IS NULL OR province='' OR province=? OR ? IN ('super_admin','president','secretary','national_secretary'))""",
+        (now(), user['id'], user['role'], user['province'] or '', user['role']))
+    con.commit(); con.close(); flash('Toutes les notifications ont été marquées comme lues.','success')
+    return redirect(url_for('notifications'))
 
 
 @app.route("/verification/<code>")
@@ -2839,7 +3541,7 @@ def new_member():
             email = f"{phone}@asbl.local"
         studies_done = ", ".join(request.form.getlist("studies_done"))
         custom_fields = collect_custom_field_values()
-        photo_path = save_upload(request.files.get("photo"), "photos") or save_data_url_image(request.form.get("photo_capture", ""), "photos")
+        photo_path = save_data_url_image(request.form.get("photo_capture", ""), "photos") or save_upload(request.files.get("photo"), "photos")
         joined = request.form.get("joined_at") or today()
         expires = request.form.get("expires_at") or (datetime.strptime(joined, "%Y-%m-%d") + timedelta(days=365)).strftime("%Y-%m-%d")
         con = db()
@@ -3748,26 +4450,28 @@ def restore_backup():
 @login_required
 @role_required('super_admin')
 def roles_permissions_page():
-    perms = ['voir','ajouter','modifier','supprimer','imprimer','exporter','valider','parametres','imprimer_cartes','telecharger_cartes']
-    con = db()
-    if request.method == 'POST':
+    modules = PERMISSION_MODULES
+    actions = PERMISSION_ACTIONS
+    con=db()
+    if request.method=='POST':
         for role_key, role_label in ROLE_LABELS.items():
-            new_label = request.form.get(f'label_{role_key}', role_label).strip() or role_label
-            for perm in perms:
-                allowed = 1 if request.form.get(f'{role_key}_{perm}') == '1' else 0
-                con.execute("DELETE FROM role_permissions WHERE role_key=? AND permission_key=?", (role_key, perm))
-                con.execute("INSERT INTO role_permissions(role_key,role_label,permission_key,allowed,updated_at) VALUES(?,?,?,?,?)", (role_key, new_label, perm, allowed, now()))
-        con.commit(); flash('Droits et libellés des rôles mis à jour.', 'success')
-        log_action(current_user()['id'], 'Modification rôles personnalisables', 'roles', None)
-    rows = con.execute('SELECT * FROM role_permissions ORDER BY role_key, permission_key').fetchall()
-    con.close()
-    data = {r: {p: 0 for p in perms} for r in ROLE_LABELS}
-    labels = dict(ROLE_LABELS)
+            new_label=request.form.get(f'label_{role_key}',role_label).strip() or role_label
+            for module in modules:
+                for action in actions:
+                    pkey=f'{module}.{action}'
+                    allowed=1 if request.form.get(f'{role_key}__{module}__{action}')=='1' else 0
+                    con.execute('DELETE FROM role_permissions WHERE role_key=? AND permission_key=?',(role_key,pkey))
+                    con.execute('INSERT INTO role_permissions(role_key,role_label,permission_key,allowed,updated_at) VALUES(?,?,?,?,?)',(role_key,new_label,pkey,allowed,now()))
+        con.commit(); flash('Autorisations complètes enregistrées.','success'); log_action(current_user()['id'],'Modification des autorisations par module','roles',None)
+    rows=con.execute('SELECT * FROM role_permissions').fetchall(); con.close()
+    data={r:{m:{a:0 for a in actions} for m in modules} for r in ROLE_LABELS}; labels=dict(ROLE_LABELS)
     for row in rows:
-        data.setdefault(row['role_key'], {})[row['permission_key']] = row['allowed']
-        labels[row['role_key']] = row['role_label']
-    return render_template('roles_permissions.html', perms=perms, data=data, labels=labels)
-
+        key=row['permission_key']
+        if '.' in key:
+            module,action=key.split('.',1)
+            if module in modules and action in actions: data.setdefault(row['role_key'],{}).setdefault(module,{})[action]=row['allowed']
+        labels[row['role_key']]=row['role_label']
+    return render_template('roles_permissions.html',modules=modules,actions=actions,data=data,labels=labels)
 
 def treasury_scope_sql(user, base='WHERE 1=1'):
     where, params = base, []
@@ -4115,7 +4819,7 @@ def delete_statute_document(document_id):
 def settings_page():
     con = db()
     if request.method == "POST":
-        keys = ["structure_name", "structure_motto", "structure_header", "structure_foundation", "structure_legal", "secretariat_label", "headquarters", "contact_phones", "history", "mission", "vision", "values", "objectives", "advantages", "partners", "president_name", "secretary_name", "facebook", "youtube", "whatsapp", "instagram", "payment_info", "card_notice", "public_base_url", "public_communiques", "dashboard_message", "footer_note", "initiator", "stability_center_text", "privacy_policy", "terms_of_use", "support_intro", "mobile_app_name", "structure_address", "default_language", "global_search_placeholder", "ai_help_intro", "statute_intro", "windows_client_download_url", "windows_server_download_url", "android_download_url", "download_section_enabled"]
+        keys = ["structure_name", "structure_motto", "structure_header", "structure_foundation", "structure_legal", "secretariat_label", "headquarters", "contact_phones", "history", "mission", "vision", "values", "objectives", "advantages", "partners", "president_name", "secretary_name", "facebook", "youtube", "whatsapp", "instagram", "tiktok", "x_twitter", "linkedin", "payment_info", "card_notice", "public_base_url", "public_communiques", "dashboard_message", "footer_note", "initiator", "stability_center_text", "privacy_policy", "terms_of_use", "support_intro", "mobile_app_name", "structure_address", "default_language", "global_search_placeholder", "ai_help_intro", "statute_intro", "windows_client_download_url", "windows_server_download_url", "android_download_url", "download_section_enabled"]
         for key in keys:
             con.execute("UPDATE settings SET value=? WHERE key=?", (request.form.get(key, ""), key))
         logo_paths = save_logo_upload(request.files.get("logo"))
@@ -4135,6 +4839,639 @@ def settings_page():
     con.close()
     return render_template("settings.html", videos=videos, carousel=carousel, fields=fields)
 
+
+
+# ===== V35 : droits par module, services et santé =====
+PERMISSION_MODULES = {
+    'dashboard':'Tableau de bord','membres':'Membres','adhesions':'Adhésions','cotisations':'Cotisations',
+    'tresorerie':'Trésorerie','alertes':'Alertes','activites':'Activités','projets':'Projets','documents':'Documents',
+    'statuts':'Statuts et règlement','notifications':'Notifications','support':'Support / tickets','anniversaires':'Anniversaires',
+    'utilisateurs':'Utilisateurs','roles':'Rôles et permissions','cloture':'Clôture d’exercice','production':'Production et sécurité',
+    'synchronisation':'Synchronisation','corbeille':'Corbeille','audit':'Journal d’audit','diagnostic':'Diagnostic général',
+    'assistant_demarrage':'Assistant de démarrage','parametres':'Paramètres','rapports':'Rapports','services':'Services de la Fondation',
+    'structures_services':'Structures des services','roles_services':'Rôles des services','affectations_services':'Affectations des services',
+    'centres_sante':'Centres de santé','personnel_sante':'Personnel sanitaire','patients':'Patients','rendez_vous':'Rendez-vous',
+    'files_attente':'File d’attente','triage':'Triage','consultations':'Consultations','dossiers_medicaux':'Dossiers médicaux',
+    'laboratoire':'Laboratoire','pharmacie':'Pharmacie','stocks':'Stocks','hospitalisation':'Hospitalisation','maternite':'Maternité',
+    'vaccination':'Vaccination','facturation':'Facturation','caisse_sante':'Caisse sanitaire','aide_sociale':'Prise en charge sociale',
+    'equipements':'Équipements','fournisseurs':'Fournisseurs','references':'Références et transferts','rapports_sante':'Rapports sanitaires','statistiques':'Statistiques',
+    'qualite_donnees':'Qualité des données','modeles_fiches':'Modèles de fiches','profil':'Profil','aide':'Aide intelligente',
+    'guide':'Guide rapide','site_public':'Site public','numerotation_cadres':'Numérotation des hauts cadres','cartes_sanitaires':'Cartes du personnel sanitaire'
+}
+PERMISSION_ACTIONS = {'voir':'Voir','ajouter':'Ajouter','modifier':'Modifier','supprimer':'Supprimer','valider':'Valider','imprimer':'Imprimer','exporter':'Exporter','parametrer':'Paramétrer'}
+
+def module_allowed(module, action='voir', default=False):
+    return role_permission_allowed(current_user(), f'{module}.{action}', default)
+
+def module_permission_required(module, action='voir'):
+    def deco(fn):
+        @wraps(fn)
+        def wrapper(*args, **kwargs):
+            if not module_allowed(module, action, False):
+                abort(403)
+            return fn(*args, **kwargs)
+        return wrapper
+    return deco
+
+def health_scope_clause(user, alias=''):
+    prefix=(alias+'.') if alias else ''
+    if user and user['role'] in PROVINCIAL_ROLES:
+        return f' WHERE {prefix}province=?', [user['province'] or '']
+    return ' WHERE 1=1', []
+
+def _next_code(prefix, table):
+    con=db(); n=con.execute(f'SELECT COUNT(*) AS n FROM {table}').fetchone()['n']+1; con.close()
+    return f'{prefix}-{datetime.now().year}-{n:06d}'
+
+@app.route('/admin/services', methods=['GET','POST'])
+@login_required
+@module_permission_required('services','voir')
+def foundation_services_page():
+    con=db()
+    if request.method=='POST':
+        if not module_allowed('services','ajouter'): abort(403)
+        name=request.form.get('name','').strip(); code=request.form.get('code','').strip().upper()
+        if not name or not code:
+            flash('Le code et le nom sont obligatoires.','warning')
+        else:
+            try:
+                con.execute('''INSERT INTO foundation_services(code,name,description,scope,icon,color,manager_member_id,active,created_at,created_by)
+                               VALUES(?,?,?,?,?,?,?,1,?,?)''',
+                            (code,name,request.form.get('description',''),request.form.get('scope','national'),request.form.get('icon','🏛️'),request.form.get('color','#0f766e'),request.form.get('manager_member_id') or None,now(),current_user()['id']))
+                con.commit(); flash('Service ajouté et architecture réservée.','success')
+            except sqlite3.IntegrityError: flash('Ce code de service existe déjà.','danger')
+    rows=con.execute('''SELECT s.*, (SELECT COUNT(*) FROM service_structures st WHERE st.service_id=s.id) structure_count,
+                        (SELECT COUNT(*) FROM service_roles r WHERE r.service_id=s.id) role_count,
+                        (SELECT COUNT(*) FROM service_modules m WHERE m.service_id=s.id) module_count
+                        FROM foundation_services s ORDER BY s.name''').fetchall()
+    members=con.execute("SELECT id, first_name, last_name, code AS member_code FROM members WHERE status IN ('actif','active') ORDER BY last_name,first_name").fetchall()
+    con.close()
+    return render_template('foundation_services.html', rows=rows, members=members)
+
+@app.route('/admin/services/<int:service_id>', methods=['GET','POST'])
+@login_required
+@module_permission_required('services','voir')
+def foundation_service_detail(service_id):
+    con=db(); service=con.execute('SELECT * FROM foundation_services WHERE id=?',(service_id,)).fetchone()
+    if not service: con.close(); abort(404)
+    if request.method=='POST':
+        action=request.form.get('action','')
+        if action=='structure':
+            if not module_allowed('services','ajouter'): abort(403)
+            code=request.form.get('code','').strip().upper(); name=request.form.get('name','').strip()
+            if not code or not name: flash('Code et nom de la structure obligatoires.','warning')
+            else:
+                try:
+                    con.execute('''INSERT INTO service_structures(service_id,parent_id,code,name,structure_type,province,territory,commune,address,phone,email,manager_member_id,active,created_at,created_by)
+                                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,1,?,?)''',(service_id,request.form.get('parent_id') or None,code,name,request.form.get('structure_type','antenne'),request.form.get('province',''),request.form.get('territory',''),request.form.get('commune',''),request.form.get('address',''),request.form.get('phone',''),request.form.get('email',''),request.form.get('manager_member_id') or None,now(),current_user()['id']))
+                    con.commit(); flash('Structure ajoutée au service.','success')
+                except sqlite3.IntegrityError: flash('Ce code de structure existe déjà.','danger')
+        elif action=='role':
+            if not module_allowed('services','parametrer'): abort(403)
+            name=request.form.get('name','').strip()
+            if name:
+                try:
+                    con.execute('INSERT INTO service_roles(service_id,name,description,level,active,created_at,created_by) VALUES(?,?,?,?,1,?,?)',(service_id,name,request.form.get('description',''),request.form.get('level','structure'),now(),current_user()['id']))
+                    con.commit(); flash('Rôle ajouté au service.','success')
+                except sqlite3.IntegrityError: flash('Ce rôle existe déjà pour ce service.','warning')
+        elif action=='module':
+            if not module_allowed('services','parametrer'): abort(403)
+            code=request.form.get('code','').strip().upper(); name=request.form.get('name','').strip()
+            if code and name:
+                try:
+                    con.execute('INSERT INTO service_modules(service_id,code,name,description,active,created_at,created_by) VALUES(?,?,?,?,1,?,?)',(service_id,code,name,request.form.get('description',''),now(),current_user()['id']))
+                    con.commit(); flash('Module réservé pour ce service.','success')
+                except sqlite3.IntegrityError: flash('Ce module existe déjà.','warning')
+        elif action=='assignment':
+            if not module_allowed('services','ajouter'): abort(403)
+            member_id=request.form.get('member_id'); role_id=request.form.get('role_id'); structure_id=request.form.get('structure_id') or None
+            member=con.execute("SELECT id FROM members WHERE id=? AND status IN ('actif','active')",(member_id,)).fetchone()
+            if not member: flash("L'affectation exige un membre actif de la Fondation.",'danger')
+            elif role_id:
+                try:
+                    con.execute('''INSERT INTO service_staff_assignments(member_id,service_id,structure_id,role_id,start_date,status,notes,created_at,created_by)
+                                   VALUES(?,?,?,?,?,'active',?,?,?)''',(member_id,service_id,structure_id,role_id,request.form.get('start_date',''),request.form.get('notes',''),now(),current_user()['id']))
+                    con.commit(); flash('Membre affecté au service.','success')
+                except sqlite3.IntegrityError: flash('Cette affectation existe déjà.','warning')
+    structures=con.execute('''SELECT st.*, m.first_name manager_first_name,m.last_name manager_last_name
+                              FROM service_structures st LEFT JOIN members m ON m.id=st.manager_member_id
+                              WHERE st.service_id=? ORDER BY st.province,st.name''',(service_id,)).fetchall()
+    roles=con.execute('SELECT * FROM service_roles WHERE service_id=? ORDER BY level,name',(service_id,)).fetchall()
+    modules=con.execute('SELECT * FROM service_modules WHERE service_id=? ORDER BY name',(service_id,)).fetchall()
+    assignments=con.execute('''SELECT a.*,mb.first_name,mb.last_name,mb.code AS member_code,r.name role_name,st.name structure_name
+                               FROM service_staff_assignments a JOIN members mb ON mb.id=a.member_id
+                               JOIN service_roles r ON r.id=a.role_id LEFT JOIN service_structures st ON st.id=a.structure_id
+                               WHERE a.service_id=? ORDER BY mb.last_name,mb.first_name''',(service_id,)).fetchall()
+    members=con.execute("SELECT id,first_name,last_name,code AS member_code FROM members WHERE status IN ('actif','active') ORDER BY last_name,first_name").fetchall()
+    con.close()
+    return render_template('foundation_service_detail.html',service=service,structures=structures,roles=roles,modules=modules,assignments=assignments,members=members)
+
+@app.post('/admin/services/<int:service_id>/toggle')
+@login_required
+@module_permission_required('services','modifier')
+def foundation_service_toggle(service_id):
+    con=db(); row=con.execute('SELECT active FROM foundation_services WHERE id=?',(service_id,)).fetchone()
+    if not row: con.close(); abort(404)
+    con.execute('UPDATE foundation_services SET active=?,updated_at=?,updated_by=? WHERE id=?',(0 if row['active'] else 1,now(),current_user()['id'],service_id)); con.commit(); con.close()
+    flash('Statut du service mis à jour.','success'); return redirect(url_for('foundation_services_page'))
+
+@app.route('/health')
+@login_required
+@module_permission_required('centres_sante','voir')
+def health_dashboard():
+    con=db(); user=current_user(); where,params=health_scope_clause(user)
+    centers=con.execute('SELECT COUNT(*) n FROM health_centers'+where,params).fetchone()['n']
+    if user['role'] in PROVINCIAL_ROLES:
+        center_ids=[r['id'] for r in con.execute('SELECT id FROM health_centers WHERE province=?',(user['province'],)).fetchall()]
+        if center_ids:
+            marks=','.join('?'*len(center_ids)); patients=con.execute(f'SELECT COUNT(*) n FROM patients WHERE center_id IN ({marks})',center_ids).fetchone()['n']; consultations=con.execute(f'SELECT COUNT(*) n FROM consultations WHERE center_id IN ({marks})',center_ids).fetchone()['n']
+        else: patients=consultations=0
+    else:
+        patients=con.execute('SELECT COUNT(*) n FROM patients').fetchone()['n']; consultations=con.execute('SELECT COUNT(*) n FROM consultations').fetchone()['n']
+    staff=con.execute("SELECT COUNT(*) n FROM health_staff WHERE status='active'").fetchone()['n']; con.close()
+    return render_template('health_dashboard.html', centers=centers, patients=patients, consultations=consultations, staff=staff)
+
+@app.route('/health/centers', methods=['GET','POST'])
+@login_required
+@module_permission_required('centres_sante','voir')
+def health_centers_page():
+    con=db(); user=current_user()
+    if request.method=='POST':
+        if not module_allowed('centres_sante','ajouter'): abort(403)
+        province=request.form.get('province','').strip(); name=request.form.get('name','').strip()
+        if user['role'] in PROVINCIAL_ROLES: province=user['province'] or ''
+        if not province or not name: flash('Nom et province obligatoires.','warning')
+        else:
+            prefix=''.join([w[:3].upper() for w in province.split('-')])[:4] or 'RDC'
+            code=request.form.get('code','').strip().upper() or f'FOBAK-CS-{prefix}-{secrets.randbelow(900)+100}'
+            try:
+                center_logo = save_upload(request.files.get('logo'), 'health_centers')
+                con.execute('''INSERT INTO health_centers(
+                    code,name,province,territory,commune,address,phone,email,opening_date,
+                    header_title,header_subtitle,header_address,header_contact,logo_path,footer_note,
+                    active,created_at,created_by
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?)''', (
+                    code,name,province,request.form.get('territory',''),request.form.get('commune',''),
+                    request.form.get('address',''),request.form.get('phone',''),request.form.get('email',''),request.form.get('opening_date',''),
+                    request.form.get('header_title','').strip(),request.form.get('header_subtitle','').strip(),
+                    request.form.get('header_address','').strip(),request.form.get('header_contact','').strip(),
+                    center_logo,request.form.get('footer_note','').strip(),now(),user['id']))
+                con.commit(); flash('Centre de santé ajouté.','success')
+            except sqlite3.IntegrityError:
+                con.rollback(); flash('Le code du centre existe déjà.','danger')
+            except Exception as exc:
+                con.rollback(); logging.exception('Erreur création centre de santé: %s', exc); flash('Impossible d’enregistrer le centre. Vérifiez le logo et les champs puis réessayez.','danger')
+    where,params=health_scope_clause(user)
+    query='SELECT * FROM health_centers'+where+(' AND deleted_at IS NULL' if 'WHERE' in where else ' WHERE deleted_at IS NULL')+' ORDER BY province,name'; rows=con.execute(query,params).fetchall(); con.close()
+    return render_template('health_centers.html',rows=rows)
+
+@app.route('/health/roles', methods=['GET','POST'])
+@login_required
+@module_permission_required('personnel_sante','voir')
+def health_roles_page():
+    con=db()
+    if request.method=='POST':
+        if not module_allowed('personnel_sante','parametrer'): abort(403)
+        name=request.form.get('name','').strip()
+        if name:
+            try: con.execute('INSERT INTO health_roles(name,description,level,active,created_at,created_by) VALUES(?,?,?,?,?,?)',(name,request.form.get('description',''),request.form.get('level','centre'),1,now(),current_user()['id'])); con.commit(); flash('Rôle sanitaire ajouté.','success')
+            except sqlite3.IntegrityError: flash('Ce rôle existe déjà.','warning')
+    rows=con.execute('SELECT * FROM health_roles WHERE deleted_at IS NULL ORDER BY level,name').fetchall(); con.close()
+    return render_template('health_roles.html',rows=rows)
+
+@app.route('/health/staff', methods=['GET','POST'])
+@login_required
+@module_permission_required('personnel_sante','voir')
+def health_staff_page():
+    con=db(); user=current_user()
+    if request.method=='POST':
+        if not module_allowed('personnel_sante','ajouter'): abort(403)
+        member_id=request.form.get('member_id',type=int); center_id=request.form.get('center_id',type=int); role_id=request.form.get('role_id',type=int)
+        member=con.execute("SELECT * FROM members WHERE id=? AND deleted_at IS NULL AND status='active'",(member_id,)).fetchone()
+        center=con.execute('SELECT * FROM health_centers WHERE id=? AND active=1',(center_id,)).fetchone()
+        if not member: flash("Affectation refusée : la personne doit d'abord être un membre actif de la Fondation.",'danger')
+        elif not center or (user['role'] in PROVINCIAL_ROLES and center['province']!=(user['province'] or '')): abort(403)
+        elif not role_id: flash('Choisissez un rôle sanitaire.','warning')
+        else:
+            try:
+                con.execute('INSERT INTO health_staff(member_id,center_id,role_id,specialty,professional_number,diploma,engagement_date,status,created_at,created_by) VALUES(?,?,?,?,?,?,?,\'active\',?,?)',(member_id,center_id,role_id,request.form.get('specialty',''),request.form.get('professional_number',''),request.form.get('diploma',''),request.form.get('engagement_date',''),now(),user['id']))
+                con.commit(); flash('Membre affecté au centre de santé.','success')
+            except sqlite3.IntegrityError: flash('Cette affectation existe déjà.','warning')
+    where,params=health_scope_clause(user,'c')
+    rows=con.execute('''SELECT hs.*,m.first_name,m.last_name,m.code member_code,c.name center_name,c.province,hr.name role_name FROM health_staff hs JOIN members m ON m.id=hs.member_id JOIN health_centers c ON c.id=hs.center_id JOIN health_roles hr ON hr.id=hs.role_id'''+where+' ORDER BY c.province,c.name,m.last_name',params).fetchall()
+    centers=con.execute('SELECT * FROM health_centers'+health_scope_clause(user)[0]+' ORDER BY name',health_scope_clause(user)[1]).fetchall()
+    members=con.execute("SELECT id,code,first_name,last_name,province FROM members WHERE deleted_at IS NULL AND status='active' ORDER BY last_name,first_name LIMIT 1000").fetchall()
+    roles=con.execute('SELECT * FROM health_roles WHERE active=1 ORDER BY name').fetchall(); con.close()
+    return render_template('health_staff.html',rows=rows,centers=centers,members=members,roles=roles)
+
+@app.route('/health/patients', methods=['GET','POST'])
+@login_required
+@module_permission_required('patients','voir')
+def patients_page():
+    con=db(); user=current_user()
+    if request.method=='POST':
+        if not module_allowed('patients','ajouter'): abort(403)
+        center_id=request.form.get('center_id',type=int); center=con.execute('SELECT * FROM health_centers WHERE id=?',(center_id,)).fetchone()
+        if not center or (user['role'] in PROVINCIAL_ROLES and center['province']!=(user['province'] or '')): abort(403)
+        code=_next_code('PAT-'+(center['province'][:3].upper()),'patients')
+        con.execute('''INSERT INTO patients(patient_code,center_id,first_name,last_name,gender,birth_date,phone,address,province,emergency_contact,blood_group,allergies,medical_history,created_at,created_by,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',(code,center_id,request.form.get('first_name','').strip(),request.form.get('last_name','').strip(),request.form.get('gender',''),request.form.get('birth_date',''),request.form.get('phone',''),request.form.get('address',''),center['province'],request.form.get('emergency_contact',''),request.form.get('blood_group',''),request.form.get('allergies',''),request.form.get('medical_history',''),now(),user['id'],now()))
+        con.commit(); flash('Patient enregistré.','success')
+    if user['role'] in PROVINCIAL_ROLES:
+        rows=con.execute('''SELECT p.*,c.name center_name FROM patients p JOIN health_centers c ON c.id=p.center_id WHERE c.province=? AND p.deleted_at IS NULL ORDER BY p.id DESC''',(user['province'],)).fetchall(); centers=con.execute('SELECT * FROM health_centers WHERE province=? AND active=1 ORDER BY name',(user['province'],)).fetchall()
+    else:
+        rows=con.execute('''SELECT p.*,c.name center_name FROM patients p JOIN health_centers c ON c.id=p.center_id WHERE p.deleted_at IS NULL ORDER BY p.id DESC''').fetchall(); centers=con.execute('SELECT * FROM health_centers WHERE active=1 ORDER BY province,name').fetchall()
+    con.close(); return render_template('patients.html',rows=rows,centers=centers)
+
+@app.route('/health/consultations', methods=['GET','POST'])
+@login_required
+@module_permission_required('consultations','voir')
+def consultations_page():
+    con=db(); user=current_user()
+    if request.method=='POST':
+        if not module_allowed('consultations','ajouter'): abort(403)
+        patient_id=request.form.get('patient_id',type=int); patient=con.execute('SELECT p.*,c.province FROM patients p JOIN health_centers c ON c.id=p.center_id WHERE p.id=?',(patient_id,)).fetchone()
+        if not patient or (user['role'] in PROVINCIAL_ROLES and patient['province']!=(user['province'] or '')): abort(403)
+        code=_next_code('CONS','consultations')
+        cols=['reason','complaints','disease_history','temperature','blood_pressure','heart_rate','respiratory_rate','weight','height','clinical_exam','diagnosis','requested_tests','treatment','orientation','next_appointment','notes']
+        vals=[request.form.get(c,'') for c in cols]
+        con.execute('''INSERT INTO consultations(consultation_code,patient_id,center_id,staff_id,consultation_date,reason,complaints,disease_history,temperature,blood_pressure,heart_rate,respiratory_rate,weight,height,clinical_exam,diagnosis,requested_tests,treatment,orientation,next_appointment,notes,status,created_at,created_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'draft',?,?)''',[code,patient_id,patient['center_id'],request.form.get('staff_id',type=int),request.form.get('consultation_date') or today(),*vals,now(),user['id']])
+        con.commit(); flash('Consultation enregistrée.','success')
+    if user['role'] in PROVINCIAL_ROLES:
+        rows=con.execute('''SELECT co.*,p.patient_code,p.first_name,p.last_name,c.name center_name FROM consultations co JOIN patients p ON p.id=co.patient_id JOIN health_centers c ON c.id=co.center_id WHERE c.province=? AND co.deleted_at IS NULL ORDER BY co.id DESC''',(user['province'],)).fetchall(); patients=con.execute('''SELECT p.* FROM patients p JOIN health_centers c ON c.id=p.center_id WHERE c.province=? ORDER BY p.last_name''',(user['province'],)).fetchall(); staff=con.execute('''SELECT hs.id,m.first_name,m.last_name,hr.name role_name FROM health_staff hs JOIN members m ON m.id=hs.member_id JOIN health_roles hr ON hr.id=hs.role_id JOIN health_centers c ON c.id=hs.center_id WHERE c.province=? AND hs.status='active' ORDER BY m.last_name''',(user['province'],)).fetchall()
+    else:
+        rows=con.execute('''SELECT co.*,p.patient_code,p.first_name,p.last_name,c.name center_name FROM consultations co JOIN patients p ON p.id=co.patient_id JOIN health_centers c ON c.id=co.center_id WHERE co.deleted_at IS NULL ORDER BY co.id DESC''').fetchall(); patients=con.execute('SELECT * FROM patients ORDER BY last_name').fetchall(); staff=con.execute('''SELECT hs.id,m.first_name,m.last_name,hr.name role_name FROM health_staff hs JOIN members m ON m.id=hs.member_id JOIN health_roles hr ON hr.id=hs.role_id WHERE hs.status='active' AND hs.deleted_at IS NULL ORDER BY m.last_name''').fetchall()
+    con.close(); return render_template('consultations.html',rows=rows,patients=patients,staff=staff)
+
+@app.route('/health/forms', methods=['GET','POST'])
+@login_required
+@module_permission_required('modeles_fiches','voir')
+def medical_forms_page():
+    con=db(); user=current_user()
+    if request.method=='POST':
+        if not module_allowed('modeles_fiches','ajouter') and not module_allowed('modeles_fiches','parametrer'): abort(403)
+        uploaded=request.files.get('source_file'); source=''; status='ready'; fields=[]
+        raw=request.form.get('fields_json','').strip()
+        if raw:
+            try: fields=json.loads(raw)
+            except Exception: flash('Le JSON des champs est invalide.','danger'); fields=[]
+        if uploaded and uploaded.filename:
+            source=save_upload(uploaded,'medical_forms') or ''
+            ext=uploaded.filename.rsplit('.',1)[-1].lower() if '.' in uploaded.filename else ''
+            if ext=='json' and source:
+                try:
+                    fields=json.loads(Path(os.path.join(STATIC_DIR,source)).read_text(encoding='utf-8'))
+                    status='ready'
+                except Exception: status='review'
+            elif ext in {'pdf','doc','docx','jpg','jpeg','png'}: status='review'
+        con.execute('''INSERT INTO medical_form_templates(name,form_type,scope,province,center_id,fields_json,source_file,import_status,active,version,created_at,created_by) VALUES(?,?,?,?,?,?,?,?,1,1,?,?)''',(request.form.get('name','').strip(),request.form.get('form_type','patient'),request.form.get('scope','national'),request.form.get('province',''),request.form.get('center_id',type=int),json.dumps(fields,ensure_ascii=False),source,status,now(),user['id']))
+        con.commit(); flash('Modèle importé. Vérifiez les champs avant utilisation.' if status=='review' else 'Modèle enregistré.','success')
+    rows=con.execute('SELECT mf.*,hc.name center_name FROM medical_form_templates mf LEFT JOIN health_centers hc ON hc.id=mf.center_id WHERE mf.deleted_at IS NULL ORDER BY mf.id DESC').fetchall(); centers=con.execute('SELECT * FROM health_centers WHERE deleted_at IS NULL ORDER BY province,name').fetchall(); con.close()
+    return render_template('medical_forms.html',rows=rows,centers=centers)
+
+
+
+
+def _health_scope_clause(alias='hc'):
+    user=current_user()
+    if user and user['role'] in PROVINCIAL_ROLES:
+        return f" WHERE {alias}.province=?", [user['province'] or '']
+    return '', []
+
+@app.route('/health/operations', methods=['GET','POST'])
+@login_required
+@module_permission_required('consultations','voir')
+def health_operations_page():
+    con=db(); user=current_user(); action=request.form.get('action','') if request.method=='POST' else ''
+    if request.method=='POST':
+        center_id=request.form.get('center_id',type=int)
+        center=con.execute('SELECT * FROM health_centers WHERE id=?',(center_id,)).fetchone() if center_id else None
+        if not center or (user['role'] in PROVINCIAL_ROLES and center['province']!=(user['province'] or '')): abort(403)
+        patient_id=request.form.get('patient_id',type=int)
+        if action=='appointment':
+            code=_next_code('RDV','health_appointments'); con.execute('INSERT INTO health_appointments(code,patient_id,center_id,service_name,professional_id,appointment_date,appointment_time,reason,status,created_at,created_by) VALUES(?,?,?,?,?,?,?,?,?,?,?)',(code,patient_id,center_id,request.form.get('service_name',''),request.form.get('professional_id',type=int),request.form.get('appointment_date') or today(),request.form.get('appointment_time',''),request.form.get('reason',''),'scheduled',now(),user['id']))
+            flash('Rendez-vous enregistré.','success')
+        elif action=='visit':
+            code=_next_code('VIS','health_visits'); q=con.execute('SELECT COALESCE(MAX(queue_number),0)+1 n FROM health_visits WHERE center_id=? AND visit_date=?',(center_id,today())).fetchone()['n']; con.execute('INSERT INTO health_visits(code,patient_id,center_id,visit_date,arrival_time,service_name,priority,queue_number,status,created_at,created_by) VALUES(?,?,?,?,?,?,?,?,?,?,?)',(code,patient_id,center_id,today(),request.form.get('arrival_time',''),request.form.get('service_name','Consultation'),request.form.get('priority','normal'),q,'waiting',now(),user['id']))
+            flash(f'Visite ouverte, numéro de file {q}.','success')
+        elif action=='triage':
+            visit_id=request.form.get('visit_id',type=int); visit=con.execute('SELECT * FROM health_visits WHERE id=?',(visit_id,)).fetchone()
+            if not visit or visit['center_id']!=center_id: abort(400)
+            temp=request.form.get('temperature',type=float); sat=request.form.get('oxygen_saturation',type=float); pain=request.form.get('pain_score',type=int)
+            level='urgent' if (temp and temp>=39) or (sat and sat<92) or (pain and pain>=8) or request.form.get('danger_signs','').strip() else 'normal'
+            con.execute('INSERT OR REPLACE INTO health_triage(visit_id,patient_id,center_id,temperature,systolic,diastolic,heart_rate,respiratory_rate,oxygen_saturation,weight,height,glucose,pain_score,consciousness,danger_signs,pregnancy_status,triage_level,notes,recorded_at,recorded_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',(visit_id,visit['patient_id'],center_id,temp,request.form.get('systolic',type=int),request.form.get('diastolic',type=int),request.form.get('heart_rate',type=int),request.form.get('respiratory_rate',type=int),sat,request.form.get('weight',type=float),request.form.get('height',type=float),request.form.get('glucose',type=float),pain,request.form.get('consciousness',''),request.form.get('danger_signs',''),request.form.get('pregnancy_status',''),level,request.form.get('notes',''),now(),user['id']))
+            con.execute("UPDATE health_visits SET status='triaged' WHERE id=?",(visit_id,)); flash('Triage enregistré.','success')
+        elif action=='lab':
+            code=_next_code('LAB','health_lab_orders'); con.execute('INSERT INTO health_lab_orders(code,patient_id,consultation_id,center_id,test_name,sample_type,priority,status,requested_at,requested_by) VALUES(?,?,?,?,?,?,?,?,?,?)',(code,patient_id,request.form.get('consultation_id',type=int),center_id,request.form.get('test_name',''),request.form.get('sample_type',''),request.form.get('priority','normal'),'ordered',now(),user['id'])); flash('Examen de laboratoire demandé.','success')
+        elif action=='lab_result':
+            order_id=request.form.get('order_id',type=int); con.execute("UPDATE health_lab_orders SET result_text=?,reference_range=?,status='validated',validated_at=?,validated_by=? WHERE id=? AND center_id=?",(request.form.get('result_text',''),request.form.get('reference_range',''),now(),user['id'],order_id,center_id)); flash('Résultat validé.','success')
+        elif action=='product':
+            code=request.form.get('product_code','').strip() or _next_code('MED','health_products'); con.execute('INSERT OR IGNORE INTO health_products(center_id,code,name,category,unit,minimum_stock,sale_price,active) VALUES(?,?,?,?,?,?,?,1)',(center_id,code,request.form.get('product_name',''),request.form.get('category','medicament'),request.form.get('unit',''),request.form.get('minimum_stock',type=float) or 0,request.form.get('sale_price',type=float) or 0)); flash('Produit enregistré.','success')
+        elif action=='batch':
+            con.execute('INSERT INTO health_stock_batches(product_id,batch_number,expiry_date,quantity,purchase_price,supplier_id,received_at,created_at,created_by) VALUES(?,?,?,?,?,?,?,?,?)',(request.form.get('product_id',type=int),request.form.get('batch_number',''),request.form.get('expiry_date',''),request.form.get('quantity',type=float) or 0,request.form.get('purchase_price',type=float) or 0,request.form.get('supplier_id',type=int),today(),now(),user['id'])); flash('Lot ajouté au stock.','success')
+        elif action=='admission':
+            code=_next_code('HOSP','health_admissions'); con.execute('INSERT INTO health_admissions(code,patient_id,center_id,ward,room,bed,admitted_at,diagnosis,responsible_staff_id,status,created_by) VALUES(?,?,?,?,?,?,?,?,?,?,?)',(code,patient_id,center_id,request.form.get('ward',''),request.form.get('room',''),request.form.get('bed',''),now(),request.form.get('diagnosis',''),request.form.get('professional_id',type=int),'admitted',user['id'])); flash('Hospitalisation enregistrée.','success')
+        elif action=='invoice':
+            qty=request.form.get('quantity',type=float) or 1; price=request.form.get('unit_price',type=float) or 0; discount=request.form.get('discount',type=float) or 0; support=request.form.get('social_support',type=float) or 0; total=max(0,qty*price-discount-support); code=_next_code('FAC','health_invoices'); cur=con.execute('INSERT INTO health_invoices(code,patient_id,center_id,invoice_date,subtotal,discount,social_support,total,paid,status,payment_method,notes,created_at,created_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',(code,patient_id,center_id,today(),qty*price,discount,support,total,request.form.get('paid',type=float) or 0,'paid' if (request.form.get('paid',type=float) or 0)>=total else 'partial',request.form.get('payment_method',''),request.form.get('notes',''),now(),user['id'])); con.execute('INSERT INTO health_invoice_items(invoice_id,item_type,description,quantity,unit_price,total) VALUES(?,?,?,?,?,?)',(cur.lastrowid,request.form.get('item_type','acte'),request.form.get('description',''),qty,price,qty*price)); flash('Facture créée.','success')
+        elif action=='support':
+            con.execute('INSERT INTO health_social_support(patient_id,center_id,category,reason,requested_amount,approved_amount,status,valid_until,approved_by,created_at,created_by) VALUES(?,?,?,?,?,?,?,?,?,?,?)',(patient_id,center_id,request.form.get('category','Vulnérabilité'),request.form.get('reason',''),request.form.get('requested_amount',type=float) or 0,request.form.get('approved_amount',type=float) or 0,'approved' if request.form.get('approved_amount') else 'pending',request.form.get('valid_until',''),user['id'] if request.form.get('approved_amount') else None,now(),user['id'])); flash('Prise en charge sociale enregistrée.','success')
+        elif action=='equipment':
+            code=request.form.get('inventory_code','').strip() or _next_code('EQP','health_equipment'); con.execute('INSERT INTO health_equipment(center_id,inventory_code,name,category,location,state,acquisition_date,warranty_end,next_maintenance,supplier_id,notes,created_at,created_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)',(center_id,code,request.form.get('equipment_name',''),request.form.get('category',''),request.form.get('location',''),request.form.get('state','operational'),request.form.get('acquisition_date',''),request.form.get('warranty_end',''),request.form.get('next_maintenance',''),request.form.get('supplier_id',type=int),request.form.get('notes',''),now(),user['id'])); flash('Équipement enregistré.','success')
+        elif action=='supplier':
+            con.execute('INSERT INTO health_suppliers(name,phone,email,address,province,active,created_at) VALUES(?,?,?,?,?,1,?)',(request.form.get('supplier_name',''),request.form.get('phone',''),request.form.get('email',''),request.form.get('address',''),center['province'],now())); flash('Fournisseur enregistré.','success')
+        elif action=='referral':
+            code=_next_code('REF','health_referrals'); con.execute('INSERT INTO health_referrals(code,patient_id,from_center_id,to_center_id,external_destination,urgency,reason,clinical_summary,treatment_given,status,sent_at,created_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',(code,patient_id,center_id,request.form.get('to_center_id',type=int),request.form.get('external_destination',''),request.form.get('urgency','normal'),request.form.get('reason',''),request.form.get('clinical_summary',''),request.form.get('treatment_given',''),'sent',now(),user['id'])); flash('Référence enregistrée.','success')
+        con.commit(); log_action(user['id'],'Opération centre de santé',action,None,center['name']); return redirect(url_for('health_operations_page'))
+    where,args=_health_scope_clause('hc')
+    centers=con.execute('SELECT hc.* FROM health_centers hc'+where+' ORDER BY hc.province,hc.name',args).fetchall()
+    if user['role'] in PROVINCIAL_ROLES:
+        patients=con.execute('SELECT p.* FROM patients p JOIN health_centers hc ON hc.id=p.center_id WHERE hc.province=? ORDER BY p.last_name',(user['province'],)).fetchall(); visits=con.execute("SELECT v.*,p.patient_code,p.last_name,p.first_name,hc.name center_name FROM health_visits v JOIN patients p ON p.id=v.patient_id JOIN health_centers hc ON hc.id=v.center_id WHERE hc.province=? ORDER BY v.id DESC LIMIT 100",(user['province'],)).fetchall()
+    else:
+        patients=con.execute('SELECT * FROM patients ORDER BY last_name').fetchall(); visits=con.execute("SELECT v.*,p.patient_code,p.last_name,p.first_name,hc.name center_name FROM health_visits v JOIN patients p ON p.id=v.patient_id JOIN health_centers hc ON hc.id=v.center_id ORDER BY v.id DESC LIMIT 100").fetchall()
+    labs=con.execute('SELECT l.*,p.patient_code,p.last_name,p.first_name FROM health_lab_orders l JOIN patients p ON p.id=l.patient_id ORDER BY l.id DESC LIMIT 100').fetchall(); products=con.execute('SELECT hp.*,COALESCE(SUM(b.quantity),0) stock FROM health_products hp LEFT JOIN health_stock_batches b ON b.product_id=hp.id GROUP BY hp.id ORDER BY hp.name').fetchall(); invoices=con.execute('SELECT i.*,p.patient_code,p.last_name,p.first_name FROM health_invoices i JOIN patients p ON p.id=i.patient_id ORDER BY i.id DESC LIMIT 100').fetchall(); admissions=con.execute('SELECT a.*,p.patient_code,p.last_name,p.first_name FROM health_admissions a JOIN patients p ON p.id=a.patient_id ORDER BY a.id DESC LIMIT 100').fetchall(); suppliers=con.execute('SELECT * FROM health_suppliers WHERE active=1 ORDER BY name').fetchall(); equipment=con.execute('SELECT e.*,hc.name center_name FROM health_equipment e JOIN health_centers hc ON hc.id=e.center_id ORDER BY e.id DESC LIMIT 100').fetchall(); appointments=con.execute('SELECT a.*,p.patient_code,p.last_name,p.first_name FROM health_appointments a JOIN patients p ON p.id=a.patient_id ORDER BY a.appointment_date DESC,a.appointment_time DESC LIMIT 100').fetchall(); referrals=con.execute('SELECT r.*,p.patient_code,p.last_name,p.first_name FROM health_referrals r JOIN patients p ON p.id=r.patient_id ORDER BY r.id DESC LIMIT 100').fetchall()
+    con.close(); return render_template('health_operations.html',centers=centers,patients=patients,visits=visits,labs=labs,products=products,invoices=invoices,admissions=admissions,suppliers=suppliers,equipment=equipment,appointments=appointments,referrals=referrals)
+
+
+def _month_bounds(month):
+    try:
+        start = datetime.strptime((month or '') + '-01', '%Y-%m-%d')
+    except Exception:
+        start = datetime.now().replace(day=1)
+        month = start.strftime('%Y-%m')
+    if start.month == 12:
+        end = start.replace(year=start.year + 1, month=1)
+    else:
+        end = start.replace(month=start.month + 1)
+    return month, start.strftime('%Y-%m-%d'), end.strftime('%Y-%m-%d')
+
+
+def _health_report_scope(user, requested_center=None, requested_province=''):
+    center_id = int(requested_center) if str(requested_center or '').isdigit() else None
+    province = (requested_province or '').strip()
+    if user['role'] in PROVINCIAL_ROLES:
+        province = user['province'] or ''
+        if center_id:
+            con=db(); row=con.execute('SELECT id FROM health_centers WHERE id=? AND province=?',(center_id,province)).fetchone(); con.close()
+            if not row: center_id=None
+    return center_id, province
+
+
+def build_health_monthly_report(con, month, center_id=None, province=''):
+    month,start,end=_month_bounds(month)
+    where=[]; params=[]
+    if center_id:
+        where.append('hc.id=?'); params.append(center_id)
+    elif province:
+        where.append('hc.province=?'); params.append(province)
+    where_sql=(' WHERE '+ ' AND '.join(where)) if where else ''
+    centers=con.execute('SELECT hc.* FROM health_centers hc'+where_sql+' ORDER BY hc.province,hc.name',params).fetchall()
+    ids=[r['id'] for r in centers]
+    if not ids:
+        return {'month':month,'centers':centers,'scope_label':province or 'National','patients':0,'new_patients':0,'consultations':0,'visits':0,'appointments':0,'lab_orders':0,'admissions':0,'referrals':0,'invoice_total':0,'paid_total':0,'debt_total':0,'discount_total':0,'support_total':0,'loss_total':0,'losses':[],'low_stock':0,'expired_batches':0,'equipment_down':0,'staff_active':0,'top_diagnoses':[],'center_breakdown':[]}
+    ph=','.join('?'*len(ids))
+    def scalar(sql, extra=()):
+        row=con.execute(sql, tuple(ids)+tuple(extra)).fetchone(); return (row[0] if row and row[0] is not None else 0)
+    patients=scalar(f'SELECT COUNT(*) FROM patients WHERE center_id IN ({ph})')
+    new_patients=scalar(f"SELECT COUNT(*) FROM patients WHERE center_id IN ({ph}) AND date(created_at)>=date(?) AND date(created_at)<date(?)",(start,end))
+    consultations=scalar(f"SELECT COUNT(*) FROM consultations WHERE center_id IN ({ph}) AND date(consultation_date)>=date(?) AND date(consultation_date)<date(?)",(start,end))
+    visits=scalar(f"SELECT COUNT(*) FROM health_visits WHERE center_id IN ({ph}) AND date(visit_date)>=date(?) AND date(visit_date)<date(?)",(start,end))
+    appointments=scalar(f"SELECT COUNT(*) FROM health_appointments WHERE center_id IN ({ph}) AND date(appointment_date)>=date(?) AND date(appointment_date)<date(?)",(start,end))
+    lab_orders=scalar(f"SELECT COUNT(*) FROM health_lab_orders WHERE center_id IN ({ph}) AND date(requested_at)>=date(?) AND date(requested_at)<date(?)",(start,end))
+    admissions=scalar(f"SELECT COUNT(*) FROM health_admissions WHERE center_id IN ({ph}) AND date(admitted_at)>=date(?) AND date(admitted_at)<date(?)",(start,end))
+    referrals=scalar(f"SELECT COUNT(*) FROM health_referrals WHERE from_center_id IN ({ph}) AND date(sent_at)>=date(?) AND date(sent_at)<date(?)",(start,end))
+    fin=con.execute(f"SELECT COALESCE(SUM(total),0),COALESCE(SUM(paid),0),COALESCE(SUM(total-paid),0),COALESCE(SUM(discount),0),COALESCE(SUM(social_support),0) FROM health_invoices WHERE center_id IN ({ph}) AND date(invoice_date)>=date(?) AND date(invoice_date)<date(?)",tuple(ids)+(start,end)).fetchone()
+    losses=con.execute(f"SELECT category,currency,COUNT(*) n,COALESCE(SUM(amount),0) total FROM health_losses WHERE center_id IN ({ph}) AND date(loss_date)>=date(?) AND date(loss_date)<date(?) GROUP BY category,currency ORDER BY total DESC",tuple(ids)+(start,end)).fetchall()
+    loss_total=sum(float(r['total'] or 0) for r in losses)
+    low_stock=scalar(f"SELECT COUNT(*) FROM (SELECT hp.id,hp.minimum_stock,COALESCE(SUM(b.quantity),0) q FROM health_products hp LEFT JOIN health_stock_batches b ON b.product_id=hp.id WHERE hp.center_id IN ({ph}) GROUP BY hp.id HAVING q<=hp.minimum_stock)")
+    expired_batches=scalar(f"SELECT COUNT(*) FROM health_stock_batches b JOIN health_products hp ON hp.id=b.product_id WHERE hp.center_id IN ({ph}) AND b.quantity>0 AND b.expiry_date!='' AND date(b.expiry_date)<date(?)",(end,))
+    equipment_down=scalar(f"SELECT COUNT(*) FROM health_equipment WHERE center_id IN ({ph}) AND state NOT IN ('operational','fonctionnel','active')")
+    staff_active=scalar(f"SELECT COUNT(*) FROM health_staff WHERE center_id IN ({ph}) AND status='active'")
+    top_diagnoses=con.execute(f"SELECT diagnosis,COUNT(*) n FROM consultations WHERE center_id IN ({ph}) AND date(consultation_date)>=date(?) AND date(consultation_date)<date(?) AND diagnosis IS NOT NULL AND trim(diagnosis)!='' GROUP BY diagnosis ORDER BY n DESC LIMIT 10",tuple(ids)+(start,end)).fetchall()
+    center_breakdown=[]
+    for c in centers:
+        cid=c['id']
+        row=con.execute("SELECT COUNT(*) consultations FROM consultations WHERE center_id=? AND date(consultation_date)>=date(?) AND date(consultation_date)<date(?)",(cid,start,end)).fetchone()
+        f=con.execute("SELECT COALESCE(SUM(total),0) total,COALESCE(SUM(paid),0) paid FROM health_invoices WHERE center_id=? AND date(invoice_date)>=date(?) AND date(invoice_date)<date(?)",(cid,start,end)).fetchone()
+        l=con.execute("SELECT COALESCE(SUM(amount),0) total FROM health_losses WHERE center_id=? AND date(loss_date)>=date(?) AND date(loss_date)<date(?)",(cid,start,end)).fetchone()
+        center_breakdown.append({'id':cid,'code':c['code'],'name':c['name'],'province':c['province'],'consultations':row['consultations'],'invoiced':f['total'],'paid':f['paid'],'losses':l['total']})
+    scope_label=centers[0]['name'] if center_id and centers else (province or 'National')
+    return {'month':month,'centers':centers,'scope_label':scope_label,'patients':patients,'new_patients':new_patients,'consultations':consultations,'visits':visits,'appointments':appointments,'lab_orders':lab_orders,'admissions':admissions,'referrals':referrals,'invoice_total':fin[0] or 0,'paid_total':fin[1] or 0,'debt_total':fin[2] or 0,'discount_total':fin[3] or 0,'support_total':fin[4] or 0,'loss_total':loss_total,'losses':losses,'low_stock':low_stock,'expired_batches':expired_batches,'equipment_down':equipment_down,'staff_active':staff_active,'top_diagnoses':top_diagnoses,'center_breakdown':center_breakdown}
+
+
+def get_health_branding(center=None):
+    settings = get_settings()
+    title = (center['header_title'] if center and 'header_title' in center.keys() and center['header_title'] else 'CENTRE DE SANTÉ')
+    subtitle = (center['header_subtitle'] if center and 'header_subtitle' in center.keys() and center['header_subtitle'] else (center['name'] if center else 'Réseau sanitaire de la Fondation'))
+    address = (center['header_address'] if center and 'header_address' in center.keys() and center['header_address'] else (center['address'] if center and 'address' in center.keys() else settings.get('headquarters','')))
+    contact = (center['header_contact'] if center and 'header_contact' in center.keys() and center['header_contact'] else ((center['phone'] if center and 'phone' in center.keys() else '') or settings.get('contact_phones','')))
+    footer_note = (center['footer_note'] if center and 'footer_note' in center.keys() and center['footer_note'] else 'Document généré automatiquement par FOBAK Manager Pro.')
+    left_logo = center['logo_path'] if center and 'logo_path' in center.keys() and center['logo_path'] else None
+    return {'title': title, 'subtitle': subtitle, 'address': address, 'contact': contact, 'footer_note': footer_note, 'left_logo': left_logo, 'right_logo': settings.get('logo_path','')}
+
+
+@app.route('/health/reports', methods=['GET','POST'])
+@login_required
+@module_permission_required('rapports_sante','voir')
+def health_reports_page():
+    user=current_user(); month=request.values.get('month') or datetime.now().strftime('%Y-%m')
+    center_id,province=_health_report_scope(user,request.values.get('center_id'),request.values.get('province',''))
+    con=db()
+    if request.method=='POST':
+        action=request.form.get('action','save')
+        if action=='loss':
+            if not module_allowed('rapports_sante','ajouter'): abort(403)
+            cid=request.form.get('center_id',type=int)
+            con.execute('INSERT INTO health_losses(center_id,loss_date,category,description,quantity,amount,currency,reason,responsible_member_id,status,created_at,created_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',(cid,request.form.get('loss_date') or today(),request.form.get('category','Autre'),request.form.get('description',''),request.form.get('quantity',type=float) or 0,request.form.get('amount',type=float) or 0,request.form.get('currency','CDF'),request.form.get('reason',''),request.form.get('responsible_member_id',type=int),'declared',now(),user['id']))
+            con.commit(); log_action(user['id'],'Déclaration perte centre de santé','health_loss',None,request.form.get('description','')); flash('Perte enregistrée dans le rapport.','success'); con.close(); return redirect(url_for('health_reports_page',month=month,center_id=cid,province=province))
+        data=build_health_monthly_report(con,month,center_id,province)
+        scope_type='center' if center_id else ('province' if province else 'national')
+        db_center=center_id or 0; db_province=province or ''
+        snapshot=json.dumps(data,ensure_ascii=False,default=lambda o: dict(o) if hasattr(o,'keys') else str(o))
+        vals=(month,scope_type,db_center,db_province,request.form.get('status','draft'),request.form.get('narrative_activities',''),request.form.get('difficulties',''),request.form.get('needs',''),request.form.get('recommendations',''),request.form.get('important_events',''),snapshot,now(),user['id'],now(),user['id'])
+        con.execute("INSERT INTO health_monthly_reports(report_month,scope_type,center_id,province,status,narrative_activities,difficulties,needs,recommendations,important_events,snapshot_json,generated_at,generated_by,updated_at,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(report_month,scope_type,center_id,province) DO UPDATE SET status=excluded.status,narrative_activities=excluded.narrative_activities,difficulties=excluded.difficulties,needs=excluded.needs,recommendations=excluded.recommendations,important_events=excluded.important_events,snapshot_json=excluded.snapshot_json,updated_at=excluded.updated_at,updated_by=excluded.updated_by",vals)
+        if action=='submit':
+            con.execute('UPDATE health_monthly_reports SET status=?,submitted_at=?,submitted_by=? WHERE report_month=? AND scope_type=? AND center_id=? AND province=?',('submitted',now(),user['id'],month,scope_type,db_center,db_province))
+            create_internal_notification('Rapport sanitaire soumis',f'{data["scope_label"]} — {month}',url_for('health_reports_page',month=month,center_id=center_id or '',province=province),role='all')
+        elif action=='validate':
+            if user['role'] not in NATIONAL_ROLES and user['role'] not in PROVINCIAL_ROLES: abort(403)
+            con.execute('UPDATE health_monthly_reports SET status=?,validated_at=?,validated_by=? WHERE report_month=? AND scope_type=? AND center_id=? AND province=?',('validated',now(),user['id'],month,scope_type,db_center,db_province))
+        con.commit(); flash('Rapport sanitaire enregistré.','success')
+    data=build_health_monthly_report(con,month,center_id,province)
+    scope_type='center' if center_id else ('province' if province else 'national')
+    db_center=center_id or 0; db_province=province or ''
+    saved=con.execute('SELECT * FROM health_monthly_reports WHERE report_month=? AND scope_type=? AND center_id=? AND province=?',(month,scope_type,db_center,db_province)).fetchone()
+    where,args=_health_scope_clause('hc'); centers=con.execute('SELECT hc.* FROM health_centers hc'+where+' ORDER BY hc.province,hc.name',args).fetchall()
+    selected_center = con.execute('SELECT * FROM health_centers WHERE id=?',(center_id,)).fetchone() if center_id else None
+    branding = get_health_branding(selected_center)
+    report_rows=con.execute("SELECT r.*,hc.name center_name FROM health_monthly_reports r LEFT JOIN health_centers hc ON hc.id=r.center_id ORDER BY r.report_month DESC,r.updated_at DESC LIMIT 60").fetchall()
+    members=con.execute("SELECT id,last_name,first_name,code FROM members WHERE deleted_at IS NULL AND status='active' ORDER BY last_name,first_name LIMIT 500").fetchall()
+    con.close(); return render_template('health_reports.html',data=data,saved=saved,month=month,center_id=center_id,scope_province=province,centers=centers,report_rows=report_rows,members=members,selected_center=selected_center,branding=branding)
+
+
+@app.route('/health/reports/print')
+@login_required
+@module_permission_required('rapports_sante','imprimer')
+def health_report_print():
+    user=current_user(); month=request.args.get('month') or datetime.now().strftime('%Y-%m'); center_id,province=_health_report_scope(user,request.args.get('center_id'),request.args.get('province',''))
+    con=db(); data=build_health_monthly_report(con,month,center_id,province); scope_type='center' if center_id else ('province' if province else 'national'); db_center=center_id or 0; db_province=province or ''; saved=con.execute('SELECT * FROM health_monthly_reports WHERE report_month=? AND scope_type=? AND center_id=? AND province=?',(month,scope_type,db_center,db_province)).fetchone(); selected_center = con.execute('SELECT * FROM health_centers WHERE id=?',(center_id,)).fetchone() if center_id else None; branding = get_health_branding(selected_center); con.close()
+    log_action(user['id'],'Impression rapport sanitaire','health_report',None,f'{data["scope_label"]} {month}')
+    return render_template('print_health_report.html',data=data,saved=saved,selected_center=selected_center,branding=branding)
+
+
+@app.route('/health/data-quality')
+@login_required
+@module_permission_required('statistiques','voir')
+def health_data_quality_page():
+    con=db(); user=current_user(); where,args=_health_scope_clause('hc')
+    centers=con.execute('SELECT hc.* FROM health_centers hc'+where+' ORDER BY hc.province,hc.name',args).fetchall(); report=[]
+    for c in centers:
+        patients=con.execute('SELECT COUNT(*) n FROM patients WHERE center_id=?',(c['id'],)).fetchone()['n']; incomplete=con.execute("SELECT COUNT(*) n FROM patients WHERE center_id=? AND (birth_date IS NULL OR birth_date='' OR phone IS NULL OR phone='')",(c['id'],)).fetchone()['n']; waiting=con.execute("SELECT COUNT(*) n FROM health_visits WHERE center_id=? AND status IN ('waiting','triaged')",(c['id'],)).fetchone()['n']; low_stock=con.execute('SELECT COUNT(*) n FROM (SELECT hp.id,hp.minimum_stock,COALESCE(SUM(b.quantity),0) q FROM health_products hp LEFT JOIN health_stock_batches b ON b.product_id=hp.id WHERE hp.center_id=? GROUP BY hp.id HAVING q<=hp.minimum_stock)',(c['id'],)).fetchone()['n']; unpaid=con.execute("SELECT COALESCE(SUM(total-paid),0) n FROM health_invoices WHERE center_id=? AND status!='paid'",(c['id'],)).fetchone()['n']; score=100 if patients==0 else max(0,round(100-(incomplete/patients*40)-min(waiting,10)*2-min(low_stock,10)*2)); report.append({'center':c,'patients':patients,'incomplete':incomplete,'waiting':waiting,'low_stock':low_stock,'unpaid':unpaid,'score':score})
+    con.close(); return render_template('health_data_quality.html',report=report)
+
+
+DELETE_REGISTRY = {
+    'health_center': ('health_centers', 'centres_sante', 'health_centers_page'),
+    'health_role': ('health_roles', 'personnel_sante', 'health_roles_page'),
+    'health_staff': ('health_staff', 'personnel_sante', 'health_staff_page'),
+    'patient': ('patients', 'patients', 'patients_page'),
+    'consultation': ('consultations', 'consultations', 'consultations_page'),
+    'medical_form': ('medical_form_templates', 'modeles_fiches', 'medical_forms_page'),
+    'service': ('foundation_services', 'services', 'foundation_services_page'),
+    'service_structure': ('service_structures', 'structures_services', 'foundation_services_page'),
+    'service_role': ('service_roles', 'roles_services', 'foundation_services_page'),
+    'service_assignment': ('service_staff_assignments', 'affectations_services', 'foundation_services_page'),
+    'service_module': ('service_modules', 'services', 'foundation_services_page'),
+    'appointment': ('health_appointments', 'rendez_vous', 'health_operations_page'),
+    'visit': ('health_visits', 'files_attente', 'health_operations_page'),
+    'lab_order': ('health_lab_orders', 'laboratoire', 'health_operations_page'),
+    'product': ('health_products', 'pharmacie', 'health_operations_page'),
+    'stock_batch': ('health_stock_batches', 'stocks', 'health_operations_page'),
+    'invoice': ('health_invoices', 'facturation', 'health_operations_page'),
+    'admission': ('health_admissions', 'hospitalisation', 'health_operations_page'),
+    'social_support': ('health_social_support', 'aide_sociale', 'health_operations_page'),
+    'equipment': ('health_equipment', 'equipements', 'health_operations_page'),
+    'supplier': ('health_suppliers', 'fournisseurs', 'health_operations_page'),
+    'referral': ('health_referrals', 'references', 'health_operations_page'),
+    'health_loss': ('health_losses', 'rapports_sante', 'health_reports_page'),
+    'health_report': ('health_monthly_reports', 'rapports_sante', 'health_reports_page'),
+    'health_card_request': ('health_card_requests', 'cartes_sanitaires', 'health_cards_page'),
+    'executive_number': ('executive_numbers', 'numerotation_cadres', 'executive_numbers_page'),
+}
+
+@app.post('/admin/delete/<entity>/<int:record_id>')
+@login_required
+def universal_delete(entity, record_id):
+    config = DELETE_REGISTRY.get(entity)
+    if not config:
+        abort(404)
+    table, module, endpoint = config
+    if not module_allowed(module, 'supprimer'):
+        abort(403)
+    con = db()
+    row = con.execute(f'SELECT id FROM {table} WHERE id=? AND deleted_at IS NULL', (record_id,)).fetchone()
+    if not row:
+        con.close(); flash('Élément introuvable ou déjà supprimé.', 'warning'); return redirect(request.referrer or url_for(endpoint))
+    try:
+        con.execute(f'UPDATE {table} SET deleted_at=?, deleted_by=? WHERE id=?', (now(), current_user()['id'], record_id))
+        con.commit()
+        log_action(current_user()['id'], 'Suppression logique', table, record_id, entity)
+        flash('Élément supprimé. Il reste traçable dans le journal.', 'success')
+    except Exception as exc:
+        con.rollback(); logging.exception('Erreur suppression %s/%s: %s', entity, record_id, exc); flash('La suppression a échoué.', 'danger')
+    finally:
+        con.close()
+    return redirect(request.referrer or url_for(endpoint))
+
+@app.route('/admin/executive-numbers', methods=['GET','POST'])
+@login_required
+@role_required('super_admin','president','secretary','national_secretary')
+def executive_numbers_page():
+    con=db(); user=current_user()
+    if request.method=='POST':
+        action=request.form.get('action','reserve')
+        if action=='reserve':
+            number=request.form.get('number','').strip(); position=request.form.get('position_name','').strip()
+            if not number or not position: flash('Numéro et fonction obligatoires.','warning')
+            else:
+                try:
+                    con.execute('INSERT INTO executive_numbers(number,position_name,status,notes,created_at,created_by) VALUES(?,?,?,?,?,?)',(number,position,'reserved',request.form.get('notes',''),now(),user['id']))
+                    con.commit(); flash('Numéro institutionnel réservé.','success')
+                except sqlite3.IntegrityError: flash('Ce numéro est déjà réservé.','danger')
+        elif action=='assign':
+            row_id=request.form.get('row_id',type=int); member_id=request.form.get('member_id',type=int)
+            row=con.execute('SELECT * FROM executive_numbers WHERE id=? AND deleted_at IS NULL',(row_id,)).fetchone()
+            member=con.execute("SELECT * FROM members WHERE id=? AND deleted_at IS NULL AND status='active'",(member_id,)).fetchone()
+            if not row or not member: flash('Numéro ou membre invalide.','danger')
+            else:
+                con.execute("UPDATE executive_numbers SET member_id=?,status='assigned',assigned_at=?,assigned_by=?,updated_at=? WHERE id=?",(member_id,now(),user['id'],now(),row_id))
+                con.execute('UPDATE members SET executive_number=?,executive_position=?,updated_at=? WHERE id=?',(row['number'],row['position_name'],now(),member_id))
+                con.commit(); log_action(user['id'],'Attribution numéro haut cadre','member',member_id,row['number']); flash('Numéro attribué au haut cadre.','success')
+        elif action=='release':
+            row_id=request.form.get('row_id',type=int); row=con.execute('SELECT * FROM executive_numbers WHERE id=?',(row_id,)).fetchone()
+            if row:
+                if row['member_id']: con.execute('UPDATE members SET executive_number=NULL,executive_position=NULL,updated_at=? WHERE id=?',(now(),row['member_id']))
+                con.execute("UPDATE executive_numbers SET member_id=NULL,status='reserved',released_at=?,updated_at=? WHERE id=?",(now(),now(),row_id)); con.commit(); flash('Numéro libéré et conservé comme réservé.','success')
+    rows=con.execute("SELECT e.*,m.code member_code,m.first_name,m.last_name FROM executive_numbers e LEFT JOIN members m ON m.id=e.member_id WHERE e.deleted_at IS NULL ORDER BY CAST(e.number AS INTEGER),e.number").fetchall()
+    members=con.execute("SELECT id,code,first_name,last_name,province FROM members WHERE deleted_at IS NULL AND status='active' ORDER BY last_name,first_name").fetchall(); con.close()
+    return render_template('executive_numbers.html',rows=rows,members=members)
+
+@app.route('/health/cards', methods=['GET','POST'])
+@login_required
+@module_permission_required('cartes_sanitaires','voir')
+def health_cards_page():
+    con=db(); user=current_user()
+    if request.method=='POST':
+        action=request.form.get('action','request'); rid=request.form.get('request_id',type=int)
+        if action=='request':
+            staff_id=request.form.get('staff_id',type=int)
+            staff=con.execute("SELECT hs.*,hc.province,hc.id center_id FROM health_staff hs JOIN health_centers hc ON hc.id=hs.center_id WHERE hs.id=? AND hs.deleted_at IS NULL",(staff_id,)).fetchone()
+            if not staff: flash('Affectation sanitaire introuvable.','danger')
+            else:
+                code=_next_code('CARTE-SANTE','health_card_requests')
+                con.execute('INSERT INTO health_card_requests(request_code,staff_id,center_id,province,reason,status,requested_at,requested_by,notes) VALUES(?,?,?,?,?,?,?,?,?)',(code,staff_id,staff['center_id'],staff['province'],request.form.get('reason','creation'),'requested',now(),user['id'],request.form.get('notes',''))); con.commit(); flash('Demande de carte transmise.','success')
+        else:
+            row=con.execute('SELECT * FROM health_card_requests WHERE id=? AND deleted_at IS NULL',(rid,)).fetchone()
+            if not row: flash('Demande introuvable.','danger')
+            elif action=='province_validate' and (user['role'] in PROVINCIAL_ROLES or user['role'] in NATIONAL_ROLES):
+                con.execute("UPDATE health_card_requests SET status='provincial_validated',provincial_review_at=?,provincial_review_by=? WHERE id=?",(now(),user['id'],rid)); con.commit(); flash('Demande validée au niveau provincial.','success')
+            elif action=='national_approve' and user['role'] in NATIONAL_ROLES:
+                card_no=request.form.get('card_number','').strip() or f"SANTE-{datetime.now().year}-{rid:06d}"
+                expires=request.form.get('expires_at') or (datetime.now()+timedelta(days=365)).strftime('%Y-%m-%d')
+                con.execute("UPDATE health_card_requests SET status='approved',national_approval_at=?,national_approval_by=?,card_number=?,expires_at=? WHERE id=?",(now(),user['id'],card_no,expires,rid)); con.commit(); flash('Carte approuvée par l’administration centrale.','success')
+            elif action=='printed' and user['role'] in NATIONAL_ROLES:
+                con.execute("UPDATE health_card_requests SET status='printed',printed_at=?,printed_by=? WHERE id=?",(now(),user['id'],rid)); con.commit(); flash('Impression enregistrée.','success')
+            elif action=='delivered' and user['role'] in NATIONAL_ROLES:
+                con.execute("UPDATE health_card_requests SET status='delivered',delivered_at=?,delivered_by=? WHERE id=?",(now(),user['id'],rid)); con.commit(); flash('Remise de la carte enregistrée.','success')
+    where=''; args=[]
+    if user['role'] in PROVINCIAL_ROLES: where=' WHERE hc.province=?'; args=[user['province'] or '']
+    staff=con.execute("SELECT hs.id,m.code,m.first_name,m.last_name,hc.name center_name,hc.province FROM health_staff hs JOIN members m ON m.id=hs.member_id JOIN health_centers hc ON hc.id=hs.center_id"+where+' ORDER BY m.last_name,m.first_name',args).fetchall()
+    req_where=' WHERE r.deleted_at IS NULL'; req_args=[]
+    if user['role'] in PROVINCIAL_ROLES: req_where+=' AND r.province=?'; req_args=[user['province'] or '']
+    rows=con.execute("SELECT r.*,m.code member_code,m.first_name,m.last_name,hc.name center_name,hr.name role_name FROM health_card_requests r JOIN health_staff hs ON hs.id=r.staff_id JOIN members m ON m.id=hs.member_id JOIN health_centers hc ON hc.id=r.center_id JOIN health_roles hr ON hr.id=hs.role_id"+req_where+' ORDER BY r.requested_at DESC',req_args).fetchall(); con.close()
+    return render_template('health_cards.html',rows=rows,staff=staff)
+
+@app.route('/health/cards/<int:request_id>/print')
+@login_required
+@role_required('super_admin','president','secretary','national_secretary')
+def health_card_print(request_id):
+    con=db(); row=con.execute("SELECT r.*,m.code member_code,m.first_name,m.last_name,m.photo_path,hc.name center_name,hc.logo_path center_logo,hr.name role_name,hs.specialty FROM health_card_requests r JOIN health_staff hs ON hs.id=r.staff_id JOIN members m ON m.id=hs.member_id JOIN health_centers hc ON hc.id=r.center_id JOIN health_roles hr ON hr.id=hs.role_id WHERE r.id=? AND r.deleted_at IS NULL",(request_id,)).fetchone(); con.close()
+    if not row or row['status'] not in ('approved','printed','delivered'): abort(404)
+    return render_template('print_health_card.html',row=row)
+
+@app.route('/health/patients/<int:patient_id>/print')
+@login_required
+@module_permission_required('patients','imprimer')
+def patient_print(patient_id):
+    con=db(); row=con.execute("SELECT p.*,hc.name center_name,hc.logo_path center_logo,hc.logo_path logo_path,hc.header_title,hc.header_subtitle,hc.header_address,hc.header_contact,hc.footer_note FROM patients p JOIN health_centers hc ON hc.id=p.center_id WHERE p.id=? AND p.deleted_at IS NULL",(patient_id,)).fetchone(); con.close()
+    if not row: abort(404)
+    return render_template('print_patient.html',row=row,branding=get_health_branding(row))
+
+@app.route('/health/consultations/<int:consultation_id>/print')
+@login_required
+@module_permission_required('consultations','imprimer')
+def consultation_print(consultation_id):
+    con=db(); row=con.execute("SELECT co.*,p.patient_code,p.first_name,p.last_name,hc.name center_name,hc.logo_path center_logo,hc.logo_path logo_path,hc.header_title,hc.header_subtitle,hc.header_address,hc.header_contact,hc.footer_note FROM consultations co JOIN patients p ON p.id=co.patient_id JOIN health_centers hc ON hc.id=co.center_id WHERE co.id=? AND co.deleted_at IS NULL",(consultation_id,)).fetchone(); con.close()
+    if not row: abort(404)
+    return render_template('print_consultation.html',row=row,branding=get_health_branding(row))
 
 @app.errorhandler(403)
 def forbidden(_):
@@ -4225,8 +5562,24 @@ def restore_deleted_member(item_id):
 @login_required
 @role_required('super_admin','president','secretary','national_secretary')
 def audit_center():
-    con=db(); rows=con.execute("SELECT a.*,u.email,u.first_name,u.last_name FROM audit_logs a LEFT JOIN users u ON u.id=a.user_id ORDER BY a.created_at DESC LIMIT 500").fetchall(); con.close()
-    return render_template('audit_center.html',rows=rows)
+    q=request.args.get('q','').strip(); action=request.args.get('action','').strip(); status=request.args.get('status','').strip()
+    where=['1=1']; params=[]
+    if q:
+        like=f'%{q}%'; where.append('(u.first_name LIKE ? OR u.last_name LIKE ? OR u.email LIKE ? OR a.action LIKE ? OR a.details LIKE ?)'); params += [like]*5
+    if action:
+        where.append('a.action=?'); params.append(action)
+    if status:
+        where.append('a.status=?'); params.append(status)
+    con=db()
+    rows=con.execute(f"""SELECT a.*,u.email,u.first_name,u.last_name,u.role,u.province
+                         FROM audit_logs a LEFT JOIN users u ON u.id=a.user_id
+                         WHERE {' AND '.join(where)} ORDER BY a.created_at DESC LIMIT 1000""",params).fetchall()
+    actions=con.execute('SELECT DISTINCT action FROM audit_logs ORDER BY action').fetchall()
+    stats=con.execute("""SELECT COUNT(*) total, COUNT(DISTINCT user_id) users,
+                       SUM(CASE WHEN status='success' OR status IS NULL THEN 1 ELSE 0 END) success_count,
+                       SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) failed_count FROM audit_logs""").fetchone()
+    con.close()
+    return render_template('audit_center.html',rows=rows,actions=actions,stats=stats,q=q,selected_action=action,selected_status=status)
 
 @app.route('/admin/diagnostic')
 @login_required

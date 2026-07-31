@@ -9,3 +9,5 @@ phonenumbers>=8.13
 pycountry>=24.6
 Pillow>=10.0
 qrcode>=7.4
+
+webauthn==2.7.1

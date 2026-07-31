@@ -40,15 +40,15 @@
       <label>Photo du membre</label>
       <div class="camera-preview"><img class="captured-photo" alt="Aperçu photo"><span>PHOTO</span></div>
       <div class="camera-actions">
-        <label class="btn secondary file-btn">Importer une photo<input type="file" name="photo" accept="image/*" capture="user" class="photo-file-input"></label>
-        <button type="button" class="btn secondary open-camera">Prendre une photo</button>
-        <button type="button" class="btn danger clear-photo">Supprimer</button>
+        <label class="btn secondary file-btn">Choisir dans la galerie<input type="file" name="photo" accept="image/*" class="photo-file-input"></label>
+        <label class="btn secondary file-btn">Caméra du téléphone<input type="file" accept="image/*" capture="environment" class="photo-file-input camera-file-input"></label><button type="button" class="btn secondary open-camera">Caméra en direct</button>
+        <button type="button" class="btn danger clear-photo">Supprimer</button><small class="field-help">Après importation ou capture, vous pouvez rogner la photo au format passeport.</small>
       </div>
       <video class="camera-video" playsinline autoplay hidden></video>
       <canvas class="camera-canvas" hidden></canvas>
       <input type="hidden" name="photo_capture" class="photo-capture-data">
       <button type="button" class="btn primary take-snapshot" hidden>Capturer maintenant</button>
-      <small>La photo prise ou importée se place automatiquement dans la case prévue.</small>
+      <small>Choisissez une image de la galerie, utilisez directement la caméra du téléphone ou ouvrez la caméra en direct. Un aperçu est affiché avant enregistrement.</small>
     </div>
     <label>Lieu de naissance <input name="birth_place" placeholder="Ex. Kinshasa"></label>
     <label>Date de naissance <input type="date" name="birth_date"></label>

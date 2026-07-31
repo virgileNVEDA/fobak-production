@@ -57,6 +57,48 @@
   </article>
 </section>
 
+
+<section class="dashboard-module-catalog">
+  <div class="section-heading"><span class="eyebrow">Navigation complète</span><h2>Tous les modules de votre espace</h2><p>Les rubriques sont classées comme dans le menu latéral et filtrées selon vos autorisations.</p></div>
+  <div class="module-groups">
+    <article class="module-group"><h3>👥 Gestion associative</h3><div class="module-card-grid">
+      {% if module_allowed('membres','voir') %}<a href="{{url_for('members')}}"><span>👥</span><strong>Membres</strong><small>Registre et cartes</small></a>{% endif %}
+      {% if module_allowed('adhesions','voir') %}<a href="{{url_for('applications')}}"><span>🪪</span><strong>Adhésions</strong><small>Demandes et validation</small></a>{% endif %}
+      {% if module_allowed('cotisations','voir') %}<a href="{{url_for('payments')}}"><span>💰</span><strong>Cotisations</strong><small>Paiements et reçus</small></a>{% endif %}
+      {% if module_allowed('tresorerie','voir') %}<a href="{{url_for('treasury_page')}}"><span>🏦</span><strong>Trésorerie</strong><small>Recettes et dépenses</small></a>{% endif %}
+      {% if module_allowed('activites','voir') %}<a href="{{url_for('manage_activities')}}"><span>📅</span><strong>Activités</strong><small>Publications</small></a>{% endif %}
+      {% if module_allowed('projets','voir') %}<a href="{{url_for('projects_page')}}"><span>🚀</span><strong>Projets</strong><small>Programmes FOBAK</small></a>{% endif %}
+      {% if module_allowed('documents','voir') %}<a href="{{url_for('documents_page')}}"><span>📁</span><strong>Documents</strong><small>Archives et pièces</small></a>{% endif %}
+      {% if module_allowed('statuts','voir') %}<a href="{{url_for('manage_statutes')}}"><span>📘</span><strong>Statuts</strong><small>Textes officiels</small></a>{% endif %}
+    </div></article>
+    <article class="module-group"><h3>🏛️ Services de la Fondation</h3><div class="module-card-grid">
+      {% if module_allowed('services','voir') %}<a href="{{url_for('foundation_services_page')}}"><span>🧩</span><strong>Services</strong><small>Ajouter et configurer</small></a>{% endif %}
+      {% if module_allowed('centres_sante','voir') %}<a href="{{url_for('health_dashboard')}}"><span>🏥</span><strong>Centre de santé</strong><small>Réseau sanitaire national</small></a>{% endif %}
+      {% if module_allowed('personnel_sante','voir') %}<a href="{{url_for('health_staff_page')}}"><span>👩🏽‍⚕️</span><strong>Personnel sanitaire</strong><small>Membres affectés</small></a>{% endif %}
+      {% if module_allowed('patients','voir') %}<a href="{{url_for('patients_page')}}"><span>🧑🏽</span><strong>Patients</strong><small>Dossiers patients</small></a>{% endif %}
+      {% if module_allowed('consultations','voir') %}<a href="{{url_for('consultations_page')}}"><span>📋</span><strong>Consultations</strong><small>Suivi clinique</small></a>{% endif %}
+      {% if module_allowed('laboratoire','voir') %}<a href="{{url_for('health_operations_page')}}#laboratoire"><span>🧪</span><strong>Laboratoire</strong><small>Demandes et résultats</small></a>{% endif %}
+      {% if module_allowed('pharmacie','voir') %}<a href="{{url_for('health_operations_page')}}#pharmacie"><span>💊</span><strong>Pharmacie</strong><small>Produits et délivrance</small></a>{% endif %}
+      {% if module_allowed('hospitalisation','voir') %}<a href="{{url_for('health_operations_page')}}#hospitalisation"><span>🛏️</span><strong>Hospitalisation</strong><small>Lits et admissions</small></a>{% endif %}
+      {% if module_allowed('facturation','voir') %}<a href="{{url_for('health_operations_page')}}#facturation"><span>🧾</span><strong>Facturation santé</strong><small>Factures et paiements</small></a>{% endif %}
+      {% if module_allowed('modeles_fiches','voir') %}<a href="{{url_for('medical_forms_page')}}"><span>🗂️</span><strong>Modèles de fiches</strong><small>Créer ou importer</small></a>{% endif %}
+      {% if module_allowed('qualite_donnees','voir') %}<a href="{{url_for('health_data_quality_page')}}"><span>📊</span><strong>Qualité des données</strong><small>Contrôle national</small></a>{% endif %}
+    </div></article>
+    <article class="module-group"><h3>🔔 Communication et assistance</h3><div class="module-card-grid">
+      {% if module_allowed('alertes','voir') %}<a href="{{url_for('alerts_page')}}"><span>🚨</span><strong>Alertes</strong><small>Échéances et anomalies</small></a>{% endif %}{% if module_allowed('notifications','voir') %}<a href="{{url_for('notifications')}}"><span>🔔</span><strong>Notifications</strong><small>Messages et suivi</small></a>{% endif %}
+      {% if module_allowed('support','voir') %}<a href="{{url_for('support_tickets_page')}}"><span>🛟</span><strong>Support</strong><small>Tickets techniques</small></a>{% endif %}
+      {% if module_allowed('anniversaires','voir') %}<a href="{{url_for('anniversaries_page')}}"><span>🎂</span><strong>Anniversaires</strong><small>Rappels des membres</small></a>{% endif %}
+      <a href="{{url_for('my_profile')}}"><span>👤</span><strong>Mon profil</strong><small>Compte et carte</small></a><a href="{{url_for('intelligent_help')}}"><span>🤖</span><strong>Aide intelligente</strong><small>Assistance guidée</small></a><a href="{{url_for('quick_guide')}}"><span>📖</span><strong>Guide rapide</strong><small>Prise en main</small></a><a href="{{url_for('index')}}"><span>🌐</span><strong>Site public</strong><small>Voir la vitrine FOBAK</small></a>
+    </div></article>
+    {% if session.role in ['super_admin','president','secretary','national_secretary'] %}<article class="module-group"><h3>🛡️ Administration et sécurité</h3><div class="module-card-grid">
+      {% if module_allowed('utilisateurs','voir') %}<a href="{{url_for('users_page')}}"><span>👤</span><strong>Utilisateurs</strong><small>Comptes et accès</small></a>{% endif %}
+      {% if session.role=='super_admin' %}<a href="{{url_for('roles_permissions_page')}}"><span>☑️</span><strong>Droits personnalisés</strong><small>Tous les modules</small></a>{% endif %}
+      <a href="{{url_for('year_closure')}}"><span>📦</span><strong>Clôture d’exercice</strong><small>Archivage annuel</small></a><a href="{{url_for('production_center_admin')}}"><span>🛡️</span><strong>Production</strong><small>Sauvegarde et sécurité</small></a><a href="{{url_for('synchronization_center')}}"><span>🔄</span><strong>Synchronisation</strong><small>Données et conflits</small></a><a href="{{url_for('recycle_bin')}}"><span>🗑️</span><strong>Corbeille</strong><small>Restaurer les éléments</small></a><a href="{{url_for('audit_center')}}"><span>🧾</span><strong>Journal d’audit</strong><small>Traçabilité</small></a><a href="{{url_for('diagnostic_center')}}"><span>🩺</span><strong>Diagnostic général</strong><small>État de l’application</small></a>{% if session.role=='super_admin' %}<a href="{{url_for('setup_wizard')}}"><span>🧭</span><strong>Assistant démarrage</strong><small>Configuration guidée</small></a>{% endif %}
+      {% if session.role=='super_admin' %}<a href="{{url_for('settings_page')}}"><span>⚙️</span><strong>Paramètres</strong><small>Configuration générale</small></a>{% endif %}
+    </div></article>{% endif %}
+  </div>
+</section>
+
 <section class="admin-action-grid">
   <a class="admin-shortcut primary" href="{{ url_for('new_member') }}"><span>➕</span><strong>Ajouter membre localement</strong><small>Enregistrement rapide au bureau</small></a>
   <a class="admin-shortcut" href="{{ url_for('applications') }}"><span>🪪</span><strong>Demandes d'adhésion</strong><small>Accepter ou rejeter</small></a>

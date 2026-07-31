@@ -1,0 +1,35 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="dashboard-welcome"><div><span class="eyebrow">Dossier clinique</span><h1>Fiche de consultation</h1><p>Constantes, examen, diagnostic, traitement et suivi avec en-tête harmonisé.</p></div><div class="dashboard-seal">📋</div></section>
+<section class="card health-form-card">
+  <div class="sheet-header-clean">
+    <div class="sheet-logo-stack"><div class="sheet-center-placeholder">SERVICE</div></div>
+    <div class="sheet-title-stack"><h2>Consultation médicale</h2><p>Formulaire propre, lisible et prêt pour impression avec identité configurable du centre.</p></div>
+    <div class="sheet-logo-stack">{% if settings.logo_path %}<img src="{{ url_for('static', filename=settings.logo_path) }}" class="sheet-foundation-logo" alt="FOBAK">{% endif %}</div>
+  </div>
+  <form method="post" class="form-grid adhesion-inspired-form clean-form-grid">
+    <label>Patient<select name="patient_id" required>{% for p in patients %}<option value="{{ p.id }}">{{ p.patient_code }} — {{ p.last_name }} {{ p.first_name }}</option>{% endfor %}</select></label>
+    <label>Consultant<select name="staff_id"><option value="">Non précisé</option>{% for s in staff %}<option value="{{ s.id }}">{{ s.last_name }} {{ s.first_name }} — {{ s.role_name }}</option>{% endfor %}</select></label>
+    <label>Date<input name="consultation_date" type="date"></label>
+    <label>Température<input name="temperature"></label>
+    <label>Tension artérielle<input name="blood_pressure"></label>
+    <label>Fréquence cardiaque<input name="heart_rate"></label>
+    <label>Fréquence respiratoire<input name="respiratory_rate"></label>
+    <label>Poids<input name="weight"></label>
+    <label>Taille<input name="height"></label>
+    <label class="full">Motif<input name="reason" required></label>
+    <label class="full">Plaintes<textarea name="complaints"></textarea></label>
+    <label class="full">Histoire de la maladie<textarea name="disease_history"></textarea></label>
+    <label class="full">Examen clinique<textarea name="clinical_exam"></textarea></label>
+    <label class="full">Diagnostic<textarea name="diagnosis" required></textarea></label>
+    <label class="full">Examens demandés<textarea name="requested_tests"></textarea></label>
+    <label class="full">Traitement / prescription<textarea name="treatment"></textarea></label>
+    <label>Orientation<input name="orientation"></label>
+    <label>Prochain rendez-vous<input name="next_appointment" type="date"></label>
+    <label class="full">Observations<textarea name="notes"></textarea></label>
+    <button class="btn primary">Enregistrer la consultation</button>
+  </form>
+  <div class="sheet-footer-clean"><div><strong>Conseil :</strong> évitez toute superposition en gardant les observations synthétiques et structurées.</div><div><strong>Impression :</strong> les futures fiches imprimées reprennent l'identité visuelle du centre.</div></div>
+</section>
+<section class="card"><div class="table-wrap"><table><thead><tr><th>Code</th><th>Date</th><th>Patient</th><th>Centre</th><th>Diagnostic</th><th>Statut</th><th>Actions</th></tr></thead><tbody>{% for r in rows %}<tr><td>{{ r.consultation_code }}</td><td>{{ r.consultation_date }}</td><td>{{ r.patient_code }} — {{ r.last_name }} {{ r.first_name }}</td><td>{{ r.center_name }}</td><td>{{ r.diagnosis }}</td><td>{{ r.status }}</td><td>{% if module_allowed('consultations','imprimer') %}<a class="btn secondary small" target="_blank" href="{{ url_for('consultation_print',consultation_id=r.id) }}">Imprimer</a>{% endif %}{% if module_allowed('consultations','supprimer') %}<form method="post" action="{{ url_for('universal_delete',entity='consultation',record_id=r.id) }}" onsubmit="return confirm('Confirmer la suppression ?')"><button class="btn danger small">Supprimer</button></form>{% endif %}</td></tr>{% endfor %}</tbody></table></div></section>
+{% endblock %}

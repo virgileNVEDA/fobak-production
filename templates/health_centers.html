@@ -1,0 +1,38 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="dashboard-welcome"><div><span class="eyebrow">Santé</span><h1>Centres de santé</h1><p>Créez les structures rattachées aux provinces et personnalisez leurs en-têtes de documents.</p></div><div class="dashboard-seal">🏥</div></section>
+<section class="card health-form-card">
+  <div class="sheet-header-clean">
+    <div class="sheet-logo-stack">{% if settings.logo_path %}<img src="{{ url_for('static', filename=settings.logo_path) }}" class="sheet-foundation-logo" alt="FOBAK">{% endif %}</div>
+    <div class="sheet-title-stack"><h2>Configuration d'un centre de santé</h2><p>Le titre, le logo et les coordonnées ci-dessous seront repris dans les fiches et rapports du centre.</p></div>
+    <div class="sheet-flag-stack"><img src="{{ url_for('static', filename=rdc_flag_rel) }}" alt="RDC"></div>
+  </div>
+  <form method="post" enctype="multipart/form-data" class="form-grid adhesion-inspired-form clean-form-grid">
+    <label>Nom du centre<input name="name" required></label>
+    <label>Code facultatif<input name="code"></label>
+    <label>Province<select name="province" required>{% for p in provinces %}<option>{{ p }}</option>{% endfor %}</select></label>
+    <label>Territoire / ville<input name="territory"></label>
+    <label>Commune<input name="commune"></label>
+    <label>Téléphone<input name="phone"></label>
+    <label>Email<input name="email" type="email"></label>
+    <label>Date d'ouverture<input name="opening_date" type="date"></label>
+    <label class="full">Adresse administrative<textarea name="address"></textarea></label>
+    <h3 class="section-line full">En-tête personnalisable des fiches et rapports</h3>
+    <label>Titre principal<input name="header_title" placeholder="Ex. Centre de Santé FOBAK Kasa-Vubu"></label>
+    <label>Sous-titre / service<input name="header_subtitle" placeholder="Ex. Consultation et renseignements du patient"></label>
+    <label class="full">Adresse à afficher dans l'en-tête<textarea name="header_address" placeholder="Adresse complète du centre"></textarea></label>
+    <label class="full">Contacts à afficher<textarea name="header_contact" placeholder="Téléphones, e-mail, WhatsApp"></textarea></label>
+    <label>Logo du centre (à gauche)<input name="logo" type="file" accept="image/*"></label>
+    <label class="full">Note de bas de page<textarea name="footer_note" placeholder="Informations complémentaires du centre"></textarea></label>
+    <button class="btn primary">Créer le centre</button>
+  </form>
+</section>
+<section class="card">
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Code</th><th>Centre</th><th>Province</th><th>Localisation</th><th>Contact</th><th>En-tête</th><th>État</th><th>Actions</th></tr></thead>
+      <tbody>{% for r in rows %}<tr><td>{{ r.code }}</td><td><strong>{{ r.name }}</strong></td><td>{{ r.province }}</td><td>{{ r.territory }} {{ r.commune }}</td><td>{{ r.phone }}</td><td>{{ r.header_title or 'Par défaut FOBAK' }}</td><td>{{ 'Actif' if r.active else 'Suspendu' }}</td><td>{% if module_allowed('centres_sante','supprimer') %}<form method="post" action="{{ url_for('universal_delete',entity='health_center',record_id=r.id) }}" onsubmit="return confirm('Supprimer ce centre ?')"><button class="btn danger small">Supprimer</button></form>{% endif %}</td></tr>{% endfor %}</tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

@@ -1,0 +1,23 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="dashboard-welcome"><div><span class="eyebrow">Condition obligatoire</span><h1>Personnel sanitaire</h1><p>Seuls les membres actifs de la Fondation peuvent être affectés aux centres.</p></div><div class="dashboard-seal">👩🏽‍⚕️</div></section>
+<section class="card health-form-card">
+  <div class="sheet-header-clean">
+    <div class="sheet-logo-stack"><div class="sheet-center-placeholder">RH</div></div>
+    <div class="sheet-title-stack"><h2>Affectation du personnel sanitaire</h2><p>Organisation claire du personnel par rôle, centre et province.</p></div>
+    <div class="sheet-logo-stack">{% if settings.logo_path %}<img src="{{ url_for('static', filename=settings.logo_path) }}" class="sheet-foundation-logo" alt="FOBAK">{% endif %}</div>
+  </div>
+  <form method="post" class="form-grid adhesion-inspired-form clean-form-grid">
+    <label>Membre actif<select name="member_id" required><option value="">Choisir</option>{% for m in members %}<option value="{{ m.id }}">{{ m.code }} — {{ m.last_name }} {{ m.first_name }} ({{ m.province }})</option>{% endfor %}</select></label>
+    <label>Centre<select name="center_id" required>{% for c in centers %}<option value="{{ c.id }}">{{ c.province }} — {{ c.name }}</option>{% endfor %}</select></label>
+    <label>Rôle<select name="role_id" required>{% for r in roles %}<option value="{{ r.id }}">{{ r.name }}</option>{% endfor %}</select></label>
+    <label>Spécialité<input name="specialty"></label>
+    <label>N° professionnel<input name="professional_number"></label>
+    <label>Diplôme<input name="diploma"></label>
+    <label>Date d'engagement<input name="engagement_date" type="date"></label>
+    <button class="btn primary">Affecter le membre</button>
+  </form>
+  <div class="sheet-footer-clean"><div><strong>Rappel :</strong> les rôles du centre restent personnalisables dans l'application.</div><div><strong>Contrôle :</strong> seuls les membres actifs peuvent être affectés.</div></div>
+</section>
+<section class="card"><div class="table-wrap"><table><thead><tr><th>Membre</th><th>Centre</th><th>Province</th><th>Rôle</th><th>Spécialité</th><th>Statut</th><th>Actions</th></tr></thead><tbody>{% for r in rows %}<tr><td>{{ r.member_code }} — <strong>{{ r.last_name }} {{ r.first_name }}</strong></td><td>{{ r.center_name }}</td><td>{{ r.province }}</td><td>{{ r.role_name }}</td><td>{{ r.specialty }}</td><td>{{ r.status }}</td><td>{% if module_allowed('personnel_sante','supprimer') %}<form method="post" action="{{ url_for('universal_delete',entity='health_staff',record_id=r.id) }}" onsubmit="return confirm('Confirmer la suppression ?')"><button class="btn danger small">Supprimer</button></form>{% endif %}</td></tr>{% endfor %}</tbody></table></div></section>
+{% endblock %}

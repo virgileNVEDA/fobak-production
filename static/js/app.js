@@ -56,7 +56,8 @@ window.addEventListener('pageshow', () => {
 // Fonctionne sur localhost et en HTTPS. Sur une adresse réseau en HTTP, le navigateur peut bloquer la caméra.
 document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('.photo-capture-widget').forEach((widget) => {
-    const file = widget.querySelector('.photo-file-input');
+    const files = widget.querySelectorAll('.photo-file-input');
+    const file = files[0];
     const img = widget.querySelector('.captured-photo');
     const placeholder = widget.querySelector('.camera-preview span');
     const video = widget.querySelector('.camera-video');
@@ -71,8 +72,32 @@ document.addEventListener('DOMContentLoaded', () => {
     status.setAttribute('role', 'status');
     actions?.insertAdjacentElement('afterend', status);
 
+    const cropPanel = document.createElement('div');
+    cropPanel.className = 'passport-cropper';
+    cropPanel.innerHTML = `
+      <div class="passport-cropper-title">Rognage au format passeport</div>
+      <div class="passport-cropper-body">
+        <canvas class="passport-cropper-preview" width="180" height="240"></canvas>
+        <div class="passport-cropper-controls">
+          <label>Zoom <input type="range" class="crop-zoom" min="1" max="3" step="0.01" value="1"></label>
+          <label>Gauche / droite <input type="range" class="crop-x" min="-100" max="100" step="1" value="0"></label>
+          <label>Haut / bas <input type="range" class="crop-y" min="-100" max="100" step="1" value="0"></label>
+          <div class="passport-cropper-actions"><button type="button" class="btn primary crop-apply">Appliquer le cadrage</button><button type="button" class="btn secondary crop-reset">Réinitialiser</button></div>
+        </div>
+      </div>
+      <small>Le cadrage final respecte automatiquement la forme passeport (3 x 4).</small>`;
+    status.insertAdjacentElement('afterend', cropPanel);
+
+    const cropCanvas = cropPanel.querySelector('.passport-cropper-preview');
+    const cropZoom = cropPanel.querySelector('.crop-zoom');
+    const cropX = cropPanel.querySelector('.crop-x');
+    const cropY = cropPanel.querySelector('.crop-y');
+    const cropApply = cropPanel.querySelector('.crop-apply');
+    const cropReset = cropPanel.querySelector('.crop-reset');
+
     let stream = null;
     let objectUrl = '';
+    let sourceImage = null;
 
     const setStatus = (message = '', type = '') => {
       status.textContent = message;
@@ -81,132 +106,121 @@ document.addEventListener('DOMContentLoaded', () => {
     const stopCamera = () => {
       if (stream) stream.getTracks().forEach((track) => track.stop());
       stream = null;
-      if (video) {
-        video.pause();
-        video.srcObject = null;
-        video.hidden = true;
-      }
+      if (video) { video.pause(); video.srcObject = null; video.hidden = true; }
       if (snapBtn) snapBtn.hidden = true;
     };
     const showImage = (src) => {
       if (!img) return;
-      img.src = src;
-      img.style.display = 'block';
+      img.src = src; img.style.display = 'block';
       if (placeholder) placeholder.style.display = 'none';
     };
     const resetImage = () => {
       if (objectUrl) URL.revokeObjectURL(objectUrl);
       objectUrl = '';
+      sourceImage = null;
       img?.removeAttribute('src');
       if (img) img.style.display = 'none';
       if (placeholder) placeholder.style.display = '';
       if (data) data.value = '';
       if (file) file.value = '';
+      cropPanel.classList.remove('active');
     };
+    const drawCropPreview = () => {
+      if (!sourceImage) return;
+      const ctx = cropCanvas.getContext('2d');
+      const targetW = cropCanvas.width;
+      const targetH = cropCanvas.height;
+      const zoom = parseFloat(cropZoom.value || '1');
+      const scale = Math.max(targetW / sourceImage.width, targetH / sourceImage.height) * zoom;
+      const drawW = sourceImage.width * scale;
+      const drawH = sourceImage.height * scale;
+      const rangeX = Math.max(0, drawW - targetW);
+      const rangeY = Math.max(0, drawH - targetH);
+      const dx = (targetW - drawW) / 2 - (parseFloat(cropX.value || '0') / 100) * (rangeX / 2);
+      const dy = (targetH - drawH) / 2 - (parseFloat(cropY.value || '0') / 100) * (rangeY / 2);
+      ctx.clearRect(0, 0, targetW, targetH);
+      ctx.fillStyle = '#f6fbff';
+      ctx.fillRect(0, 0, targetW, targetH);
+      ctx.drawImage(sourceImage, dx, dy, drawW, drawH);
+      ctx.strokeStyle = '#0b5fa5';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(1.5, 1.5, targetW - 3, targetH - 3);
+    };
+    const openCropper = (src, message) => {
+      const im = new Image();
+      im.onload = () => {
+        sourceImage = im;
+        cropZoom.value = '1'; cropX.value = '0'; cropY.value = '0';
+        cropPanel.classList.add('active');
+        drawCropPreview();
+        setStatus(message || 'Ajustez la photo puis appliquez le cadrage.', 'info');
+      };
+      im.src = src;
+    };
+    const applyCrop = () => {
+      if (!sourceImage) return;
+      drawCropPreview();
+      const finalCanvas = document.createElement('canvas');
+      finalCanvas.width = 600; finalCanvas.height = 800;
+      finalCanvas.getContext('2d').drawImage(cropCanvas, 0, 0, finalCanvas.width, finalCanvas.height);
+      const src = finalCanvas.toDataURL('image/jpeg', 0.92);
+      if (data) data.value = src;
+      if (file) file.value = '';
+      showImage(src);
+      cropPanel.classList.remove('active');
+      setStatus('Photo adaptée au format passeport et prête pour le formulaire.', 'success');
+    };
+
+    [cropZoom, cropX, cropY].forEach((control) => control.addEventListener('input', drawCropPreview));
+    cropApply.addEventListener('click', applyCrop);
+    cropReset.addEventListener('click', () => { cropZoom.value = '1'; cropX.value = '0'; cropY.value = '0'; drawCropPreview(); });
 
     file?.addEventListener('change', () => {
       const selected = file.files?.[0];
       if (!selected) return;
-      if (!selected.type.startsWith('image/')) {
-        setStatus('Le fichier choisi n’est pas une image valide.', 'error');
-        file.value = '';
-        return;
-      }
-      if (selected.size > 8 * 1024 * 1024) {
-        setStatus('La photo dépasse 8 Mo. Choisissez une image plus légère.', 'error');
-        file.value = '';
-        return;
-      }
+      if (!selected.type.startsWith('image/')) { setStatus('Le fichier choisi n’est pas une image valide.', 'error'); file.value = ''; return; }
+      if (selected.size > 8 * 1024 * 1024) { setStatus('La photo dépasse 8 Mo. Choisissez une image plus légère.', 'error'); file.value = ''; return; }
       stopCamera();
       if (objectUrl) URL.revokeObjectURL(objectUrl);
       objectUrl = URL.createObjectURL(selected);
-      showImage(objectUrl);
-      if (data) data.value = '';
-      setStatus('Photo importée avec succès.', 'success');
+      openCropper(objectUrl, 'Ajustez la photo importée avant validation.');
     });
 
     openBtn?.addEventListener('click', async () => {
       stopCamera();
-      if (!navigator.mediaDevices?.getUserMedia) {
-        setStatus('La capture directe n’est pas disponible dans ce navigateur. Ouvrez l’application sur localhost ou en HTTPS.', 'error');
-        return;
-      }
+      if (!navigator.mediaDevices?.getUserMedia) { setStatus('La capture directe n’est pas disponible dans ce navigateur. Ouvrez l’application sur localhost ou en HTTPS.', 'error'); return; }
       setStatus('Ouverture de la caméra…', 'info');
-      const attempts = [
-        { video: { facingMode: { ideal: 'user' }, width: { ideal: 1280 }, height: { ideal: 960 } }, audio: false },
-        { video: true, audio: false }
-      ];
+      const attempts = [{ video: { facingMode: { ideal: 'user' }, width: { ideal: 1280 }, height: { ideal: 960 } }, audio: false }, { video: true, audio: false }];
       let lastError = null;
-      for (const constraints of attempts) {
-        try {
-          stream = await navigator.mediaDevices.getUserMedia(constraints);
-          break;
-        } catch (error) {
-          lastError = error;
-        }
-      }
+      for (const constraints of attempts) { try { stream = await navigator.mediaDevices.getUserMedia(constraints); break; } catch (error) { lastError = error; } }
       if (!stream) {
-        const reason = lastError?.name === 'NotAllowedError'
-          ? 'Autorisation refusée. Autorisez la caméra dans la barre d’adresse puis réessayez.'
-          : lastError?.name === 'NotFoundError'
-            ? 'Aucune caméra n’a été détectée sur cet appareil.'
-            : lastError?.name === 'NotReadableError'
-              ? 'La caméra est déjà utilisée par une autre application.'
-              : 'Impossible d’ouvrir la caméra. Utilisez Importer une photo.';
-        setStatus(reason, 'error');
-        return;
+        const reason = lastError?.name === 'NotAllowedError' ? 'Autorisation refusée. Autorisez la caméra dans la barre d’adresse puis réessayez.' : lastError?.name === 'NotFoundError' ? 'Aucune caméra n’a été détectée sur cet appareil.' : lastError?.name === 'NotReadableError' ? 'La caméra est déjà utilisée par une autre application.' : 'Impossible d’ouvrir la caméra. Utilisez Importer une photo.';
+        setStatus(reason, 'error'); return;
       }
-      video.srcObject = stream;
-      video.hidden = false;
-      video.muted = true;
-      video.setAttribute('playsinline', '');
+      video.srcObject = stream; video.hidden = false; video.muted = true; video.setAttribute('playsinline', '');
       try {
         await video.play();
-        await new Promise((resolve) => {
-          if (video.readyState >= 2 && video.videoWidth) return resolve();
-          video.addEventListener('loadedmetadata', resolve, { once: true });
-          setTimeout(resolve, 2500);
-        });
+        await new Promise((resolve) => { if (video.readyState >= 2 && video.videoWidth) return resolve(); video.addEventListener('loadedmetadata', resolve, { once: true }); setTimeout(resolve, 2500); });
         snapBtn.hidden = false;
-        setStatus('Caméra prête. Placez le visage au centre, puis cliquez sur Capturer maintenant.', 'success');
-      } catch (error) {
-        stopCamera();
-        setStatus('La caméra s’est ouverte, mais l’aperçu n’a pas démarré. Réessayez ou importez la photo.', 'error');
-      }
+        setStatus('Caméra prête. Cadrez le visage puis cliquez sur Capturer maintenant.', 'success');
+      } catch (error) { stopCamera(); setStatus('La caméra s’est ouverte, mais l’aperçu n’a pas démarré. Réessayez ou importez la photo.', 'error'); }
     });
 
     snapBtn?.addEventListener('click', () => {
-      if (!stream || !video.videoWidth || !video.videoHeight) {
-        setStatus('Attendez que l’image de la caméra apparaisse avant de capturer.', 'error');
-        return;
-      }
-      const sourceW = video.videoWidth;
-      const sourceH = video.videoHeight;
-      const targetRatio = 3 / 4;
-      let cropW = sourceW;
-      let cropH = sourceH;
-      if (sourceW / sourceH > targetRatio) cropW = sourceH * targetRatio;
-      else cropH = sourceW / targetRatio;
-      const sx = (sourceW - cropW) / 2;
-      const sy = (sourceH - cropH) / 2;
-      canvas.width = 600;
-      canvas.height = 800;
+      if (!stream || !video.videoWidth || !video.videoHeight) { setStatus('Attendez que l’image de la caméra apparaisse avant de capturer.', 'error'); return; }
+      const sourceW = video.videoWidth; const sourceH = video.videoHeight; const targetRatio = 3 / 4;
+      let cropW = sourceW, cropH = sourceH;
+      if (sourceW / sourceH > targetRatio) cropW = sourceH * targetRatio; else cropH = sourceW / targetRatio;
+      const sx = (sourceW - cropW) / 2; const sy = (sourceH - cropH) / 2;
+      canvas.width = 600; canvas.height = 800;
       const ctx = canvas.getContext('2d');
       ctx.drawImage(video, sx, sy, cropW, cropH, 0, 0, canvas.width, canvas.height);
-      const src = canvas.toDataURL('image/jpeg', 0.9);
-      if (data) data.value = src;
-      showImage(src);
-      if (file) file.value = '';
+      const src = canvas.toDataURL('image/jpeg', 0.92);
       stopCamera();
-      setStatus('Photo capturée et placée automatiquement dans la fiche.', 'success');
+      openCropper(src, 'Affinez si nécessaire le cadrage de la photo capturée.');
     });
 
-    clearBtn?.addEventListener('click', () => {
-      stopCamera();
-      resetImage();
-      setStatus('Photo supprimée.', 'info');
-    });
-
+    clearBtn?.addEventListener('click', () => { stopCamera(); resetImage(); setStatus('Photo supprimée.', 'info'); });
     window.addEventListener('beforeunload', stopCamera);
   });
 });
@@ -368,6 +382,7 @@ document.addEventListener('DOMContentLoaded', () => {
 document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('input[type="password"]').forEach((input, index) => {
     if (input.dataset.passwordToggleReady === '1') return;
+    if (input.closest('.password-field')?.querySelector('.password-toggle')) return;
     input.dataset.passwordToggleReady = '1';
     const wrapper = document.createElement('div');
     wrapper.className = 'password-field-wrap';
@@ -534,3 +549,64 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   window.addEventListener('pageshow', closeMenu);
 })();
+
+// V39 — affichage/masquage sécurisé des mots de passe
+document.addEventListener('click', function(e){const b=e.target.closest('.password-toggle');if(!b)return;const input=document.getElementById(b.dataset.target);if(!input)return;input.type=input.type==='password'?'text':'password';b.textContent=input.type==='password'?'👁':'🙈';});
+
+// FOBAK V39 — Alerte sonore de connexion pour l'administrateur et le Président national.
+document.addEventListener('DOMContentLoaded', () => {
+  const body = document.body;
+  const alertId = body?.dataset.loginAlertId;
+  const message = body?.dataset.loginAlertMessage;
+  if (!alertId || !message) return;
+  const storageKey = `fobak-login-alert-${alertId}`;
+  if (localStorage.getItem(storageKey)) return;
+
+  const playAlert = () => {
+    try {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (AudioContextClass) {
+        const ctx = new AudioContextClass();
+        const oscillator = ctx.createOscillator();
+        const gain = ctx.createGain();
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(880, ctx.currentTime);
+        oscillator.frequency.exponentialRampToValueAtTime(660, ctx.currentTime + 0.35);
+        gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.22, ctx.currentTime + 0.03);
+        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.65);
+        oscillator.connect(gain); gain.connect(ctx.destination);
+        oscillator.start(); oscillator.stop(ctx.currentTime + 0.7);
+      }
+      if ('speechSynthesis' in window) {
+        const utterance = new SpeechSynthesisUtterance(message);
+        utterance.lang = 'fr-FR'; utterance.rate = 0.95; utterance.volume = 0.85;
+        window.speechSynthesis.speak(utterance);
+      }
+      localStorage.setItem(storageKey, new Date().toISOString());
+    } catch (_) {}
+  };
+
+  // Les navigateurs mobiles exigent parfois une interaction avant de jouer un son.
+  playAlert();
+  document.addEventListener('click', playAlert, { once: true });
+});
+
+
+// V44 : fermeture après 10 minutes et passkeys
+(()=>{if(!document.querySelector('.logout-btn'))return;let t;const r=()=>{clearTimeout(t);t=setTimeout(()=>location.href='/logout',600000)};['click','keydown','mousemove','touchstart','scroll'].forEach(e=>addEventListener(e,r,{passive:true}));r()})();
+const b64ToBuf=v=>Uint8Array.from(atob(v.replace(/-/g,'+').replace(/_/g,'/').padEnd(Math.ceil(v.length/4)*4,'=')),c=>c.charCodeAt(0));
+const bufToB64=v=>btoa(String.fromCharCode(...new Uint8Array(v))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+const prep=o=>{o.challenge=b64ToBuf(o.challenge);if(o.user?.id)o.user.id=b64ToBuf(o.user.id);for(const k of ['excludeCredentials','allowCredentials'])if(o[k])o[k]=o[k].map(c=>({...c,id:b64ToBuf(c.id)}));return o};
+const credJSON=c=>({id:c.id,rawId:bufToB64(c.rawId),type:c.type,authenticatorAttachment:c.authenticatorAttachment,clientExtensionResults:c.getClientExtensionResults(),response:{clientDataJSON:bufToB64(c.response.clientDataJSON),attestationObject:c.response.attestationObject?bufToB64(c.response.attestationObject):undefined,authenticatorData:c.response.authenticatorData?bufToB64(c.response.authenticatorData):undefined,signature:c.response.signature?bufToB64(c.response.signature):undefined,userHandle:c.response.userHandle?bufToB64(c.response.userHandle):undefined,transports:c.response.getTransports?c.response.getTransports():[]}});
+document.addEventListener('DOMContentLoaded',()=>{
+  const tabs=[...document.querySelectorAll('.auth-tab')];
+  const panels=[...document.querySelectorAll('.auth-panel')];
+  tabs.forEach(tab=>tab.addEventListener('click',()=>{
+    tabs.forEach(t=>{const active=t===tab;t.classList.toggle('is-active',active);t.setAttribute('aria-selected',active?'true':'false')});
+    panels.forEach(panel=>{const active=panel.id===tab.dataset.authTarget;panel.hidden=!active;panel.classList.toggle('is-active',active)});
+    document.getElementById(tab.dataset.authTarget)?.querySelector('input')?.focus();
+  }));
+  document.getElementById('register-passkey')?.addEventListener('click',async()=>{const s=document.getElementById('passkey-status');try{let o=await fetch('/api/passkeys/register/options',{method:'POST'}).then(r=>r.json());if(o.ok===false)throw Error(o.error);let c=await navigator.credentials.create({publicKey:prep(o)});let v=await fetch('/api/passkeys/register/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(credJSON(c))}).then(r=>r.json());if(!v.ok)throw Error(v.error||'Échec');s.textContent='Appareil enregistré.';setTimeout(()=>location.reload(),600)}catch(e){s.textContent=e.message}});
+  document.getElementById('passkey-login')?.addEventListener('click',async()=>{const s=document.getElementById('passkey-login-status'),i=document.getElementById('passkey-identifier')?.value?.trim();if(!i){s.textContent='Saisissez votre e-mail ou téléphone.';return}try{s.textContent='Vérification de cet appareil…';let o=await fetch('/api/passkeys/login/options',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({identifier:i})}).then(r=>r.json());if(o.ok===false)throw Error(o.error);let c=await navigator.credentials.get({publicKey:prep(o)});let v=await fetch('/api/passkeys/login/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(credJSON(c))}).then(r=>r.json());if(!v.ok)throw Error(v.error||'Échec');location.href=v.redirect}catch(e){s.textContent=e.message||'Vérification impossible.'}});
+});

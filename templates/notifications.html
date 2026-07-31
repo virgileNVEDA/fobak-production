@@ -1,23 +1,26 @@
 {% extends 'base.html' %}
 {% block content %}
-<section class="grid two">
-  <article class="card">
-    <h1>Envoyer / préparer une notification</h1>
-    <p>Cette version garde les messages dans l'espace membre. Pour l'envoi SMS/e-mail réel, il faut connecter un service comme SMTP, WhatsApp Business ou SMS Gateway.</p>
-    <form method="post" class="form">
-      <label>Cible
-        <select name="target_scope"><option value="members">Tous les membres</option><option value="all">Tous</option><option value="province">Une province</option></select>
-      </label>
-      <label>Province facultative
-        <select name="province"><option value="">Toutes</option>{% for p in provinces %}<option>{{ p }}</option>{% endfor %}</select>
-      </label>
-      <label>Message <textarea name="message" rows="5" required></textarea></label>
-      <button class="btn primary">Préparer la notification</button>
+<section class="dashboard-welcome"><div><span class="eyebrow">Communication</span><h1>Notifications</h1><p>Consultez les messages, ouvrez leur destination et suivez leur état de lecture.</p></div><div class="dashboard-seal">🔔</div></section>
+<section class="notification-layout">
+  <article class="card notification-compose">
+    <h2>Créer une notification</h2>
+    <form method="post" class="form-grid adhesion-inspired-form">
+      <label>Cible<select name="target_scope"><option value="members">Tous les membres</option><option value="all">Tous les utilisateurs</option><option value="province">Une province</option></select></label>
+      <label>Province<select name="province"><option value="">Toutes</option>{% for p in provinces %}<option>{{ p }}</option>{% endfor %}</select></label>
+      <label class="full">Message<textarea name="message" rows="5" required placeholder="Rédigez une information claire et utile…"></textarea></label>
+      <button class="btn primary" type="submit">Publier la notification</button>
     </form>
   </article>
-  <article class="card">
-    <h2>Notifications créées</h2>
-    {% for n in rows %}<div class="list-item"><strong>{{ n.target_scope }} {{ n.province or '' }}</strong><span>{{ n.message }} — {{ n.created_at }}</span></div>{% else %}<p>Aucune notification.</p>{% endfor %}
+  <article class="card notification-inbox">
+    <div class="panel-head"><h2>Boîte de notifications</h2><form method="post" action="{{ url_for('mark_all_notifications_read') }}"><button class="btn small">Tout marquer comme lu</button></form></div>
+    {% for n in internal_rows %}
+      <a class="notification-row {{ 'is-unread' if not n.read_at else '' }}" href="{{ url_for('open_internal_notification', notification_id=n.id) }}">
+        <span class="notification-icon">{{ '●' if not n.read_at else '✓' }}</span>
+        <span><strong>{{ n.title }}</strong><small>{{ n.message }}</small><em>{{ n.created_at }}{% if n.province %} · {{ n.province }}{% endif %}</em></span><b>›</b>
+      </a>
+    {% else %}<p>Aucune notification reçue.</p>{% endfor %}
   </article>
 </section>
+{% if selected %}<section class="card notification-detail"><span class="eyebrow">Détail</span><h2>{{ selected.title }}</h2><p>{{ selected.message }}</p><small>{{ selected.created_at }}</small></section>{% endif %}
+<section class="card"><h2>Historique des communications officielles</h2>{% for n in rows %}<article id="official-{{n.id}}" class="list-item"><strong>{{ n.target_scope }} {{ n.province or '' }}</strong><span>{{ n.message }} — {{ n.created_at }}</span></article>{% else %}<p>Aucune communication officielle.</p>{% endfor %}</section>
 {% endblock %}

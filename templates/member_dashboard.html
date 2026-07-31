@@ -1,45 +1,21 @@
 {% extends 'base.html' %}
 {% block content %}
 {% if member %}
-<section class="grid two">
-  <article class="card member-card-view">
-    <h1>Mon espace membre</h1>
-    {% if member.photo_path %}<img class="avatar" src="{{ url_for('static', filename=member.photo_path) }}" alt="Photo">{% endif %}
-    <h2>{{ member.last_name }} {{ member.first_name }}</h2>
-    <p><strong>Code :</strong> {{ member.code }}</p>
-    <p><strong>Province :</strong> {{ member.province }} — {{ member.localite }}</p>
-    <p><strong>Expiration :</strong> {{ member.expires_at }}</p>
-    <a class="btn primary" href="{{ url_for('card', member_id=member.id) }}">Carte PDF recto-verso</a>
-<a class="btn" href="{{ url_for('card_export', member_id=member.id, side='recto', fmt='png') }}">Recto PNG</a>
-<a class="btn" href="{{ url_for('card_export', member_id=member.id, side='verso', fmt='png') }}">Verso PNG</a>
-<a class="btn" href="{{ url_for('card_export', member_id=member.id, side='recto', fmt='sources') }}">Sources Photoshop</a>
-    <a class="btn" href="{{ url_for('fiche_adhesion', member_id=member.id) }}">Télécharger ma fiche d’adhésion</a>
-  </article>
-  <article class="card">
-    <h2>Modifier mon profil</h2>
-    <form method="post" enctype="multipart/form-data" action="{{ url_for('update_profile') }}" class="form">
-      <label>Changer la photo <input type="file" name="photo" accept="image/*"></label>
-      <label>Téléphone <input name="phone" value="{{ member.phone }}"></label>
-      <label>Profession <input name="profession" value="{{ member.profession or '' }}"></label>
-      <label>Adresse physique <input name="physical_address" value="{{ member.physical_address or '' }}"></label>
-      <label>Nouveau mot de passe <input type="password" name="new_password" minlength="6"></label>
-      <button class="btn primary">Mettre à jour</button>
-    </form>
-  </article>
+<section class="member-hero card">
+  <div class="member-identity">{% if member.photo_path %}<img class="member-avatar-large" src="{{ url_for('static', filename=member.photo_path) }}" alt="Photo">{% else %}<div class="member-avatar-placeholder">{{ (member.first_name or 'M')[:1] }}{{ (member.last_name or '')[:1] }}</div>{% endif %}<div><span class="eyebrow">Espace personnel sécurisé</span><h1>{{ member.last_name }} {{ member.first_name }}</h1><p>{{ member.code }} · {{ member.province }}{% if member.localite %} · {{ member.localite }}{% endif %}</p><span class="status-pill success">Membre {{ member.status or 'actif' }}</span></div></div>
+  <div class="profile-progress"><strong>Profil complété à {{ completeness }}%</strong><div><span style="width:{{ completeness }}%"></span></div><small>Complétez vos coordonnées pour faciliter la communication et la production des documents.</small></div>
+</section>
+<section class="member-stats"><article><span>💳</span><small>Cotisations confirmées</small><strong>{{ '%.2f'|format(total_paid) }}</strong></article><article><span>🔔</span><small>Notifications non lues</small><strong>{{ unread_notes }}</strong></article><article><span>📅</span><small>Expiration de la carte</small><strong>{{ member.expires_at or '-' }}</strong></article><article><span>🪪</span><small>N° d’adhésion</small><strong>{{ member.adhesion_number or member.code }}</strong></article></section>
+<section class="member-quick-actions">
+  <a href="{{ url_for('card', member_id=member.id) }}"><span>🪪</span><strong>Ma carte</strong><small>Télécharger le PDF recto-verso</small></a>
+  <a href="{{ url_for('fiche_adhesion', member_id=member.id) }}"><span>📄</span><strong>Ma fiche d’adhésion</strong><small>Consulter ou imprimer</small></a>
+  <a href="{{ url_for('notifications') }}"><span>🔔</span><strong>Mes notifications</strong><small>Ouvrir les messages reçus</small></a>
+  <a href="{{ url_for('support_tickets_page') }}"><span>🛟</span><strong>Assistance</strong><small>Signaler un problème</small></a>
 </section>
 <section class="grid two">
-  <article class="card">
-    <h2>Historique des cotisations</h2>
-    {% for p in payments %}<div class="list-item"><strong>{{ p.amount }} {{ p.currency }}</strong><span>{{ p.method }} — {{ p.status }} — {{ p.created_at }}</span></div>{% else %}<p>Aucune cotisation enregistrée.</p>{% endfor %}
-  </article>
-  <article class="card mobile-card">
-    <h2>Notifications internes</h2>
-    {% for n in internal_notes %}<div class="list-item"><strong>{{ n.title }}</strong><span>{{ n.message }} — {{ n.created_at }}</span></div>{% else %}<p>Aucune notification interne.</p>{% endfor %}
-    <h3>Communiqués</h3>
-    {% for n in notes %}<div class="list-item"><strong>{{ n.created_at }}</strong><span>{{ n.message }}</span></div>{% else %}<p>Aucun communiqué.</p>{% endfor %}
-  </article>
+  <article class="card"><div class="panel-head"><h2>Modifier mon profil</h2><span>Informations personnelles</span></div><form method="post" enctype="multipart/form-data" action="{{ url_for('update_profile') }}" class="form-grid adhesion-inspired-form"><label>Changer la photo<input type="file" name="photo" accept="image/*"></label><label>Téléphone<input name="phone" value="{{ member.phone }}"></label><label>Profession<input name="profession" value="{{ member.profession or '' }}"></label><label class="full">Adresse physique<input name="physical_address" value="{{ member.physical_address or '' }}"></label><label class="full">Nouveau mot de passe<input type="password" name="new_password" minlength="6" placeholder="Laisser vide pour conserver le mot de passe actuel"></label><button class="btn primary">Mettre à jour mon profil</button></form></article>
+  <article class="card"><div class="panel-head"><h2>Mes cotisations</h2><a href="{{ url_for('member_history', member_id=member.id) }}">Historique</a></div>{% for p in payments %}<div class="list-item"><strong>{{ p.amount }} {{ p.currency }}</strong><span>{{ p.contribution_type or 'Cotisation' }} · {{ p.method }} · {{ p.status }}<br><small>{{ p.created_at }}</small></span></div>{% else %}<p>Aucune cotisation enregistrée.</p>{% endfor %}</article>
 </section>
-{% else %}
-<section class="card"><h1>Aucun dossier membre trouvé</h1><p>Contactez l'administration.</p></section>
-{% endif %}
+<section class="grid two"><article class="card"><div class="panel-head"><h2>Notifications internes</h2><a href="{{ url_for('notifications') }}">Tout voir</a></div>{% for n in internal_notes %}<a class="notification-row {{ 'is-unread' if not n.read_at else '' }}" href="{{ url_for('open_internal_notification', notification_id=n.id) }}"><span class="notification-icon">{{ '●' if not n.read_at else '✓' }}</span><span><strong>{{ n.title }}</strong><small>{{ n.message }}</small><em>{{ n.created_at }}</em></span><b>›</b></a>{% else %}<p>Aucune notification interne.</p>{% endfor %}</article><article class="card"><h2>Communiqués officiels</h2>{% for n in notes %}<div class="list-item"><strong>{{ n.created_at }}</strong><span>{{ n.message }}</span></div>{% else %}<p>Aucun communiqué.</p>{% endfor %}</article></section>
+{% else %}<section class="card"><h1>Aucun dossier membre trouvé</h1><p>Contactez l’administration pour rattacher votre compte à une fiche membre.</p></section>{% endif %}
 {% endblock %}

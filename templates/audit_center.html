@@ -1,1 +1,26 @@
-{% extends "base.html" %}{% block content %}<section class="dashboard-welcome"><div><span class="eyebrow">Traçabilité</span><h1>Journal d’audit</h1><p>Historique des actions sensibles réalisées dans l’application.</p></div><div class="dashboard-seal">🧾</div></section><section class="panel-card"><div class="table-wrap"><table><thead><tr><th>Date</th><th>Utilisateur</th><th>Action</th><th>Cible</th><th>Détails</th></tr></thead><tbody>{% for r in rows %}<tr><td>{{ r.created_at }}</td><td>{{ r.first_name or '' }} {{ r.last_name or '' }}<br><small>{{ r.email or '-' }}</small></td><td>{{ r.action }}</td><td>{{ r.target_type or '-' }} {{ r.target_id or '' }}</td><td>{{ r.details or '-' }}</td></tr>{% endfor %}</tbody></table></div></section>{% endblock %}
+{% extends "base.html" %}
+{% block content %}
+<section class="dashboard-welcome"><div><span class="eyebrow">Traçabilité renforcée</span><h1>Qui a fait quoi ?</h1><p>Suivi des connexions, créations, modifications, validations, suppressions et accès sensibles.</p></div><div class="dashboard-seal">🧾</div></section>
+<section class="audit-kpis">
+  <article class="metric-card"><span>Actions enregistrées</span><strong>{{ stats.total or 0 }}</strong></article>
+  <article class="metric-card"><span>Utilisateurs actifs dans le journal</span><strong>{{ stats.users or 0 }}</strong></article>
+  <article class="metric-card"><span>Actions réussies</span><strong>{{ stats.success_count or 0 }}</strong></article>
+  <article class="metric-card"><span>Échecs signalés</span><strong>{{ stats.failed_count or 0 }}</strong></article>
+</section>
+<section class="panel-card">
+  <form method="get" class="audit-filters">
+    <label>Recherche<input name="q" value="{{ q }}" placeholder="Nom, e-mail, action ou détail"></label>
+    <label>Action<select name="action"><option value="">Toutes</option>{% for a in actions %}<option value="{{ a.action }}" {{ 'selected' if selected_action==a.action else '' }}>{{ a.action }}</option>{% endfor %}</select></label>
+    <label>Résultat<select name="status"><option value="">Tous</option><option value="success" {{ 'selected' if selected_status=='success' else '' }}>Réussie</option><option value="failed" {{ 'selected' if selected_status=='failed' else '' }}>Échec</option></select></label>
+    <button class="btn primary">Filtrer</button><a class="btn" href="{{ url_for('audit_center') }}">Réinitialiser</a>
+  </form>
+  <div class="table-wrap"><table><thead><tr><th>Date</th><th>Personne</th><th>Action</th><th>Cible</th><th>Détails</th><th>Contexte</th><th>Résultat</th></tr></thead><tbody>
+  {% for r in rows %}<tr>
+    <td>{{ r.created_at }}</td>
+    <td><strong>{{ r.first_name or '' }} {{ r.last_name or '' }}</strong><br><small>{{ r.email or '-' }}</small><br><small>{{ role_labels.get(r.role,r.role or '-') }}{% if r.province %} · {{ r.province }}{% endif %}</small></td>
+    <td>{{ r.action }}</td><td>{{ r.target_type or '-' }} {{ r.target_id or '' }}</td><td>{{ r.details or '-' }}</td>
+    <td><small>Route : {{ r.route or '-' }}</small><br><small>IP : {{ r.ip_address or '-' }}</small><br><small title="{{ r.user_agent or '' }}">Appareil : {{ (r.user_agent or '-')[:55] }}</small></td>
+    <td><span class="status-pill {{ 'danger' if r.status=='failed' else 'success' }}">{{ 'Échec' if r.status=='failed' else 'Réussie' }}</span></td>
+  </tr>{% else %}<tr><td colspan="7">Aucune action trouvée.</td></tr>{% endfor %}</tbody></table></div>
+</section>
+{% endblock %}

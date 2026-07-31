@@ -1,20 +1,58 @@
-{% extends 'base.html' %}
-{% block content %}
-<section class="auth-card card">
-  <h1>Connexion</h1>
-  <p>Utilisez votre e-mail ou votre numéro de téléphone. Pour un nouveau membre accepté, le mot de passe initial est son numéro de téléphone.</p>
-  <form method="post" class="form">
-    <label>E-mail ou téléphone
-      <input name="identifier" required placeholder="ex: membre@email.com ou 099...">
-    </label>
-    <label>Mot de passe
-      <input type="password" name="password" required>
-    </label>
-    <button class="btn primary" type="submit">Se connecter</button>
-  </form>
-  <div class="links-row">
-    <a href="{{ url_for('become_member') }}">Devenir membre ?</a>
-    <a href="{{ url_for('reset_password') }}">Mot de passe oublié ?</a>
+{% extends 'base.html' %}{% block content %}
+<style>.enhanced-ticker{display:none!important}body.public-layout{padding-bottom:0!important}</style>
+<section class="login-experience login-security-redesign">
+  <div class="login-visual">
+    <div class="login-brand-mark">{% if settings.logo_dark_path %}<img src="{{ url_for('static', filename=settings.logo_dark_path) }}" alt="Logo FOBAK">{% else %}FOBAK{% endif %}</div>
+    <span class="eyebrow">Espace sécurisé</span>
+    <h1>{{ settings.structure_name }}</h1>
+    <p>Accédez à votre espace avec la méthode de connexion que vous avez déjà configurée.</p>
+    <div class="login-points">
+      <span>✓ Mot de passe comme accès principal et secours</span>
+      <span>✓ PIN personnel de 4 ou 6 chiffres</span>
+      <span>✓ Empreinte, visage ou Windows Hello selon l’appareil</span>
+    </div>
   </div>
+
+  <article class="login-panel">
+    <a class="login-back" href="{{ url_for('index') }}">← Retour à l’accueil</a>
+    <div class="login-heading"><span class="login-lock">🔐</span><div><h2>Connexion</h2><p>Choisissez une méthode sécurisée.</p></div></div>
+
+    <div class="auth-tabs" role="tablist" aria-label="Méthodes de connexion">
+      <button type="button" class="auth-tab is-active" data-auth-target="password-panel" role="tab" aria-selected="true"><span>🔑</span> Mot de passe</button>
+      <button type="button" class="auth-tab" data-auth-target="pin-panel" role="tab" aria-selected="false"><span>🔢</span> Code PIN</button>
+      <button type="button" class="auth-tab" data-auth-target="passkey-panel" role="tab" aria-selected="false"><span>👆</span> Empreinte / visage</button>
+    </div>
+
+    <div class="auth-panels">
+      <section id="password-panel" class="auth-panel is-active" role="tabpanel">
+        <form method="post" class="form login-form auth-method-form">
+          <label><span>E-mail ou téléphone</span><div class="input-with-icon"><b>👤</b><input name="identifier" autocomplete="username" required placeholder="Ex. membre@email.com ou +243…"></div></label>
+          <label><span>Mot de passe</span><div class="input-with-icon"><b>🔒</b><input type="password" name="password" autocomplete="current-password" required placeholder="Votre mot de passe"></div></label>
+          <button class="btn primary login-submit" type="submit">Se connecter</button>
+        </form>
+      </section>
+
+      <section id="pin-panel" class="auth-panel" role="tabpanel" hidden>
+        <div class="auth-method-note"><strong>Connexion rapide par PIN</strong><span>Le PIN doit avoir été créé auparavant dans votre espace Sécurité.</span></div>
+        <form method="post" action="{{ url_for('login_pin') }}" class="form login-form auth-method-form">
+          <label><span>E-mail ou téléphone</span><div class="input-with-icon"><b>👤</b><input name="identifier" autocomplete="username" required placeholder="Votre e-mail ou téléphone"></div></label>
+          <label><span>Code PIN</span><div class="input-with-icon"><b>●●</b><input type="password" name="pin" inputmode="numeric" pattern="[0-9]{4}|[0-9]{6}" minlength="4" maxlength="6" required placeholder="4 ou 6 chiffres"></div></label>
+          <button class="btn primary login-submit" type="submit">Connexion par PIN</button>
+        </form>
+      </section>
+
+      <section id="passkey-panel" class="auth-panel" role="tabpanel" hidden>
+        <div class="auth-method-note"><strong>Empreinte, visage ou Windows Hello</strong><span>L’appareil doit avoir été enregistré auparavant dans votre espace Sécurité.</span></div>
+        <div class="form login-form auth-method-form">
+          <label><span>E-mail ou téléphone</span><div class="input-with-icon"><b>👤</b><input id="passkey-identifier" autocomplete="username" placeholder="Votre e-mail ou téléphone"></div></label>
+          <button type="button" class="btn primary login-submit" id="passkey-login">Continuer avec cet appareil</button>
+        </div>
+        <div id="passkey-login-status" class="auth-status" role="status"></div>
+      </section>
+    </div>
+
+    <div class="login-links"><a href="{{ url_for('reset_password') }}">Mot de passe oublié ?</a><a href="{{ url_for('become_member') }}">Demander une adhésion</a></div>
+    <small class="login-security">Après plusieurs tentatives incorrectes, l’accès est temporairement verrouillé pour protéger le compte.</small>
+  </article>
 </section>
 {% endblock %}

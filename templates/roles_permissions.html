@@ -1,25 +1,5 @@
-{% extends 'base.html' %}
-{% block content %}
-<section class="dashboard-welcome">
-  <div><span class="eyebrow">Sécurité</span><h1>Rôles personnalisables</h1><p>Modifiez les libellés et les droits de base. Les paramètres restent réservés à l’Administrateur Général informaticien.</p></div>
-  <div class="dashboard-seal">🛡️</div>
-</section>
-<section class="card">
-  <form method="post">
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Rôle</th>{% for p in perms %}<th>{{ p|capitalize }}</th>{% endfor %}</tr></thead>
-        <tbody>
-        {% for role_key, perms_dict in data.items() %}
-          <tr>
-            <td><strong>{{ role_key }}</strong><br><input name="label_{{ role_key }}" value="{{ labels.get(role_key, role_key) }}"></td>
-            {% for p in perms %}<td><input type="checkbox" name="{{ role_key }}_{{ p }}" value="1" {{ 'checked' if perms_dict.get(p) else '' }} {% if role_key=='super_admin' and p=='parametres' %}checked{% endif %}></td>{% endfor %}
-          </tr>
-        {% endfor %}
-        </tbody>
-      </table>
-    </div>
-    <button class="btn primary">Enregistrer les droits</button>
-  </form>
-</section>
-{% endblock %}
+{% extends 'base.html' %}{% block content %}
+<section class="dashboard-welcome"><div><span class="eyebrow">Sécurité</span><h1>Autorisations personnalisées complètes</h1><p>Configurez chaque module et chaque action. Le contrôle s'applique aux nouveaux services et aux routes sensibles.</p></div><div class="dashboard-seal">🛡️</div></section>
+<section class="card"><form method="post"><div class="permissions-roles">
+{% for role_key, role_data in data.items() %}<details class="permission-role" {{ 'open' if role_key=='super_admin' else '' }}><summary><strong>{{ labels.get(role_key,role_key) }}</strong><small>{{ role_key }}</small></summary><div class="form-grid"><label>Libellé du rôle<input name="label_{{ role_key }}" value="{{ labels.get(role_key,role_key) }}"></label></div><div class="table-wrap"><table class="permission-matrix"><thead><tr><th>Module</th>{% for action,label in actions.items() %}<th>{{ label }}</th>{% endfor %}</tr></thead><tbody>{% for module,module_label in modules.items() %}<tr><td><strong>{{ module_label }}</strong></td>{% for action,label in actions.items() %}<td><input type="checkbox" name="{{ role_key }}__{{ module }}__{{ action }}" value="1" {{ 'checked' if role_data.get(module,{}).get(action) else '' }} {% if role_key=='super_admin' %}checked{% endif %}></td>{% endfor %}</tr>{% endfor %}</tbody></table></div></details>{% endfor %}
+</div><button class="btn primary">Enregistrer toutes les autorisations</button></form></section>{% endblock %}
