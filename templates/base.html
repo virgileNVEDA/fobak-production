@@ -10,7 +10,7 @@
   <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
   <link rel="icon" href="{{ url_for('static', filename=settings.favicon_path) }}">
   <link rel="apple-touch-icon" href="{{ url_for('static', filename=settings.favicon_path) }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=30">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=34">
 </head>
 <body class="{{ 'has-watermark' if settings.logo_path else '' }} {{ 'admin-layout' if current_user else 'public-layout' }}"
       data-voice-enabled="1"
@@ -104,6 +104,8 @@
       </div>
       <a class="logout-btn" href="{{ url_for('logout') }}">⎋ {{ _("Déconnexion") }}</a>
     </aside>
+
+    <div class="mobile-menu-backdrop" aria-hidden="true"></div>
 
     <section class="workspace">
       <header class="workspace-topbar">
@@ -239,6 +241,6 @@
       flag: {{ url_for('static', filename=rdc_flag_rel)|tojson }}
     };
   </script>
-  <script src="{{ url_for('static', filename='js/app.js') }}?v=30"></script>
+  <script src="{{ url_for('static', filename='js/app.js') }}?v=34"></script>
 </body>
 </html>

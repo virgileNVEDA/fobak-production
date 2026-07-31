@@ -1480,3 +1480,39 @@ body.has-watermark:before{opacity:.025!important;background-size:min(380px,48vw)
 .offline-screen p{font-size:17px;line-height:1.7;color:#52677c}
 @media(max-width:1050px){.download-app-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:620px){.download-app-section{padding:20px 14px}.download-app-grid{grid-template-columns:1fr}.download-choice{min-height:auto}}
+
+/* V34 — Navigation mobile : menu latéral coulissant et liens réellement accessibles */
+.mobile-menu-backdrop{display:none}
+@media (max-width:780px){
+  body.admin-layout{overflow-x:hidden}
+  .app-shell{display:block!important}
+  .side-dashboard{
+    position:fixed!important;
+    top:0;left:0;bottom:0;
+    width:min(88vw,340px)!important;
+    height:100dvh!important;
+    max-height:100dvh!important;
+    z-index:1000!important;
+    overflow-y:auto!important;
+    border-radius:0 24px 24px 0!important;
+    transform:translateX(-105%);
+    transition:transform .24s ease;
+    box-shadow:18px 0 48px rgba(3,24,45,.30);
+  }
+  body.side-open .side-dashboard{transform:translateX(0)}
+  .workspace{width:100%!important;margin-left:0!important;min-width:0}
+  .workspace-topbar{position:sticky;top:0;z-index:60}
+  .menu-round{position:relative;z-index:1002;touch-action:manipulation}
+  .side-menu{display:grid!important;grid-template-columns:1fr!important;max-height:none!important;overflow:visible!important}
+  .side-menu a{position:relative;z-index:1001;pointer-events:auto!important;touch-action:manipulation}
+  .mobile-menu-backdrop{
+    display:block;
+    position:fixed;inset:0;
+    z-index:999;
+    background:rgba(3,24,45,.48);
+    opacity:0;visibility:hidden;
+    transition:opacity .24s ease,visibility .24s ease;
+  }
+  body.side-open .mobile-menu-backdrop{opacity:1;visibility:visible}
+}
+@media (min-width:781px){.mobile-menu-backdrop{display:none!important}}

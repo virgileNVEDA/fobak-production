@@ -493,3 +493,44 @@ document.addEventListener('DOMContentLoaded', () => {
     );
   });
 })();
+
+// V34 — Menu mobile fiable : ouverture, fermeture et navigation
+(function(){
+  const body = document.body;
+  const menuButton = document.querySelector('.menu-round');
+  const sidebar = document.querySelector('.side-dashboard');
+  const backdrop = document.querySelector('.mobile-menu-backdrop');
+  if (!menuButton || !sidebar) return;
+
+  const isMobile = () => window.matchMedia('(max-width: 780px)').matches;
+  const closeMenu = () => {
+    body.classList.remove('side-open');
+    menuButton.setAttribute('aria-expanded', 'false');
+  };
+  const openMenu = () => {
+    body.classList.add('side-open');
+    menuButton.setAttribute('aria-expanded', 'true');
+  };
+
+  menuButton.setAttribute('aria-expanded', 'false');
+  menuButton.addEventListener('click', (event) => {
+    if (!isMobile()) return;
+    event.preventDefault();
+    event.stopPropagation();
+    body.classList.contains('side-open') ? closeMenu() : openMenu();
+  });
+
+  backdrop?.addEventListener('click', closeMenu);
+  sidebar.querySelectorAll('a[href]').forEach((link) => {
+    link.addEventListener('click', () => {
+      if (isMobile()) closeMenu();
+    });
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') closeMenu();
+  });
+  window.addEventListener('resize', () => {
+    if (!isMobile()) closeMenu();
+  });
+  window.addEventListener('pageshow', closeMenu);
+})();
