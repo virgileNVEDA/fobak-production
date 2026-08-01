@@ -604,3 +604,28 @@ document.addEventListener('DOMContentLoaded',()=>{
   document.getElementById('register-passkey')?.addEventListener('click',async()=>{const s=document.getElementById('passkey-status');try{let o=await fetch('/api/passkeys/register/options',{method:'POST'}).then(r=>r.json());if(o.ok===false)throw Error(o.error);let c=await navigator.credentials.create({publicKey:prep(o)});let v=await fetch('/api/passkeys/register/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(credJSON(c))}).then(r=>r.json());if(!v.ok)throw Error(v.error||'Échec');s.textContent='Appareil enregistré.';setTimeout(()=>location.reload(),600)}catch(e){s.textContent=e.message}});
   document.getElementById('passkey-login')?.addEventListener('click',async()=>{const s=document.getElementById('passkey-login-status'),i=document.getElementById('passkey-identifier')?.value?.trim();if(!i){s.textContent='Saisissez votre e-mail ou téléphone.';return}try{s.textContent='Vérification de cet appareil…';let o=await fetch('/api/passkeys/login/options',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({identifier:i})}).then(r=>r.json());if(o.ok===false)throw Error(o.error);let c=await navigator.credentials.get({publicKey:prep(o)});let v=await fetch('/api/passkeys/login/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(credJSON(c))}).then(r=>r.json());if(!v.ok)throw Error(v.error||'Échec');location.href=v.redirect}catch(e){s.textContent=e.message||'Vérification impossible.'}});
 });
+
+
+// V48 — stabilité mobile, communiqués et nettoyage de l’affichage
+document.addEventListener('DOMContentLoaded', () => {
+  const ticker = document.querySelector('.communique-ticker');
+  const closeTicker = document.querySelector('.ticker-close');
+  const key = 'fobak-ticker-hidden-session';
+  if (ticker && sessionStorage.getItem(key) === '1') ticker.hidden = true;
+  closeTicker?.addEventListener('click', () => {
+    ticker.hidden = true;
+    sessionStorage.setItem(key, '1');
+  });
+
+  document.querySelectorAll('img').forEach((img) => {
+    img.addEventListener('error', () => img.classList.add('image-load-failed'), { once: true });
+  });
+
+  const normalizeMobileLayout = () => {
+    if (!window.matchMedia('(max-width: 780px)').matches) return;
+    document.documentElement.style.overflowX = 'hidden';
+    document.body.style.overflowX = 'hidden';
+  };
+  normalizeMobileLayout();
+  window.addEventListener('orientationchange', normalizeMobileLayout);
+});

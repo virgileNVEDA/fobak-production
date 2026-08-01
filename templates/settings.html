@@ -21,7 +21,7 @@
     <label class="full">Historique <textarea name="history" rows="5">{{ settings.history }}</textarea></label>
     <label class="full">Mission <textarea name="mission" rows="3">{{ settings.mission }}</textarea></label>
     <label class="full">Vision <textarea name="vision" rows="3">{{ settings.vision }}</textarea></label>
-    <label class="full">Valeurs <input name="values" value="{{ settings.values }}"></label>
+    <label class="full">Valeurs <input name="values" value="{{ settings.get('values', '') }}"></label>
     <label class="full">Objectifs <textarea name="objectives" rows="3">{{ settings.objectives }}</textarea></label>
     <label class="full">Avantages des membres <textarea name="advantages" rows="3">{{ settings.advantages }}</textarea></label>
     <label class="full">Partenaires <textarea name="partners" rows="2">{{ settings.partners }}</textarea></label>

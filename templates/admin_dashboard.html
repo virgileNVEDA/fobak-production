@@ -18,7 +18,7 @@
     {% endif %}
   </div>
   <div class="dashboard-seal large-seal logo-seal">
-    {% if settings.logo_path %}<img src="{{ url_for('static', filename=settings.logo_path) }}" alt="Logo">{% else %}ASBL{% endif %}
+    {% if settings.logo_path %}<img src="{{ url_for('static', filename=settings.logo_path) }}" alt="Logo" onerror="this.onerror=null;this.src='{{ url_for('static', filename='img/fobak_logo_official_v25.png') }}'">{% else %}ASBL{% endif %}
   </div>
 </section>
 

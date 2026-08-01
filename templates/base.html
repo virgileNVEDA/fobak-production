@@ -10,7 +10,7 @@
   <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
   <link rel="icon" href="{{ url_for('static', filename=settings.favicon_path) }}">
   <link rel="apple-touch-icon" href="{{ url_for('static', filename=settings.favicon_path) }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=47">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=48">
 </head>
 <body class="{{ 'has-watermark' if settings.logo_path else '' }} {{ 'admin-layout' if current_user else 'public-layout' }}"
       data-voice-enabled="1"
@@ -24,7 +24,7 @@
     <div class="loader-card loader-professional">
       <div class="loader-logo-ring">
         <div class="loader-logo">
-          {% if settings.logo_dark_path %}<img src="{{ url_for('static', filename=settings.logo_dark_path) }}" alt="Logo FOBAK">{% else %}<span>FOBAK</span>{% endif %}
+          {% if settings.logo_dark_path %}<img src="{{ url_for('static', filename=settings.logo_dark_path) }}" alt="Logo FOBAK" onerror="this.onerror=null;this.src='{{ url_for('static', filename='img/fobak_logo_official_v25.png') }}'">{% else %}<span>FOBAK</span>{% endif %}
         </div>
       </div>
       <small>Chargement sécurisé</small>
@@ -42,7 +42,7 @@
         <button class="menu-round sidebar-close-button" type="button" aria-label="Masquer le menu">×</button>
         <div class="side-brand">
           <div class="side-logo">
-            {% if settings.logo_dark_path %}<img src="{{ url_for('static', filename=settings.logo_dark_path) }}" alt="Logo FOBAK">{% else %}<span>FOBAK</span>{% endif %}
+            {% if settings.logo_dark_path %}<img src="{{ url_for('static', filename=settings.logo_dark_path) }}" alt="Logo FOBAK" onerror="this.onerror=null;this.src='{{ url_for('static', filename='img/fobak_logo_official_v25.png') }}'">{% else %}<span>FOBAK</span>{% endif %}
           </div>
           <div>
             <strong>{{ settings.structure_name }}</strong>
@@ -142,7 +142,7 @@
   {% else %}
   <header class="site-header public-header">
     <div class="logo-box">
-      {% if settings.logo_dark_path %}<img src="{{ url_for('static', filename=settings.logo_dark_path) }}" alt="Logo FOBAK">{% else %}<span>FOBAK</span>{% endif %}
+      {% if settings.logo_dark_path %}<img src="{{ url_for('static', filename=settings.logo_dark_path) }}" alt="Logo FOBAK" onerror="this.onerror=null;this.src='{{ url_for('static', filename='img/fobak_logo_official_v25.png') }}'">{% else %}<span>FOBAK</span>{% endif %}
     </div>
     <div class="brand-block">
       <strong>{{ settings.structure_name }}</strong>
@@ -186,14 +186,14 @@
   {% if current_user %}
       <footer class="app-footer dashboard-style-footer">
         <div class="footer-about">
-          <div class="footer-logo">{% if settings.logo_dark_path %}<img src="{{ url_for('static', filename=settings.logo_dark_path) }}" alt="Logo FOBAK">{% else %}<span>FOBAK</span>{% endif %}</div>
+          <div class="footer-logo">{% if settings.logo_dark_path %}<img src="{{ url_for('static', filename=settings.logo_dark_path) }}" alt="Logo FOBAK" onerror="this.onerror=null;this.src='{{ url_for('static', filename='img/fobak_logo_official_v25.png') }}'">{% else %}<span>FOBAK</span>{% endif %}</div>
           <p>{{ settings.footer_note }}</p>
         </div>
         <div>
           <h3>Adresse & contacts</h3>
           <p>📍 <a class="footer-map-link" href="{{ maps_url }}" target="_blank" rel="noopener">{{ settings.headquarters }}</a></p>
           <p>☎ <a href="tel:{{ settings.contact_phones|replace(' ','')|replace(';',',') }}">{{ settings.contact_phones }}</a></p>
-          <p>🌍 {{ settings.public_base_url }}</p>
+          <p>🌍 <a href="{{ settings.get('public_base_url') or 'https://fondationbakitani.org' }}" target="_blank" rel="noopener">{{ settings.get('public_base_url') or 'https://fondationbakitani.org' }}</a></p>
           <div class="socials">{% if settings.facebook and settings.facebook != '#' %}<a href="{{ settings.facebook }}" target="_blank" rel="noopener noreferrer" aria-label="Facebook">f</a>{% endif %}{% if settings.youtube and settings.youtube != '#' %}<a href="{{ settings.youtube }}" target="_blank" rel="noopener noreferrer" aria-label="YouTube">▶</a>{% endif %}{% if settings.whatsapp and settings.whatsapp != '#' %}<a href="{{ settings.whatsapp if settings.whatsapp.startswith('http') else 'https://wa.me/' + settings.whatsapp|replace('+','')|replace(' ','') }}" target="_blank" rel="noopener noreferrer" aria-label="WhatsApp">☎</a>{% endif %}{% if settings.instagram and settings.instagram != '#' %}<a href="{{ settings.instagram }}" target="_blank" rel="noopener noreferrer" aria-label="Instagram">◎</a>{% endif %}{% if settings.tiktok and settings.tiktok != '#' %}<a href="{{ settings.tiktok }}" target="_blank" rel="noopener noreferrer" aria-label="TikTok">♪</a>{% endif %}{% if settings.x_twitter and settings.x_twitter != '#' %}<a href="{{ settings.x_twitter }}" target="_blank" rel="noopener noreferrer" aria-label="X">𝕏</a>{% endif %}{% if settings.linkedin and settings.linkedin != '#' %}<a href="{{ settings.linkedin }}" target="_blank" rel="noopener noreferrer" aria-label="LinkedIn">in</a>{% endif %}</div>
         </div>
         <div>
@@ -225,10 +225,10 @@
   {% else %}
   <footer class="app-footer public-footer dashboard-style-footer">
     <div class="footer-about">
-      <div class="footer-logo">{% if settings.logo_dark_path %}<img src="{{ url_for('static', filename=settings.logo_dark_path) }}" alt="Logo FOBAK">{% else %}<span>FOBAK</span>{% endif %}</div>
+      <div class="footer-logo">{% if settings.logo_dark_path %}<img src="{{ url_for('static', filename=settings.logo_dark_path) }}" alt="Logo FOBAK" onerror="this.onerror=null;this.src='{{ url_for('static', filename='img/fobak_logo_official_v25.png') }}'">{% else %}<span>FOBAK</span>{% endif %}</div>
       <p>{{ settings.footer_note }}</p>
     </div>
-    <div><h3>Adresse & contacts</h3><p>📍 <a class="footer-map-link" href="{{ maps_url }}" target="_blank" rel="noopener">{{ settings.headquarters }}</a></p><p>☎ <a href="tel:{{ settings.contact_phones|replace(' ','')|replace(';',',') }}">{{ settings.contact_phones }}</a></p><p>🌍 {{ settings.public_base_url }}</p><div class="socials">{% if settings.facebook and settings.facebook != '#' %}<a href="{{ settings.facebook }}" target="_blank" rel="noopener noreferrer" aria-label="Facebook">f</a>{% endif %}{% if settings.youtube and settings.youtube != '#' %}<a href="{{ settings.youtube }}" target="_blank" rel="noopener noreferrer" aria-label="YouTube">▶</a>{% endif %}{% if settings.whatsapp and settings.whatsapp != '#' %}<a href="{{ settings.whatsapp if settings.whatsapp.startswith('http') else 'https://wa.me/' + settings.whatsapp|replace('+','')|replace(' ','') }}" target="_blank" rel="noopener noreferrer" aria-label="WhatsApp">☎</a>{% endif %}{% if settings.instagram and settings.instagram != '#' %}<a href="{{ settings.instagram }}" target="_blank" rel="noopener noreferrer" aria-label="Instagram">◎</a>{% endif %}{% if settings.tiktok and settings.tiktok != '#' %}<a href="{{ settings.tiktok }}" target="_blank" rel="noopener noreferrer" aria-label="TikTok">♪</a>{% endif %}{% if settings.x_twitter and settings.x_twitter != '#' %}<a href="{{ settings.x_twitter }}" target="_blank" rel="noopener noreferrer" aria-label="X">𝕏</a>{% endif %}{% if settings.linkedin and settings.linkedin != '#' %}<a href="{{ settings.linkedin }}" target="_blank" rel="noopener noreferrer" aria-label="LinkedIn">in</a>{% endif %}</div></div>
+    <div><h3>Adresse & contacts</h3><p>📍 <a class="footer-map-link" href="{{ maps_url }}" target="_blank" rel="noopener">{{ settings.headquarters }}</a></p><p>☎ <a href="tel:{{ settings.contact_phones|replace(' ','')|replace(';',',') }}">{{ settings.contact_phones }}</a></p><p>🌍 <a href="{{ settings.get('public_base_url') or 'https://fondationbakitani.org' }}" target="_blank" rel="noopener">{{ settings.get('public_base_url') or 'https://fondationbakitani.org' }}</a></p><div class="socials">{% if settings.facebook and settings.facebook != '#' %}<a href="{{ settings.facebook }}" target="_blank" rel="noopener noreferrer" aria-label="Facebook">f</a>{% endif %}{% if settings.youtube and settings.youtube != '#' %}<a href="{{ settings.youtube }}" target="_blank" rel="noopener noreferrer" aria-label="YouTube">▶</a>{% endif %}{% if settings.whatsapp and settings.whatsapp != '#' %}<a href="{{ settings.whatsapp if settings.whatsapp.startswith('http') else 'https://wa.me/' + settings.whatsapp|replace('+','')|replace(' ','') }}" target="_blank" rel="noopener noreferrer" aria-label="WhatsApp">☎</a>{% endif %}{% if settings.instagram and settings.instagram != '#' %}<a href="{{ settings.instagram }}" target="_blank" rel="noopener noreferrer" aria-label="Instagram">◎</a>{% endif %}{% if settings.tiktok and settings.tiktok != '#' %}<a href="{{ settings.tiktok }}" target="_blank" rel="noopener noreferrer" aria-label="TikTok">♪</a>{% endif %}{% if settings.x_twitter and settings.x_twitter != '#' %}<a href="{{ settings.x_twitter }}" target="_blank" rel="noopener noreferrer" aria-label="X">𝕏</a>{% endif %}{% if settings.linkedin and settings.linkedin != '#' %}<a href="{{ settings.linkedin }}" target="_blank" rel="noopener noreferrer" aria-label="LinkedIn">in</a>{% endif %}</div></div>
     <div><h3>Accès rapides</h3><a href="{{ url_for('index') }}">› Accueil</a><a href="{{ url_for('become_member') }}">› Adhésion en ligne</a><a href="{{ url_for('fiche_vierge') }}">› Fiche d’adhésion</a><a href="{{ url_for('public_statutes') }}">› Statuts & règlement</a><a href="{{ url_for('public_demo_mode') }}">› Mode démonstration</a><a href="{{ url_for('login') }}">› Connexion sécurisée</a></div>
     <div><h3>Vie associative</h3><a href="{{ url_for('index') }}">› Mission et vision</a><a href="{{ url_for('index') }}">› Activités récentes</a><a href="{{ url_for('index') }}">› Projets</a><a href="{{ url_for('stability_center') }}">› Centre de stabilité</a><a href="{{ url_for('privacy_policy') }}">› Confidentialité</a><a href="{{ url_for('terms_of_use') }}">› Conditions d’utilisation</a><a href="{{ url_for('report_problem') }}">› Nous contacter</a><div class="language-card"><strong>Langue / Language</strong><span>{{ lang_options.get(lang_code, "Français") }}</span><small>Choisissez la langue en haut ou ici.</small><div class="footer-language-list">{% for code,label in lang_options.items() %}<a href="{{ url_for('set_language', code=code) }}">{{ label }}</a>{% endfor %}</div></div></div>
     <div class="footer-bottom">© {{ current_year }} {{ settings.structure_name }} — Tous droits réservés. Version {{ app_version }}</div>
@@ -236,9 +236,10 @@
   {% endif %}
 
   {% if settings.public_communiques %}
-  <div class="communique-ticker enhanced-ticker">
+  <div class="communique-ticker enhanced-ticker" role="status" aria-label="Communiqués">
     <strong>Communiqués</strong>
     <div class="ticker-track"><span>{{ settings.public_communiques }}</span></div>
+    <button class="ticker-close" type="button" aria-label="Masquer les communiqués">×</button>
   </div>
   {% endif %}
 
@@ -255,6 +256,6 @@
       flag: {{ url_for('static', filename=rdc_flag_rel)|tojson }}
     };
   </script>
-  <script src="{{ url_for('static', filename='js/app.js') }}?v=42"></script>
+  <script src="{{ url_for('static', filename='js/app.js') }}?v=48"></script>
 </body>
 </html>

@@ -117,7 +117,7 @@
     <h2>Mission et vision</h2>
     <p><strong>Mission :</strong> {{ settings.mission }}</p>
     <p><strong>Vision :</strong> {{ settings.vision }}</p>
-    <p><strong>Valeurs :</strong> {{ settings.values }}</p>
+    <p><strong>Valeurs :</strong> {{ settings.get('values', '') }}</p>
   </article>
 </section>
 

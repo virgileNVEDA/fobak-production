@@ -64,8 +64,8 @@ UPLOAD_ROOT = os.environ.get("UPLOAD_ROOT", os.path.join(STATIC_DIR, "uploads"))
 RDC_FLAG_REL = "img/drapeau_rdc.jpg"
 RDC_FLAG_ABS = os.path.join(STATIC_DIR, RDC_FLAG_REL)
 ALLOWED_IMAGE_EXT = {"png", "jpg", "jpeg", "webp", "pdf", "doc", "docx", "xls", "xlsx"}
-APP_VERSION = "47.0.0"
-APP_RELEASE_NAME = "FOBAK Manager Pro — Menu mobile et déconnexion V47"
+APP_VERSION = "49.0.0"
+APP_RELEASE_NAME = "FOBAK Manager Pro — Reçus sanitaires et interface mobile V49"
 LOG_DIR = os.path.join(BASE_DIR, "logs")
 os.makedirs(LOG_DIR, exist_ok=True)
 logging.basicConfig(filename=os.path.join(LOG_DIR, "application.log"), level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -1054,6 +1054,11 @@ def init_db():
         id INTEGER PRIMARY KEY AUTOINCREMENT, invoice_id INTEGER NOT NULL, item_type TEXT, description TEXT NOT NULL, quantity REAL DEFAULT 1,
         unit_price REAL DEFAULT 0, total REAL DEFAULT 0, source_id INTEGER
     );
+    CREATE TABLE IF NOT EXISTS health_payments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, receipt_no TEXT NOT NULL UNIQUE, invoice_id INTEGER NOT NULL, center_id INTEGER NOT NULL,
+        patient_id INTEGER NOT NULL, payment_date TEXT NOT NULL, amount REAL NOT NULL, currency TEXT DEFAULT 'CDF', method TEXT,
+        reference TEXT, notes TEXT, created_at TEXT NOT NULL, created_by INTEGER, voided_at TEXT, voided_by INTEGER, void_reason TEXT
+    );
     CREATE TABLE IF NOT EXISTS health_social_support (
         id INTEGER PRIMARY KEY AUTOINCREMENT, patient_id INTEGER NOT NULL, center_id INTEGER NOT NULL, category TEXT, reason TEXT, requested_amount REAL DEFAULT 0,
         approved_amount REAL DEFAULT 0, status TEXT DEFAULT 'pending', valid_until TEXT, approved_by INTEGER, created_at TEXT NOT NULL, created_by INTEGER
@@ -1294,6 +1299,12 @@ def get_settings():
         data["contact_phones"] = "+243 81 45 70 392 ; +243 81 44 00 233"
     if not data.get("footer_note") or data.get("footer_note") == "Gestion professionnelle des adhésions, cartes, cotisations et activités de la structure.":
         data["footer_note"] = "Plateforme professionnelle de gestion des adhésions, cartes, cotisations, activités et services de la Fondation Bakitani."
+    configured_base = os.environ.get("BASE_URL", "").strip().rstrip("/")
+    current_public = (data.get("public_base_url") or "").strip().rstrip("/")
+    if configured_base and (not current_public or "127.0.0.1" in current_public or "localhost" in current_public):
+        data["public_base_url"] = configured_base
+    elif not current_public:
+        data["public_base_url"] = configured_base or "https://fondationbakitani.org"
     return data
 
 
@@ -5137,11 +5148,18 @@ def _health_scope_clause(alias='hc'):
         return f" WHERE {alias}.province=?", [user['province'] or '']
     return '', []
 
+def _next_health_receipt_no(con):
+    prefix = f"RCS-{datetime.now().strftime('%Y%m')}"
+    row = con.execute("SELECT COUNT(*) n FROM health_payments WHERE receipt_no LIKE ?", (prefix+'%',)).fetchone()
+    return f"{prefix}-{(row['n'] or 0)+1:06d}"
+
+
 @app.route('/health/operations', methods=['GET','POST'])
 @login_required
 @module_permission_required('consultations','voir')
 def health_operations_page():
     con=db(); user=current_user(); action=request.form.get('action','') if request.method=='POST' else ''
+    redirect_url = url_for('health_operations_page')
     if request.method=='POST':
         center_id=request.form.get('center_id',type=int)
         center=con.execute('SELECT * FROM health_centers WHERE id=?',(center_id,)).fetchone() if center_id else None
@@ -5171,7 +5189,26 @@ def health_operations_page():
         elif action=='admission':
             code=_next_code('HOSP','health_admissions'); con.execute('INSERT INTO health_admissions(code,patient_id,center_id,ward,room,bed,admitted_at,diagnosis,responsible_staff_id,status,created_by) VALUES(?,?,?,?,?,?,?,?,?,?,?)',(code,patient_id,center_id,request.form.get('ward',''),request.form.get('room',''),request.form.get('bed',''),now(),request.form.get('diagnosis',''),request.form.get('professional_id',type=int),'admitted',user['id'])); flash('Hospitalisation enregistrée.','success')
         elif action=='invoice':
-            qty=request.form.get('quantity',type=float) or 1; price=request.form.get('unit_price',type=float) or 0; discount=request.form.get('discount',type=float) or 0; support=request.form.get('social_support',type=float) or 0; total=max(0,qty*price-discount-support); code=_next_code('FAC','health_invoices'); cur=con.execute('INSERT INTO health_invoices(code,patient_id,center_id,invoice_date,subtotal,discount,social_support,total,paid,status,payment_method,notes,created_at,created_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',(code,patient_id,center_id,today(),qty*price,discount,support,total,request.form.get('paid',type=float) or 0,'paid' if (request.form.get('paid',type=float) or 0)>=total else 'partial',request.form.get('payment_method',''),request.form.get('notes',''),now(),user['id'])); con.execute('INSERT INTO health_invoice_items(invoice_id,item_type,description,quantity,unit_price,total) VALUES(?,?,?,?,?,?)',(cur.lastrowid,request.form.get('item_type','acte'),request.form.get('description',''),qty,price,qty*price)); flash('Facture créée.','success')
+            qty=request.form.get('quantity',type=float) or 1
+            price=request.form.get('unit_price',type=float) or 0
+            discount=request.form.get('discount',type=float) or 0
+            support=request.form.get('social_support',type=float) or 0
+            paid=max(0, request.form.get('paid',type=float) or 0)
+            total=max(0,qty*price-discount-support)
+            paid=min(paid,total)
+            code=_next_code('FAC','health_invoices')
+            status='paid' if total>0 and paid>=total else ('partial' if paid>0 else 'unpaid')
+            method=request.form.get('payment_method','').strip()
+            cur=con.execute('INSERT INTO health_invoices(code,patient_id,center_id,invoice_date,subtotal,discount,social_support,total,paid,status,payment_method,notes,created_at,created_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',(code,patient_id,center_id,today(),qty*price,discount,support,total,paid,status,method,request.form.get('notes',''),now(),user['id']))
+            invoice_id=cur.lastrowid
+            con.execute('INSERT INTO health_invoice_items(invoice_id,item_type,description,quantity,unit_price,total) VALUES(?,?,?,?,?,?)',(invoice_id,request.form.get('item_type','acte'),request.form.get('description',''),qty,price,qty*price))
+            if paid>0:
+                receipt_no=_next_health_receipt_no(con)
+                pcur=con.execute('INSERT INTO health_payments(receipt_no,invoice_id,center_id,patient_id,payment_date,amount,currency,method,reference,notes,created_at,created_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',(receipt_no,invoice_id,center_id,patient_id,now(),paid,request.form.get('currency','CDF'),method,request.form.get('payment_reference',''),request.form.get('notes',''),now(),user['id']))
+                redirect_url=url_for('health_receipt_print',payment_id=pcur.lastrowid,paper=request.form.get('paper','a4'))
+                flash('Facture créée et paiement enregistré. Le reçu est prêt à imprimer.','success')
+            else:
+                flash('Facture créée. Vous pouvez enregistrer le paiement depuis la liste.','success')
         elif action=='support':
             con.execute('INSERT INTO health_social_support(patient_id,center_id,category,reason,requested_amount,approved_amount,status,valid_until,approved_by,created_at,created_by) VALUES(?,?,?,?,?,?,?,?,?,?,?)',(patient_id,center_id,request.form.get('category','Vulnérabilité'),request.form.get('reason',''),request.form.get('requested_amount',type=float) or 0,request.form.get('approved_amount',type=float) or 0,'approved' if request.form.get('approved_amount') else 'pending',request.form.get('valid_until',''),user['id'] if request.form.get('approved_amount') else None,now(),user['id'])); flash('Prise en charge sociale enregistrée.','success')
         elif action=='equipment':
@@ -5180,15 +5217,77 @@ def health_operations_page():
             con.execute('INSERT INTO health_suppliers(name,phone,email,address,province,active,created_at) VALUES(?,?,?,?,?,1,?)',(request.form.get('supplier_name',''),request.form.get('phone',''),request.form.get('email',''),request.form.get('address',''),center['province'],now())); flash('Fournisseur enregistré.','success')
         elif action=='referral':
             code=_next_code('REF','health_referrals'); con.execute('INSERT INTO health_referrals(code,patient_id,from_center_id,to_center_id,external_destination,urgency,reason,clinical_summary,treatment_given,status,sent_at,created_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',(code,patient_id,center_id,request.form.get('to_center_id',type=int),request.form.get('external_destination',''),request.form.get('urgency','normal'),request.form.get('reason',''),request.form.get('clinical_summary',''),request.form.get('treatment_given',''),'sent',now(),user['id'])); flash('Référence enregistrée.','success')
-        con.commit(); log_action(user['id'],'Opération centre de santé',action,None,center['name']); return redirect(url_for('health_operations_page'))
+        con.commit(); log_action(user['id'],'Opération centre de santé',action,None,center['name']); return redirect(redirect_url)
     where,args=_health_scope_clause('hc')
     centers=con.execute('SELECT hc.* FROM health_centers hc'+where+' ORDER BY hc.province,hc.name',args).fetchall()
     if user['role'] in PROVINCIAL_ROLES:
         patients=con.execute('SELECT p.* FROM patients p JOIN health_centers hc ON hc.id=p.center_id WHERE hc.province=? ORDER BY p.last_name',(user['province'],)).fetchall(); visits=con.execute("SELECT v.*,p.patient_code,p.last_name,p.first_name,hc.name center_name FROM health_visits v JOIN patients p ON p.id=v.patient_id JOIN health_centers hc ON hc.id=v.center_id WHERE hc.province=? ORDER BY v.id DESC LIMIT 100",(user['province'],)).fetchall()
     else:
         patients=con.execute('SELECT * FROM patients ORDER BY last_name').fetchall(); visits=con.execute("SELECT v.*,p.patient_code,p.last_name,p.first_name,hc.name center_name FROM health_visits v JOIN patients p ON p.id=v.patient_id JOIN health_centers hc ON hc.id=v.center_id ORDER BY v.id DESC LIMIT 100").fetchall()
-    labs=con.execute('SELECT l.*,p.patient_code,p.last_name,p.first_name FROM health_lab_orders l JOIN patients p ON p.id=l.patient_id ORDER BY l.id DESC LIMIT 100').fetchall(); products=con.execute('SELECT hp.*,COALESCE(SUM(b.quantity),0) stock FROM health_products hp LEFT JOIN health_stock_batches b ON b.product_id=hp.id GROUP BY hp.id ORDER BY hp.name').fetchall(); invoices=con.execute('SELECT i.*,p.patient_code,p.last_name,p.first_name FROM health_invoices i JOIN patients p ON p.id=i.patient_id ORDER BY i.id DESC LIMIT 100').fetchall(); admissions=con.execute('SELECT a.*,p.patient_code,p.last_name,p.first_name FROM health_admissions a JOIN patients p ON p.id=a.patient_id ORDER BY a.id DESC LIMIT 100').fetchall(); suppliers=con.execute('SELECT * FROM health_suppliers WHERE active=1 ORDER BY name').fetchall(); equipment=con.execute('SELECT e.*,hc.name center_name FROM health_equipment e JOIN health_centers hc ON hc.id=e.center_id ORDER BY e.id DESC LIMIT 100').fetchall(); appointments=con.execute('SELECT a.*,p.patient_code,p.last_name,p.first_name FROM health_appointments a JOIN patients p ON p.id=a.patient_id ORDER BY a.appointment_date DESC,a.appointment_time DESC LIMIT 100').fetchall(); referrals=con.execute('SELECT r.*,p.patient_code,p.last_name,p.first_name FROM health_referrals r JOIN patients p ON p.id=r.patient_id ORDER BY r.id DESC LIMIT 100').fetchall()
+    labs=con.execute('SELECT l.*,p.patient_code,p.last_name,p.first_name FROM health_lab_orders l JOIN patients p ON p.id=l.patient_id ORDER BY l.id DESC LIMIT 100').fetchall(); products=con.execute('SELECT hp.*,COALESCE(SUM(b.quantity),0) stock FROM health_products hp LEFT JOIN health_stock_batches b ON b.product_id=hp.id GROUP BY hp.id ORDER BY hp.name').fetchall(); invoices=con.execute('''SELECT i.*,p.patient_code,p.last_name,p.first_name,hc.name center_name, (SELECT hp.id FROM health_payments hp WHERE hp.invoice_id=i.id AND hp.voided_at IS NULL ORDER BY hp.id DESC LIMIT 1) latest_payment_id FROM health_invoices i JOIN patients p ON p.id=i.patient_id JOIN health_centers hc ON hc.id=i.center_id WHERE i.deleted_at IS NULL ORDER BY i.id DESC LIMIT 100''').fetchall(); admissions=con.execute('SELECT a.*,p.patient_code,p.last_name,p.first_name FROM health_admissions a JOIN patients p ON p.id=a.patient_id ORDER BY a.id DESC LIMIT 100').fetchall(); suppliers=con.execute('SELECT * FROM health_suppliers WHERE active=1 ORDER BY name').fetchall(); equipment=con.execute('SELECT e.*,hc.name center_name FROM health_equipment e JOIN health_centers hc ON hc.id=e.center_id ORDER BY e.id DESC LIMIT 100').fetchall(); appointments=con.execute('SELECT a.*,p.patient_code,p.last_name,p.first_name FROM health_appointments a JOIN patients p ON p.id=a.patient_id ORDER BY a.appointment_date DESC,a.appointment_time DESC LIMIT 100').fetchall(); referrals=con.execute('SELECT r.*,p.patient_code,p.last_name,p.first_name FROM health_referrals r JOIN patients p ON p.id=r.patient_id ORDER BY r.id DESC LIMIT 100').fetchall()
     con.close(); return render_template('health_operations.html',centers=centers,patients=patients,visits=visits,labs=labs,products=products,invoices=invoices,admissions=admissions,suppliers=suppliers,equipment=equipment,appointments=appointments,referrals=referrals)
+
+
+@app.post('/health/invoices/<int:invoice_id>/payment')
+@login_required
+@module_permission_required('facturation','ajouter')
+def health_invoice_payment(invoice_id):
+    user=current_user(); con=db()
+    invoice=con.execute('''SELECT i.*,hc.province,hc.name center_name FROM health_invoices i JOIN health_centers hc ON hc.id=i.center_id WHERE i.id=? AND i.deleted_at IS NULL''',(invoice_id,)).fetchone()
+    if not invoice or (user['role'] in PROVINCIAL_ROLES and invoice['province']!=(user['province'] or '')):
+        con.close(); abort(404)
+    balance=max(0,float(invoice['total'] or 0)-float(invoice['paid'] or 0))
+    amount=max(0,request.form.get('amount',type=float) or 0)
+    if amount<=0 or amount>balance:
+        con.close(); flash(f'Montant invalide. Solde disponible : {balance:.2f}.','danger'); return redirect(url_for('health_operations_page')+'#facturation')
+    receipt_no=_next_health_receipt_no(con)
+    method=request.form.get('method','').strip()
+    cur=con.execute('INSERT INTO health_payments(receipt_no,invoice_id,center_id,patient_id,payment_date,amount,currency,method,reference,notes,created_at,created_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',(receipt_no,invoice_id,invoice['center_id'],invoice['patient_id'],now(),amount,request.form.get('currency','CDF'),method,request.form.get('reference',''),request.form.get('notes',''),now(),user['id']))
+    new_paid=float(invoice['paid'] or 0)+amount
+    status='paid' if new_paid>=float(invoice['total'] or 0) else 'partial'
+    con.execute('UPDATE health_invoices SET paid=?,status=?,payment_method=? WHERE id=?',(new_paid,status,method or invoice['payment_method'],invoice_id))
+    con.commit(); payment_id=cur.lastrowid; con.close()
+    log_action(user['id'],'Encaissement sanitaire','health_payment',payment_id,f'{receipt_no} — {amount}')
+    flash('Paiement enregistré. Reçu prêt à imprimer.','success')
+    return redirect(url_for('health_receipt_print',payment_id=payment_id,paper=request.form.get('paper','a4')))
+
+
+@app.get('/health/invoices/<int:invoice_id>/print/<paper>')
+@login_required
+@module_permission_required('facturation','imprimer')
+def health_invoice_print(invoice_id,paper='a4'):
+    if paper not in {'a4','a5','80mm','58mm'}: paper='a4'
+    user=current_user(); con=db()
+    invoice=con.execute('''SELECT i.*,p.patient_code,p.first_name,p.last_name,p.phone,hc.* FROM health_invoices i JOIN patients p ON p.id=i.patient_id JOIN health_centers hc ON hc.id=i.center_id WHERE i.id=? AND i.deleted_at IS NULL''',(invoice_id,)).fetchone()
+    if not invoice or (user['role'] in PROVINCIAL_ROLES and invoice['province']!=(user['province'] or '')):
+        con.close(); abort(404)
+    items=con.execute('SELECT * FROM health_invoice_items WHERE invoice_id=? ORDER BY id',(invoice_id,)).fetchall()
+    branding=get_health_branding(invoice); con.close()
+    return render_template('health_invoice_print.html',invoice=invoice,items=items,branding=branding,paper=paper,printed_by=user,printed_at=now())
+
+
+@app.get('/health/receipts/<int:payment_id>/print/<paper>')
+@login_required
+@module_permission_required('facturation','imprimer')
+def health_receipt_print(payment_id,paper='a4'):
+    if paper not in {'a4','a5','80mm','58mm'}: paper='a4'
+    user=current_user(); con=db()
+    payment=con.execute('''SELECT hp.*,i.code invoice_code,i.total invoice_total,i.paid invoice_paid,i.discount,i.social_support,i.notes invoice_notes, p.patient_code,p.first_name,p.last_name,p.phone,hc.*,u.email cashier_email,u.phone cashier_phone FROM health_payments hp JOIN health_invoices i ON i.id=hp.invoice_id JOIN patients p ON p.id=hp.patient_id JOIN health_centers hc ON hc.id=hp.center_id LEFT JOIN users u ON u.id=hp.created_by WHERE hp.id=? AND hp.voided_at IS NULL''',(payment_id,)).fetchone()
+    if not payment or (user['role'] in PROVINCIAL_ROLES and payment['province']!=(user['province'] or '')):
+        con.close(); abort(404)
+    items=con.execute('SELECT * FROM health_invoice_items WHERE invoice_id=? ORDER BY id',(payment['invoice_id'],)).fetchall()
+    total_paid=con.execute('SELECT COALESCE(SUM(amount),0) n FROM health_payments WHERE invoice_id=? AND voided_at IS NULL',(payment['invoice_id'],)).fetchone()['n']
+    branding=get_health_branding(payment)
+    verify_url=(get_settings().get('public_base_url') or os.environ.get('BASE_URL') or request.url_root.rstrip('/')) + url_for('health_receipt_verify',receipt_no=payment['receipt_no'])
+    qr_img=qrcode.make(verify_url); buf=BytesIO(); qr_img.save(buf,format='PNG'); qr_data='data:image/png;base64,'+base64.b64encode(buf.getvalue()).decode('ascii')
+    con.close(); log_action(user['id'],'Impression reçu sanitaire','health_payment',payment_id,payment['receipt_no'])
+    return render_template('health_receipt_print.html',payment=payment,items=items,total_paid=total_paid,balance=max(0,float(payment['invoice_total'] or 0)-float(total_paid or 0)),branding=branding,paper=paper,qr_data=qr_data,verify_url=verify_url,printed_by=user,printed_at=now())
+
+
+@app.get('/public/health/receipts/<receipt_no>/verify')
+def health_receipt_verify(receipt_no):
+    con=db(); row=con.execute('''SELECT hp.receipt_no,hp.payment_date,hp.amount,hp.currency,hp.method,i.code invoice_code,p.patient_code,p.first_name,p.last_name,hc.name center_name,hp.voided_at FROM health_payments hp JOIN health_invoices i ON i.id=hp.invoice_id JOIN patients p ON p.id=hp.patient_id JOIN health_centers hc ON hc.id=hp.center_id WHERE hp.receipt_no=?''',(receipt_no,)).fetchone(); con.close()
+    return render_template('health_receipt_verify.html',row=row,receipt_no=receipt_no)
 
 
 def _month_bounds(month):
