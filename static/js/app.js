@@ -754,3 +754,57 @@ document.addEventListener('DOMContentLoaded', () => {
   else desktopQuery.addListener(syncForViewport);
   syncForViewport();
 })();
+
+// FOBAK V59 — gestion robuste et unique du bouton × du menu latéral.
+document.addEventListener('DOMContentLoaded', function () {
+  const body = document.body;
+  const sidebar = document.getElementById('main-sidebar');
+  const closeButton = document.getElementById('sidebar-close-button') || document.querySelector('.sidebar-close-button');
+  const reopenButton = document.getElementById('mobile-sidebar-toggle');
+  if (!body || !sidebar || !closeButton || !reopenButton) return;
+
+  const desktop = () => window.innerWidth >= 781;
+  const key = 'fobak_sidebar_collapsed_v59';
+  const reopenIcon = reopenButton.querySelector('span');
+
+  function applyCollapsed(collapsed, save = true) {
+    if (!desktop()) {
+      body.classList.remove('sidebar-collapsed');
+      return;
+    }
+    body.classList.toggle('sidebar-collapsed', Boolean(collapsed));
+    closeButton.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    closeButton.title = 'Masquer le menu latéral';
+    reopenButton.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    reopenButton.title = collapsed ? 'Afficher le menu latéral' : 'Masquer le menu latéral';
+    reopenButton.setAttribute('aria-label', reopenButton.title);
+    if (reopenIcon) reopenIcon.textContent = collapsed ? '☰' : '×';
+    if (save) {
+      try { localStorage.setItem(key, collapsed ? '1' : '0'); } catch (_) {}
+    }
+    requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
+  }
+
+  // Capture prioritaire pour éviter qu'un ancien gestionnaire mobile neutralise le clic.
+  closeButton.addEventListener('click', function (event) {
+    if (!desktop()) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    applyCollapsed(true);
+  }, true);
+
+  reopenButton.addEventListener('click', function (event) {
+    if (!desktop()) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    applyCollapsed(!body.classList.contains('sidebar-collapsed'));
+  }, true);
+
+  let saved = false;
+  try { saved = localStorage.getItem(key) === '1'; } catch (_) {}
+  applyCollapsed(saved, false);
+
+  window.addEventListener('resize', function () {
+    if (!desktop()) body.classList.remove('sidebar-collapsed');
+  }, { passive: true });
+});
