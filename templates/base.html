@@ -10,10 +10,10 @@
   <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
   <link rel="icon" href="{{ url_for('static', filename=settings.favicon_path) }}">
   <link rel="apple-touch-icon" href="{{ url_for('static', filename=settings.favicon_path) }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=51">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=52">
 </head>
-<body class="{{ 'has-watermark' if settings.logo_path else '' }} {{ 'admin-layout' if current_user else 'public-layout' }}"
-      data-voice-enabled="1"
+<body class="{{ 'has-watermark' if settings.logo_path else '' }} {{ 'admin-layout' if current_user else 'public-layout' }} {{ 'health-module' if request.path.startswith('/health') else '' }}"
+      data-voice-enabled="1" data-current-path="{{ request.path }}"
       data-voice-first-name="{{ voice_first_name|e }}"
       data-voice-role="{{ voice_role|e }}"
       data-voice-welcome="{{ '1' if voice_welcome_pending else '0' }}"
@@ -123,7 +123,13 @@
 
     <section class="workspace">
       <header class="workspace-topbar">
-        <div>
+        <div class="history-controls no-print" aria-label="Navigation entre les pages">
+          <button id="nav-back" class="history-btn" type="button" title="Page précédente" aria-label="Page précédente">←<span>Retour</span></button>
+          <button id="nav-forward" class="history-btn" type="button" title="Page suivante" aria-label="Page suivante">→<span>Suivante</span></button>
+          <a class="history-btn history-home" href="{{ url_for('dashboard') }}" title="Retour au tableau de bord" aria-label="Tableau de bord">⌂<span>Tableau de bord</span></a>
+          <button id="nav-top" class="history-btn history-top" type="button" title="Remonter en haut" aria-label="Remonter en haut">↑<span>Haut</span></button>
+        </div>
+        <div class="workspace-welcome">
           <strong>{{ _("Bienvenue") }}, {{ current_user_display_name }}</strong>
           <small>{{ settings.dashboard_message }}</small>
         </div>
@@ -262,6 +268,6 @@
       flag: {{ url_for('static', filename=rdc_flag_rel)|tojson }}
     };
   </script>
-  <script src="{{ url_for('static', filename='js/app.js') }}?v=51"></script>
+  <script src="{{ url_for('static', filename='js/app.js') }}?v=52"></script>
 </body>
 </html>

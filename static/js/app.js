@@ -657,3 +657,25 @@ document.addEventListener('DOMContentLoaded', () => {
   document.addEventListener('keydown', (event) => { if (event.key === 'Escape') closeMenu(); });
   window.addEventListener('resize', () => { if (window.innerWidth > 820) closeMenu(); });
 });
+
+// FOBAK V52 — Navigation précédente/suivante et retour en haut sur toutes les pages internes.
+(() => {
+  const back = document.getElementById('nav-back');
+  const forward = document.getElementById('nav-forward');
+  const top = document.getElementById('nav-top');
+  if (back) back.addEventListener('click', () => {
+    if (window.history.length > 1) window.history.back();
+    else window.location.href = '/dashboard';
+  });
+  if (forward) forward.addEventListener('click', () => window.history.forward());
+  if (top) top.addEventListener('click', () => window.scrollTo({top: 0, behavior: 'smooth'}));
+
+  // Mémorise le défilement par page pour faciliter le retour à une liste longue.
+  const key = `fobak-scroll:${location.pathname}${location.search}`;
+  window.addEventListener('pagehide', () => sessionStorage.setItem(key, String(window.scrollY || 0)));
+  window.addEventListener('pageshow', (event) => {
+    if (event.persisted) return;
+    const saved = Number(sessionStorage.getItem(key) || 0);
+    if (saved > 0 && location.hash === '') requestAnimationFrame(() => window.scrollTo(0, saved));
+  });
+})();

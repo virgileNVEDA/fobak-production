@@ -1,29 +1,39 @@
 {% extends 'base.html' %}
 {% block content %}
-<section class="dashboard-welcome"><div><span class="eyebrow">Dossier patient</span><h1>Renseignements du patient</h1><p>Identification administrative et informations médicales essentielles avec une présentation plus propre.</p></div><div class="dashboard-seal">🧑🏽</div></section>
+<section class="dashboard-welcome"><div><span class="eyebrow">Dossier patient</span><h1>Renseignements du patient</h1><p>Identification administrative, contacts utiles et informations médicales essentielles dans un formulaire harmonisé.</p></div><div class="dashboard-seal">🧑🏽</div></section>
 <section class="card health-form-card">
   <div class="sheet-header-clean">
     <div class="sheet-logo-stack"><div class="sheet-center-placeholder">CENTRE</div></div>
-    <div class="sheet-title-stack"><h2>Fiche de consultation et renseignement du patient</h2><p>Le titre final, le logo du centre à gauche et celui de la Fondation à droite seront repris automatiquement selon le centre choisi.</p></div>
+    <div class="sheet-title-stack"><h2>Fiche d’identification du patient</h2><p>Le dossier doit être complet et vérifié avant l’enregistrement afin d’éviter les doublons et les erreurs médicales.</p></div>
     <div class="sheet-logo-stack">{% if settings.logo_path %}<img src="{{ url_for('static', filename=settings.logo_path) }}" class="sheet-foundation-logo" alt="FOBAK">{% endif %}</div>
   </div>
-  <form method="post" class="form-grid adhesion-inspired-form clean-form-grid">
-    <label>Centre<select name="center_id" required>{% for c in centers %}<option value="{{ c.id }}">{{ c.province }} — {{ c.name }}</option>{% endfor %}</select></label>
-    <label>Prénom<input name="first_name" required></label>
-    <label>Nom et postnom<input name="last_name" required></label>
-    <label>Sexe<select name="gender"><option></option><option>Masculin</option><option>Féminin</option></select></label>
-    <label>Date de naissance<input name="birth_date" type="date"></label>
-    <label>Téléphone<input name="phone"></label>
-    <label>Groupe sanguin<input name="blood_group"></label>
-    <label>Contact d'urgence<input name="emergency_contact"></label>
-    <label class="full">Adresse<textarea name="address"></textarea></label>
-    <label class="full">Allergies<textarea name="allergies"></textarea></label>
-    <label class="full">Antécédents médicaux<textarea name="medical_history"></textarea></label>
-    <button class="btn primary">Enregistrer le patient</button>
+  <form method="post" class="form-grid adhesion-inspired-form clean-form-grid" autocomplete="on">
+    <p class="health-section-note">Les champs marqués d’un astérisque sont obligatoires. Recherchez d’abord le patient dans la liste avant de créer un nouveau dossier.</p>
+    <fieldset>
+      <legend>1. Identification administrative</legend>
+      <label>Centre de santé <span class="required-mark">*</span><select name="center_id" required><option value="">Sélectionner un centre</option>{% for c in centers %}<option value="{{ c.id }}">{{ c.province }} — {{ c.name }}</option>{% endfor %}</select></label>
+      <label>Sexe<select name="gender"><option value="">Non précisé</option><option>Masculin</option><option>Féminin</option></select></label>
+      <label>Prénom <span class="required-mark">*</span><input name="first_name" required autocomplete="given-name" placeholder="Ex. Jean"></label>
+      <label>Nom et postnom <span class="required-mark">*</span><input name="last_name" required autocomplete="family-name" placeholder="Ex. KABAMBA MBUYI"></label>
+      <label>Date de naissance<input name="birth_date" type="date" autocomplete="bday"></label>
+      <label>Groupe sanguin<select name="blood_group"><option value="">Inconnu</option><option>A+</option><option>A-</option><option>B+</option><option>B-</option><option>AB+</option><option>AB-</option><option>O+</option><option>O-</option></select></label>
+    </fieldset>
+    <fieldset>
+      <legend>2. Coordonnées et personne à contacter</legend>
+      <label>Téléphone<input name="phone" type="tel" autocomplete="tel" placeholder="Ex. +243 000 000 000"></label>
+      <label>Contact d’urgence<input name="emergency_contact" autocomplete="tel" placeholder="Nom et téléphone du proche"></label>
+      <label class="full">Adresse complète<textarea name="address" autocomplete="street-address" placeholder="Quartier, avenue, numéro, commune ou territoire"></textarea></label>
+    </fieldset>
+    <fieldset>
+      <legend>3. Informations médicales essentielles</legend>
+      <label class="full">Allergies connues<textarea name="allergies" placeholder="Médicaments, aliments, produits ou autres allergies. Écrire « Aucune connue » lorsque vérifié."></textarea></label>
+      <label class="full">Antécédents médicaux et chirurgicaux<textarea name="medical_history" placeholder="Maladies chroniques, interventions, hospitalisations, traitements habituels et informations importantes."></textarea></label>
+    </fieldset>
+    <div class="form-submit-row"><button class="btn primary" type="submit">✓ Enregistrer le patient</button></div>
   </form>
   <div class="sheet-footer-clean">
-    <div><strong>Note :</strong> toutes les photos membres/patients peuvent être adaptées au format passeport avant enregistrement.</div>
-    <div><strong>Documents :</strong> l'en-tête et le pied de page sont personnalisables par centre de santé.</div>
+    <div><strong>Confidentialité :</strong> les informations du patient sont confidentielles et réservées au personnel autorisé.</div>
+    <div><strong>Qualité :</strong> vérifiez l’orthographe, les contacts, le groupe sanguin et les antécédents avant de valider.</div>
   </div>
 </section>
 <section class="card"><div class="table-wrap"><table><thead><tr><th>Code</th><th>Patient</th><th>Centre</th><th>Sexe</th><th>Téléphone</th><th>Groupe sanguin</th><th>Actions</th></tr></thead><tbody>{% for r in rows %}<tr><td>{{ r.patient_code }}</td><td><strong>{{ r.last_name }} {{ r.first_name }}</strong></td><td>{{ r.center_name }}</td><td>{{ r.gender }}</td><td>{{ r.phone }}</td><td>{{ r.blood_group }}</td><td>{% if module_allowed('patients','imprimer') %}<a class="btn secondary small" target="_blank" href="{{ url_for('patient_print',patient_id=r.id) }}">Imprimer</a>{% endif %}{% if module_allowed('patients','supprimer') %}<form method="post" action="{{ url_for('universal_delete',entity='patient',record_id=r.id) }}" onsubmit="return confirm('Confirmer la suppression ?')"><button class="btn danger small">Supprimer</button></form>{% endif %}</td></tr>{% endfor %}</tbody></table></div></section>

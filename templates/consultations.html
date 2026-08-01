@@ -1,35 +1,49 @@
 {% extends 'base.html' %}
 {% block content %}
-<section class="dashboard-welcome"><div><span class="eyebrow">Dossier clinique</span><h1>Fiche de consultation</h1><p>Constantes, examen, diagnostic, traitement et suivi avec en-tête harmonisé.</p></div><div class="dashboard-seal">📋</div></section>
+<section class="dashboard-welcome"><div><span class="eyebrow">Dossier clinique</span><h1>Fiche de consultation</h1><p>Constantes, anamnèse, examen, diagnostic, traitement et suivi dans un ordre clinique logique.</p></div><div class="dashboard-seal">📋</div></section>
 <section class="card health-form-card">
   <div class="sheet-header-clean">
     <div class="sheet-logo-stack"><div class="sheet-center-placeholder">SERVICE</div></div>
-    <div class="sheet-title-stack"><h2>Consultation médicale</h2><p>Formulaire propre, lisible et prêt pour impression avec identité configurable du centre.</p></div>
+    <div class="sheet-title-stack"><h2>Consultation médicale</h2><p>Complétez les rubriques dans l’ordre. Les champs obligatoires sont clairement indiqués.</p></div>
     <div class="sheet-logo-stack">{% if settings.logo_path %}<img src="{{ url_for('static', filename=settings.logo_path) }}" class="sheet-foundation-logo" alt="FOBAK">{% endif %}</div>
   </div>
   <form method="post" class="form-grid adhesion-inspired-form clean-form-grid">
-    <label>Patient<select name="patient_id" required>{% for p in patients %}<option value="{{ p.id }}">{{ p.patient_code }} — {{ p.last_name }} {{ p.first_name }}</option>{% endfor %}</select></label>
-    <label>Consultant<select name="staff_id"><option value="">Non précisé</option>{% for s in staff %}<option value="{{ s.id }}">{{ s.last_name }} {{ s.first_name }} — {{ s.role_name }}</option>{% endfor %}</select></label>
-    <label>Date<input name="consultation_date" type="date"></label>
-    <label>Température<input name="temperature"></label>
-    <label>Tension artérielle<input name="blood_pressure"></label>
-    <label>Fréquence cardiaque<input name="heart_rate"></label>
-    <label>Fréquence respiratoire<input name="respiratory_rate"></label>
-    <label>Poids<input name="weight"></label>
-    <label>Taille<input name="height"></label>
-    <label class="full">Motif<input name="reason" required></label>
-    <label class="full">Plaintes<textarea name="complaints"></textarea></label>
-    <label class="full">Histoire de la maladie<textarea name="disease_history"></textarea></label>
-    <label class="full">Examen clinique<textarea name="clinical_exam"></textarea></label>
-    <label class="full">Diagnostic<textarea name="diagnosis" required></textarea></label>
-    <label class="full">Examens demandés<textarea name="requested_tests"></textarea></label>
-    <label class="full">Traitement / prescription<textarea name="treatment"></textarea></label>
-    <label>Orientation<input name="orientation"></label>
-    <label>Prochain rendez-vous<input name="next_appointment" type="date"></label>
-    <label class="full">Observations<textarea name="notes"></textarea></label>
-    <button class="btn primary">Enregistrer la consultation</button>
+    <p class="health-section-note">Une consultation doit être rattachée à un patient. Les constantes doivent être saisies avec leurs unités habituelles.</p>
+    <fieldset>
+      <legend>1. Identification de la consultation</legend>
+      <label>Patient <span class="required-mark">*</span><select name="patient_id" required><option value="">Sélectionner un patient</option>{% for p in patients %}<option value="{{ p.id }}">{{ p.patient_code }} — {{ p.last_name }} {{ p.first_name }}</option>{% endfor %}</select></label>
+      <label>Consultant<select name="staff_id"><option value="">Non précisé</option>{% for s in staff %}<option value="{{ s.id }}">{{ s.last_name }} {{ s.first_name }} — {{ s.role_name }}</option>{% endfor %}</select></label>
+      <label>Date de consultation<input name="consultation_date" type="date"></label>
+      <label>Prochain rendez-vous<input name="next_appointment" type="date"></label>
+    </fieldset>
+    <fieldset>
+      <legend>2. Constantes vitales</legend>
+      <label>Température (°C)<input name="temperature" inputmode="decimal" placeholder="Ex. 37,2"></label>
+      <label>Tension artérielle (mmHg)<input name="blood_pressure" placeholder="Ex. 120/80"></label>
+      <label>Fréquence cardiaque (/min)<input name="heart_rate" inputmode="numeric" placeholder="Ex. 78"></label>
+      <label>Fréquence respiratoire (/min)<input name="respiratory_rate" inputmode="numeric" placeholder="Ex. 18"></label>
+      <label>Poids (kg)<input name="weight" inputmode="decimal" placeholder="Ex. 65"></label>
+      <label>Taille (cm)<input name="height" inputmode="decimal" placeholder="Ex. 170"></label>
+    </fieldset>
+    <fieldset>
+      <legend>3. Motif et histoire clinique</legend>
+      <label class="full">Motif principal <span class="required-mark">*</span><input name="reason" required placeholder="Raison principale de la consultation"></label>
+      <label class="full">Plaintes et symptômes<textarea name="complaints" placeholder="Décrire les symptômes, leur durée, leur intensité et leur évolution."></textarea></label>
+      <label class="full">Histoire de la maladie<textarea name="disease_history" placeholder="Chronologie, facteurs aggravants ou calmants, traitements déjà pris."></textarea></label>
+    </fieldset>
+    <fieldset>
+      <legend>4. Examen, diagnostic et prise en charge</legend>
+      <label class="full">Examen clinique<textarea name="clinical_exam" placeholder="État général, examen par appareil et signes pertinents."></textarea></label>
+      <label class="full">Diagnostic ou hypothèses diagnostiques <span class="required-mark">*</span><textarea name="diagnosis" required placeholder="Diagnostic principal et diagnostics associés."></textarea></label>
+      <label class="full">Examens demandés<textarea name="requested_tests" placeholder="Laboratoire, imagerie et autres examens complémentaires."></textarea></label>
+      <label class="full">Traitement / prescription<textarea name="treatment" placeholder="Médicament, dosage, voie, fréquence, durée et conseils."></textarea></label>
+      <label>Orientation<input name="orientation" placeholder="Retour domicile, référence, hospitalisation..."></label>
+      <label>Statut de suivi<input value="À suivre selon le rendez-vous" disabled aria-label="Statut indicatif"></label>
+      <label class="full">Observations et conseils<textarea name="notes" placeholder="Conseils, signes d’alerte, éducation du patient et remarques."></textarea></label>
+    </fieldset>
+    <div class="form-submit-row"><button class="btn primary" type="submit">✓ Enregistrer la consultation</button></div>
   </form>
-  <div class="sheet-footer-clean"><div><strong>Conseil :</strong> évitez toute superposition en gardant les observations synthétiques et structurées.</div><div><strong>Impression :</strong> les futures fiches imprimées reprennent l'identité visuelle du centre.</div></div>
+  <div class="sheet-footer-clean"><div><strong>Contrôle :</strong> vérifiez le patient, le diagnostic, la prescription et la date de suivi.</div><div><strong>Impression :</strong> la fiche imprimée reprend l’identité visuelle du centre de santé.</div></div>
 </section>
 <section class="card"><div class="table-wrap"><table><thead><tr><th>Code</th><th>Date</th><th>Patient</th><th>Centre</th><th>Diagnostic</th><th>Statut</th><th>Actions</th></tr></thead><tbody>{% for r in rows %}<tr><td>{{ r.consultation_code }}</td><td>{{ r.consultation_date }}</td><td>{{ r.patient_code }} — {{ r.last_name }} {{ r.first_name }}</td><td>{{ r.center_name }}</td><td>{{ r.diagnosis }}</td><td>{{ r.status }}</td><td>{% if module_allowed('consultations','imprimer') %}<a class="btn secondary small" target="_blank" href="{{ url_for('consultation_print',consultation_id=r.id) }}">Imprimer</a>{% endif %}{% if module_allowed('consultations','supprimer') %}<form method="post" action="{{ url_for('universal_delete',entity='consultation',record_id=r.id) }}" onsubmit="return confirm('Confirmer la suppression ?')"><button class="btn danger small">Supprimer</button></form>{% endif %}</td></tr>{% endfor %}</tbody></table></div></section>
 {% endblock %}

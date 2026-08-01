@@ -1655,3 +1655,97 @@ html,body{max-width:100%;overflow-x:hidden}.image-load-failed{visibility:hidden!
   .public-mobile-bar{grid-template-columns:46px minmax(0,1fr) auto}.public-mobile-login{padding:0 11px;font-size:14px}.public-mobile-brand{font-size:18px}
   .public-header{grid-template-columns:62px 1fr!important}.public-header .flag-real{display:none!important}.public-header .logo-box{width:58px!important;height:58px!important}
 }
+
+/* FOBAK V52 — Navigation permanente, barre supérieure figée et formulaires santé harmonisés */
+.workspace-topbar{
+  position:sticky!important;
+  top:0!important;
+  z-index:85!important;
+  display:grid!important;
+  grid-template-columns:auto minmax(190px,1fr) minmax(220px,420px) auto auto!important;
+  align-items:center!important;
+  gap:12px!important;
+  background:rgba(255,255,255,.97)!important;
+  backdrop-filter:blur(14px);
+  -webkit-backdrop-filter:blur(14px);
+  border-bottom:1px solid #d8e4ef!important;
+  box-shadow:0 10px 28px rgba(9,52,91,.10)!important;
+}
+.workspace-welcome{min-width:0}.workspace-welcome strong,.workspace-welcome small{display:block}.workspace-welcome small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:420px}
+.history-controls{display:flex;align-items:center;gap:7px;flex-wrap:nowrap}
+.history-btn{min-height:40px;border:1px solid #cfdeeb;background:#fff;color:#0b4f86;border-radius:12px;padding:8px 11px;font-weight:800;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;cursor:pointer;box-shadow:0 4px 12px rgba(9,52,91,.07);transition:.18s ease;white-space:nowrap}
+.history-btn:hover,.history-btn:focus-visible{background:#eaf4fb;border-color:#8eb6d4;transform:translateY(-1px)}
+.history-btn:active{transform:translateY(0)}
+.history-home{background:linear-gradient(135deg,#0b5f9e,#0b78c7);color:#fff;border-color:transparent}
+.history-top{display:none}
+
+.health-module .workspace-content{max-width:1500px!important;width:100%}
+.health-module .dashboard-welcome{margin-bottom:18px!important;border:1px solid #d8e7f1!important;background:linear-gradient(135deg,#f9fcff,#edf6fc)!important;color:#17334c!important;box-shadow:0 12px 32px rgba(12,72,119,.09)!important}
+.health-module .dashboard-welcome h1{color:#083b66!important}
+.health-module .health-form-card,.health-module .card:has(> form){border:1px solid #d6e5ef!important;box-shadow:0 14px 36px rgba(9,58,97,.09)!important;overflow:visible!important}
+.health-module form.form-grid,.health-module form.adhesion-inspired-form{
+  display:grid!important;
+  grid-template-columns:repeat(2,minmax(0,1fr))!important;
+  gap:18px 20px!important;
+  padding:22px!important;
+  background:linear-gradient(180deg,#fbfdff,#f4f8fc)!important;
+  border:1px solid #d9e7f1!important;
+  border-radius:20px!important;
+  align-items:start!important;
+}
+.health-module form fieldset{
+  grid-column:1/-1;
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:16px 18px;
+  margin:0;
+  padding:20px;
+  min-width:0;
+  border:1px solid #cfdfea;
+  border-radius:18px;
+  background:#fff;
+  box-shadow:0 6px 18px rgba(9,58,97,.05)
+}
+.health-module form fieldset legend{padding:0 10px;color:#0a568f;font-size:15px;font-weight:900;letter-spacing:.02em}
+.health-module form label{display:flex!important;flex-direction:column!important;gap:7px!important;min-width:0!important;margin:0!important;color:#17334c!important;font-weight:800!important;line-height:1.35!important}
+.health-module form label.full,.health-module form .full{grid-column:1/-1!important}
+.health-module form input,.health-module form select,.health-module form textarea{
+  width:100%!important;max-width:100%!important;min-width:0!important;margin:0!important;
+  border:1px solid #b9ccda!important;border-radius:12px!important;background:#fff!important;
+  padding:12px 13px!important;color:#172c3d!important;box-shadow:inset 0 1px 2px rgba(0,0,0,.025)!important;
+  transition:border-color .18s,box-shadow .18s,background .18s!important
+}
+.health-module form input:focus,.health-module form select:focus,.health-module form textarea:focus{outline:none!important;border-color:#1982c4!important;box-shadow:0 0 0 4px rgba(25,130,196,.13)!important;background:#fff!important}
+.health-module form textarea{min-height:112px!important;resize:vertical!important}
+.health-module form button[type=submit],.health-module form .form-submit-row{grid-column:1/-1!important;justify-self:start}
+.health-module .health-section-note{grid-column:1/-1;margin:-4px 0 0;padding:11px 13px;border-radius:12px;background:#edf7ff;border-left:4px solid #1682c4;color:#38566c;font-size:13px;line-height:1.5}
+.health-module .required-mark{color:#b42318;font-weight:900}
+.health-module .sheet-header-clean{background:linear-gradient(135deg,#f6fbff,#fff);padding:18px;border:1px solid #d9e7f1;border-radius:18px;margin-bottom:20px}
+.health-module .sheet-title-stack h2{font-size:clamp(20px,3vw,28px)!important;letter-spacing:.02em}
+.health-module .sheet-footer-clean{margin-top:20px}
+.health-module .table-wrap{border:1px solid #dce7ef;border-radius:16px;box-shadow:0 8px 22px rgba(9,58,97,.06)}
+.health-module table thead th{position:sticky;top:0;z-index:3;background:#eaf4fb!important}
+
+@media(max-width:1180px){
+  .workspace-topbar{grid-template-columns:auto minmax(170px,1fr) minmax(180px,1fr) auto!important}
+  .workspace-topbar .language-select{display:none}
+  .history-btn span{display:none}
+  .history-btn{width:42px;padding:8px}
+}
+@media(max-width:780px){
+  .workspace-topbar{position:sticky!important;top:0!important;display:grid!important;grid-template-columns:1fr!important;padding:10px 12px 10px 72px!important;gap:9px!important}
+  .history-controls{order:0;width:100%;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px}
+  .history-btn{width:100%;height:42px;padding:7px 5px!important;font-size:20px;border-radius:11px}
+  .history-btn span{display:none}
+  .history-top{display:inline-flex}
+  .workspace-welcome{order:1}.global-search-form{order:2}.top-actions{order:3}
+  .workspace-welcome small{max-width:100%}
+  .health-module form.form-grid,.health-module form.adhesion-inspired-form{grid-template-columns:1fr!important;padding:14px!important;gap:14px!important}
+  .health-module form fieldset{grid-template-columns:1fr!important;padding:15px!important;gap:13px!important}
+  .health-module .sheet-header-clean{padding:14px!important}
+  .health-module .sheet-footer-clean{grid-template-columns:1fr!important}
+}
+@media print{
+  .history-controls{display:none!important}
+  .workspace-topbar{position:static!important;box-shadow:none!important}
+}
