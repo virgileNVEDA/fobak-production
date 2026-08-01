@@ -2144,3 +2144,115 @@ body.admin-layout .top-date strong{color:#fff!important}
   body.admin-layout .top-date{display:none!important}
   body.admin-layout .top-actions{grid-template-columns:repeat(4,44px)!important}
 }
+
+/* FOBAK V57 — en-tête collé en haut et au bord gauche du contenu */
+@media screen and (min-width:781px){
+  body.admin-layout .workspace-topbar{
+    top:0!important;
+    left:var(--fobak-sidebar-width)!important;
+    right:0!important;
+    width:auto!important;
+    margin:0!important;
+    border-top:0!important;
+    border-left:0!important;
+    border-right:0!important;
+    border-radius:0 0 18px 18px!important;
+    box-shadow:0 10px 26px rgba(3,31,55,.25)!important;
+  }
+  body.admin-layout .workspace-content{
+    padding-top:calc(var(--fobak-topbar-height) + 18px)!important;
+  }
+}
+
+@media screen and (max-width:780px){
+  body.admin-layout .workspace-topbar{
+    top:0!important;
+    left:0!important;
+    right:0!important;
+    width:100%!important;
+    margin:0!important;
+    border-top:0!important;
+    border-left:0!important;
+    border-right:0!important;
+    border-radius:0 0 16px 16px!important;
+    box-shadow:0 9px 22px rgba(3,31,55,.24)!important;
+  }
+  body.admin-layout .workspace-content{
+    padding-top:calc(var(--fobak-topbar-height) + 16px)!important;
+  }
+}
+
+/* Préserve le contraste et la visibilité des commandes sur toutes les largeurs */
+body.admin-layout .workspace-topbar button,
+body.admin-layout .workspace-topbar a,
+body.admin-layout .workspace-topbar select,
+body.admin-layout .workspace-topbar input{
+  position:relative!important;
+  z-index:1!important;
+}
+body.admin-layout .history-controls,
+body.admin-layout .workspace-welcome,
+body.admin-layout .global-search-form,
+body.admin-layout .language-select,
+body.admin-layout .top-actions{
+  min-width:0!important;
+}
+
+/* FOBAK V58 — bouton supérieur gauche fonctionnel : réduire/réafficher le menu latéral */
+@media screen and (min-width:781px){
+  body.admin-layout .side-dashboard{
+    transition:transform .24s ease,visibility .24s ease,box-shadow .24s ease!important;
+  }
+  body.admin-layout.sidebar-collapsed .app-shell{
+    grid-template-columns:minmax(0,1fr)!important;
+  }
+  body.admin-layout.sidebar-collapsed .side-dashboard{
+    position:fixed!important;
+    top:0!important;left:0!important;bottom:0!important;
+    transform:translateX(-105%)!important;
+    visibility:hidden!important;
+    pointer-events:none!important;
+    box-shadow:none!important;
+  }
+  body.admin-layout.sidebar-collapsed .workspace{
+    width:100%!important;
+    min-width:0!important;
+    margin-left:0!important;
+  }
+  body.admin-layout.sidebar-collapsed .workspace-topbar{
+    left:0!important;
+    padding-left:78px!important;
+  }
+  body.admin-layout.sidebar-collapsed #mobile-sidebar-toggle{
+    display:grid!important;
+    place-items:center!important;
+    position:fixed!important;
+    top:12px!important;
+    left:12px!important;
+    z-index:1500!important;
+    width:50px!important;
+    height:50px!important;
+    border:1px solid rgba(255,255,255,.35)!important;
+    border-radius:15px!important;
+    background:linear-gradient(135deg,#138bc8,#075b96)!important;
+    color:#fff!important;
+    font-size:27px!important;
+    font-weight:900!important;
+    box-shadow:0 10px 24px rgba(3,31,55,.30)!important;
+    cursor:pointer!important;
+  }
+  body.admin-layout:not(.sidebar-collapsed) #mobile-sidebar-toggle{
+    display:none!important;
+  }
+  body.admin-layout .sidebar-close-button{
+    display:grid!important;
+    place-items:center!important;
+    transition:background .18s ease,transform .18s ease!important;
+  }
+  body.admin-layout .sidebar-close-button:hover,
+  body.admin-layout .sidebar-close-button:focus-visible{
+    background:#e3212e!important;
+    transform:scale(1.04)!important;
+    outline:3px solid rgba(255,255,255,.28)!important;
+  }
+}
