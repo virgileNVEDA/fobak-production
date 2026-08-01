@@ -10,7 +10,7 @@
   <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
   <link rel="icon" href="{{ url_for('static', filename=settings.favicon_path) }}">
   <link rel="apple-touch-icon" href="{{ url_for('static', filename=settings.favicon_path) }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=55">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=56">
 </head>
 <body class="{{ 'has-watermark' if settings.logo_path else '' }} {{ 'admin-layout' if current_user else 'public-layout' }} {{ 'health-module' if request.path.startswith('/health') else '' }}"
       data-voice-enabled="1" data-current-path="{{ request.path }}"
