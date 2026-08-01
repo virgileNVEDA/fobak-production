@@ -10,7 +10,7 @@
   <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
   <link rel="icon" href="{{ url_for('static', filename=settings.favicon_path) }}">
   <link rel="apple-touch-icon" href="{{ url_for('static', filename=settings.favicon_path) }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=42">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=47">
 </head>
 <body class="{{ 'has-watermark' if settings.logo_path else '' }} {{ 'admin-layout' if current_user else 'public-layout' }}"
       data-voice-enabled="1"
@@ -36,9 +36,10 @@
 
   {% if current_user %}
   <div class="app-shell">
-    <aside class="side-dashboard">
+    <button id="mobile-sidebar-toggle" class="mobile-sidebar-toggle no-print" type="button" aria-label="Afficher le menu" aria-controls="main-sidebar" aria-expanded="false"><span aria-hidden="true">☰</span></button>
+    <aside id="main-sidebar" class="side-dashboard">
       <div class="side-top">
-        <button class="menu-round" type="button" aria-label="Menu">☰</button>
+        <button class="menu-round sidebar-close-button" type="button" aria-label="Masquer le menu">×</button>
         <div class="side-brand">
           <div class="side-logo">
             {% if settings.logo_dark_path %}<img src="{{ url_for('static', filename=settings.logo_dark_path) }}" alt="Logo FOBAK">{% else %}<span>FOBAK</span>{% endif %}

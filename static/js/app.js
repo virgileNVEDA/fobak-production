@@ -44,8 +44,7 @@ window.addEventListener('pageshow', () => {
 
 // Menu mobile et installation PWA
 (function(){
-  const menuButton = document.querySelector('.menu-round');
-  if(menuButton){ menuButton.addEventListener('click', () => document.body.classList.toggle('side-open')); }
+  // Le menu mobile est géré plus bas par le contrôleur V47.
   if('serviceWorker' in navigator){
     window.addEventListener('load', () => { navigator.serviceWorker.register('/static/sw.js').catch(()=>{}); });
   }
@@ -509,45 +508,40 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 })();
 
-// V34 — Menu mobile fiable : ouverture, fermeture et navigation
+// V47 — Menu mobile permanent : bouton toujours visible, ouverture/fermeture et déconnexion accessible
 (function(){
   const body = document.body;
-  const menuButton = document.querySelector('.menu-round');
-  const sidebar = document.querySelector('.side-dashboard');
+  const sidebar = document.getElementById('main-sidebar') || document.querySelector('.side-dashboard');
+  const toggle = document.getElementById('mobile-sidebar-toggle');
+  const closeButton = document.querySelector('.sidebar-close-button');
   const backdrop = document.querySelector('.mobile-menu-backdrop');
-  if (!menuButton || !sidebar) return;
+  if (!sidebar || !toggle) return;
 
   const isMobile = () => window.matchMedia('(max-width: 780px)').matches;
-  const closeMenu = () => {
-    body.classList.remove('side-open');
-    menuButton.setAttribute('aria-expanded', 'false');
+  const render = (open) => {
+    body.classList.toggle('side-open', open);
+    toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    toggle.setAttribute('aria-label', open ? 'Masquer le menu' : 'Afficher le menu');
+    const icon = toggle.querySelector('span');
+    if (icon) icon.textContent = open ? '×' : '☰';
+    backdrop?.setAttribute('aria-hidden', open ? 'false' : 'true');
   };
-  const openMenu = () => {
-    body.classList.add('side-open');
-    menuButton.setAttribute('aria-expanded', 'true');
-  };
+  const closeMenu = () => render(false);
+  const openMenu = () => render(true);
 
-  menuButton.setAttribute('aria-expanded', 'false');
-  menuButton.addEventListener('click', (event) => {
+  toggle.addEventListener('click', (event) => {
     if (!isMobile()) return;
     event.preventDefault();
     event.stopPropagation();
     body.classList.contains('side-open') ? closeMenu() : openMenu();
   });
-
+  closeButton?.addEventListener('click', closeMenu);
   backdrop?.addEventListener('click', closeMenu);
-  sidebar.querySelectorAll('a[href]').forEach((link) => {
-    link.addEventListener('click', () => {
-      if (isMobile()) closeMenu();
-    });
-  });
-  document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape') closeMenu();
-  });
-  window.addEventListener('resize', () => {
-    if (!isMobile()) closeMenu();
-  });
+  sidebar.querySelectorAll('a[href]').forEach((link) => link.addEventListener('click', () => { if (isMobile()) closeMenu(); }));
+  document.addEventListener('keydown', (event) => { if (event.key === 'Escape') closeMenu(); });
+  window.addEventListener('resize', () => { if (!isMobile()) closeMenu(); });
   window.addEventListener('pageshow', closeMenu);
+  render(false);
 })();
 
 // V39 — affichage/masquage sécurisé des mots de passe

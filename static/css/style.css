@@ -1556,3 +1556,42 @@ body.has-watermark:before{opacity:.025!important;background-size:min(380px,48vw)
 
 /* V46 — Connexion propre par mot de passe, PIN et biométrie */
 .login-security-redesign{min-height:620px}.login-security-redesign .login-panel{justify-content:flex-start;padding:2.6rem 3rem}.login-heading{display:flex;align-items:center;gap:14px;margin:12px 0 18px}.login-heading h2{margin:0;font-size:2rem}.login-heading p{margin:4px 0 0;color:#65778a}.login-lock{width:48px;height:48px;display:grid;place-items:center;border-radius:15px;background:#eef6ff;font-size:22px}.auth-tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:6px;background:#eef4fa;border:1px solid #d9e5f0;border-radius:18px;margin-bottom:18px}.auth-tab{border:0;border-radius:13px;background:transparent;color:#31506d;padding:11px 8px;font-weight:850;cursor:pointer;line-height:1.2}.auth-tab span{display:block;font-size:18px;margin-bottom:3px}.auth-tab.is-active{background:#fff;color:#0b4f86;box-shadow:0 7px 18px rgba(7,59,102,.12)}.auth-panels{min-height:292px}.auth-panel{animation:authFade .18s ease}.auth-panel[hidden]{display:none!important}.auth-method-form{display:grid;gap:14px}.auth-method-form label{margin:0}.auth-method-form label>span{display:block;margin:0 0 7px;font-weight:800;color:#163e65}.auth-method-form .input-with-icon{min-height:54px;background:#f9fbfe}.auth-method-form .input-with-icon input{background:transparent!important;padding:12px 6px!important}.auth-method-note{display:grid;gap:4px;background:#f3f8fd;border-left:4px solid #0b66c3;border-radius:12px;padding:12px 14px;margin-bottom:14px}.auth-method-note strong{color:#123f68}.auth-method-note span{font-size:13px;color:#63768a;line-height:1.45}.auth-status{min-height:22px;margin-top:10px;padding:0 2px;color:#a21c2b;font-weight:700}.login-security-redesign .password-field-wrap{width:100%}.login-security-redesign .password-toggle-btn{right:8px}.login-security-redesign .input-with-icon .password-field-wrap input{padding-right:44px!important}.login-security-redesign .login-links{border-top:1px solid #e3ebf3;padding-top:14px;margin-top:16px}.login-security-redesign .login-security{margin-top:4px}.login-security-redesign .btn.login-submit{border-radius:14px;background:linear-gradient(90deg,#0b5fa5,#087b8e);color:#fff;border:0;box-shadow:0 10px 22px rgba(11,95,165,.2)}@keyframes authFade{from{opacity:.3;transform:translateY(4px)}to{opacity:1;transform:none}}@media(max-width:820px){.login-security-redesign .login-panel{padding:1.5rem}.auth-tabs{grid-template-columns:1fr}.auth-tab span{display:inline;margin-right:6px}.auth-panels{min-height:0}.login-security-redesign .login-visual{min-height:220px}}@media(max-width:520px){.login-security-redesign{margin:.5rem}.login-security-redesign .login-panel{padding:1.2rem}.login-heading h2{font-size:1.65rem}.auth-tab{padding:10px}.login-links{gap:8px}}
+
+
+/* V47 — menu mobile permanent, masquable et déconnexion accessible */
+.mobile-sidebar-toggle{display:none}
+@media(max-width:780px){
+  body.admin-layout{overflow-x:hidden}
+  .mobile-sidebar-toggle{
+    display:grid!important;place-items:center;position:fixed!important;
+    top:max(10px,env(safe-area-inset-top));left:12px;z-index:1205;
+    width:50px;height:50px;border:0;border-radius:15px;
+    background:#075b96;color:#fff;font-size:26px;font-weight:900;
+    box-shadow:0 10px 26px rgba(0,0,0,.28);cursor:pointer;
+    touch-action:manipulation;-webkit-tap-highlight-color:transparent
+  }
+  body.side-open .mobile-sidebar-toggle{background:#b51e2a}
+  .side-dashboard{
+    display:flex!important;flex-direction:column!important;
+    padding-top:72px!important;overflow:hidden!important;
+    visibility:hidden;pointer-events:none
+  }
+  body.side-open .side-dashboard{visibility:visible;pointer-events:auto}
+  .side-top{flex:0 0 auto}
+  .side-top .sidebar-close-button{display:none!important}
+  .side-menu-search,.side-menu-search-empty{flex:0 0 auto}
+  .side-menu{
+    display:flex!important;flex-direction:column!important;flex:1 1 auto!important;
+    min-height:0!important;overflow-y:auto!important;overflow-x:hidden!important;
+    padding-bottom:12px!important;-webkit-overflow-scrolling:touch
+  }
+  .side-user{flex:0 0 auto;margin-top:0!important;background:rgba(4,41,70,.96)}
+  .logout-btn{
+    flex:0 0 auto;display:block!important;position:sticky!important;bottom:0!important;
+    z-index:4;margin:4px 8px max(10px,env(safe-area-inset-bottom))!important;
+    min-height:48px;line-height:24px
+  }
+  .workspace-topbar{padding-left:76px!important;min-height:68px}
+  body.side-open{overflow:hidden}
+  body.side-open .mobile-menu-backdrop{display:block!important;opacity:1!important;visibility:visible!important}
+}

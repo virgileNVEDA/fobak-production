@@ -64,8 +64,8 @@ UPLOAD_ROOT = os.environ.get("UPLOAD_ROOT", os.path.join(STATIC_DIR, "uploads"))
 RDC_FLAG_REL = "img/drapeau_rdc.jpg"
 RDC_FLAG_ABS = os.path.join(STATIC_DIR, RDC_FLAG_REL)
 ALLOWED_IMAGE_EXT = {"png", "jpg", "jpeg", "webp", "pdf", "doc", "docx", "xls", "xlsx"}
-APP_VERSION = "46.0.0"
-APP_RELEASE_NAME = "FOBAK Manager Pro — Connexion PIN et biométrie propre V46"
+APP_VERSION = "47.0.0"
+APP_RELEASE_NAME = "FOBAK Manager Pro — Menu mobile et déconnexion V47"
 LOG_DIR = os.path.join(BASE_DIR, "logs")
 os.makedirs(LOG_DIR, exist_ok=True)
 logging.basicConfig(filename=os.path.join(LOG_DIR, "application.log"), level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
