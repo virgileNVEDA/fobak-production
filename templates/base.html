@@ -10,7 +10,7 @@
   <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
   <link rel="icon" href="{{ url_for('static', filename=settings.favicon_path) }}">
   <link rel="apple-touch-icon" href="{{ url_for('static', filename=settings.favicon_path) }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=48">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=51">
 </head>
 <body class="{{ 'has-watermark' if settings.logo_path else '' }} {{ 'admin-layout' if current_user else 'public-layout' }}"
       data-voice-enabled="1"
@@ -140,6 +140,12 @@
 
       <main class="main-content workspace-content">
   {% else %}
+  <div class="public-mobile-bar no-print">
+    <button id="public-menu-toggle" class="public-menu-toggle" type="button" aria-label="Afficher le menu public" aria-controls="public-main-nav" aria-expanded="false">☰</button>
+    <a class="public-mobile-brand" href="{{ url_for('index') }}">FOBAK</a>
+    <a class="public-mobile-login" href="{{ url_for('login') }}">Connexion</a>
+  </div>
+  <div id="public-menu-backdrop" class="public-menu-backdrop" aria-hidden="true"></div>
   <header class="site-header public-header">
     <div class="logo-box">
       {% if settings.logo_dark_path %}<img src="{{ url_for('static', filename=settings.logo_dark_path) }}" alt="Logo FOBAK" onerror="this.onerror=null;this.src='{{ url_for('static', filename='img/fobak_logo_official_v25.png') }}'">{% else %}<span>FOBAK</span>{% endif %}
@@ -152,7 +158,7 @@
     <div class="flag-real" aria-label="Drapeau RDC"><img src="{{ url_for('static', filename=rdc_flag_rel) }}" alt="Drapeau RDC"></div>
   </header>
 
-  <nav class="top-nav public-nav">
+  <nav id="public-main-nav" class="top-nav public-nav">
     <a href="{{ url_for('index') }}">{{ _("Accueil") }}</a>
     <a href="{{ url_for('become_member') }}">{{ _("Devenir membre") }}</a>
     <a href="{{ url_for('fiche_vierge') }}">Fiche vierge</a>
@@ -164,7 +170,7 @@
     <a href="{{ url_for('intelligent_help') }}">{{ _("Aide intelligente") }}</a>
     <a href="{{ url_for('quick_guide') }}">Guide rapide</a>
     <select class="language-select public-language" onchange="if(this.value) location.href=this.value">{% for code,label in lang_options.items() %}<option value="{{ url_for('set_language', code=code) }}" {{ 'selected' if code==lang_code else '' }}>{{ label }}</option>{% endfor %}</select>
-    <a href="{{ url_for('login') }}">{{ _("Connexion") }}</a>
+    <a class="public-login-link" href="{{ url_for('login') }}">{{ _("Connexion") }}</a>
   </nav>
 
   <main class="main-content public-content">
@@ -256,6 +262,6 @@
       flag: {{ url_for('static', filename=rdc_flag_rel)|tojson }}
     };
   </script>
-  <script src="{{ url_for('static', filename='js/app.js') }}?v=48"></script>
+  <script src="{{ url_for('static', filename='js/app.js') }}?v=51"></script>
 </body>
 </html>

@@ -629,3 +629,31 @@ document.addEventListener('DOMContentLoaded', () => {
   normalizeMobileLayout();
   window.addEventListener('orientationchange', normalizeMobileLayout);
 });
+
+
+// V51 — menu public mobile et accès immédiat à la connexion
+document.addEventListener('DOMContentLoaded', () => {
+  const toggle = document.getElementById('public-menu-toggle');
+  const nav = document.getElementById('public-main-nav');
+  const backdrop = document.getElementById('public-menu-backdrop');
+  if (!toggle || !nav || !backdrop) return;
+  const closeMenu = () => {
+    nav.classList.remove('is-open');
+    backdrop.classList.remove('is-open');
+    document.body.classList.remove('public-menu-open');
+    toggle.setAttribute('aria-expanded', 'false');
+    toggle.textContent = '☰';
+  };
+  const openMenu = () => {
+    nav.classList.add('is-open');
+    backdrop.classList.add('is-open');
+    document.body.classList.add('public-menu-open');
+    toggle.setAttribute('aria-expanded', 'true');
+    toggle.textContent = '×';
+  };
+  toggle.addEventListener('click', () => nav.classList.contains('is-open') ? closeMenu() : openMenu());
+  backdrop.addEventListener('click', closeMenu);
+  nav.querySelectorAll('a').forEach((link) => link.addEventListener('click', closeMenu));
+  document.addEventListener('keydown', (event) => { if (event.key === 'Escape') closeMenu(); });
+  window.addEventListener('resize', () => { if (window.innerWidth > 820) closeMenu(); });
+});
