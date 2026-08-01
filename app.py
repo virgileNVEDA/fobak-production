@@ -21,7 +21,7 @@ from datetime import datetime, timedelta
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
-from flask import Flask, render_template, request, redirect, url_for, session, flash, send_file, Response, abort, has_request_context, jsonify
+from flask import Flask, render_template, request, redirect, url_for, session, flash, send_file, send_from_directory, Response, abort, has_request_context, jsonify
 from reportlab.lib.pagesizes import landscape, A6, A4
 from reportlab.lib.units import mm
 from reportlab.lib import colors
@@ -64,13 +64,19 @@ UPLOAD_ROOT = os.environ.get("UPLOAD_ROOT", os.path.join(STATIC_DIR, "uploads"))
 RDC_FLAG_REL = "img/drapeau_rdc.jpg"
 RDC_FLAG_ABS = os.path.join(STATIC_DIR, RDC_FLAG_REL)
 ALLOWED_IMAGE_EXT = {"png", "jpg", "jpeg", "webp", "pdf", "doc", "docx", "xls", "xlsx"}
-APP_VERSION = "49.0.0"
+APP_VERSION = "50.0.0"
 APP_RELEASE_NAME = "FOBAK Manager Pro — Reçus sanitaires et interface mobile V49"
 LOG_DIR = os.path.join(BASE_DIR, "logs")
 os.makedirs(LOG_DIR, exist_ok=True)
 logging.basicConfig(filename=os.path.join(LOG_DIR, "application.log"), level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 app = Flask(__name__, template_folder=TEMPLATE_DIR, static_folder=STATIC_DIR, static_url_path="/static")
+
+@app.route('/static/uploads/<path:filename>')
+def persistent_upload_file(filename):
+    """Sert les fichiers persistants du volume Railway sous les anciennes URL /static/uploads/."""
+    return send_from_directory(UPLOAD_ROOT, filename, conditional=True)
+
 
 def _persistent_secret_key():
     configured = os.environ.get("SECRET_KEY", "").strip()
@@ -1608,88 +1614,82 @@ def normalized_phone(prefix, number):
     return f"{prefix}{number}" if number else ""
 
 def save_upload(file, folder):
-    if not file or not file.filename or not allowed_file(file.filename):
+    """Téléversement sûr et persistant. Retourne un chemin relatif ou une chaîne vide."""
+    if not file or not getattr(file, 'filename', '') or not allowed_file(file.filename):
         return ""
-    safe = secure_filename(file.filename)
-    stamp = datetime.now().strftime("%Y%m%d%H%M%S%f")
-    name = f"{stamp}_{safe}"
-    target_dir = os.path.join(UPLOAD_ROOT, folder)
-    os.makedirs(target_dir, exist_ok=True)
-    abs_path = os.path.join(target_dir, name)
-    file.save(abs_path)
-    if folder == 'photos':
-        _normalize_passport_image(abs_path)
-    return f"uploads/{folder}/{name}"
+    try:
+        safe = secure_filename(file.filename)
+        if not safe:
+            return ""
+        stamp = datetime.now().strftime("%Y%m%d%H%M%S%f")
+        name = f"{stamp}_{safe}"
+        target_dir = os.path.join(UPLOAD_ROOT, secure_filename(folder) or 'files')
+        os.makedirs(target_dir, exist_ok=True)
+        abs_path = os.path.join(target_dir, name)
+        file.save(abs_path)
+        if folder == 'photos':
+            _normalize_passport_image(abs_path)
+        return f"uploads/{secure_filename(folder) or 'files'}/{name}"
+    except Exception:
+        logging.exception('Échec du téléversement dans %s', folder)
+        return ""
 
 
 def save_logo_upload(file):
-    """Enregistre le logo choisi et crée automatiquement ses variantes sans modifier sa forme."""
-    if not file or not file.filename or not allowed_file(file.filename):
+    """Enregistre le logo et ses variantes de façon atomique et sûre."""
+    if not file or not getattr(file, 'filename', ''):
         return {}
+    ext = file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else ''
+    if ext not in {'png','jpg','jpeg','webp'}:
+        raise ValueError('Le logo doit être une image PNG, JPG, JPEG ou WEBP.')
+    folder = os.path.join(UPLOAD_ROOT, 'logos')
+    os.makedirs(folder, exist_ok=True)
+    created=[]
     try:
-        folder = os.path.join(UPLOAD_ROOT, "logos")
-        os.makedirs(folder, exist_ok=True)
-        img = Image.open(file.stream).convert("RGBA")
-        # Pour les JPG sur fond blanc, supprimer automatiquement seulement le fond proche du blanc.
-        # Le dessin et les proportions du logo restent inchangés.
-        corners = [img.getpixel((0,0)), img.getpixel((img.width-1,0)), img.getpixel((0,img.height-1)), img.getpixel((img.width-1,img.height-1))]
-        if all(px[0] > 235 and px[1] > 235 and px[2] > 235 for px in corners):
-            cleaned = []
-            for r, g, b, a in img.getdata():
-                if r > 248 and g > 248 and b > 248:
-                    cleaned.append((255,255,255,0))
-                elif r > 235 and g > 235 and b > 235 and max(r,g,b)-min(r,g,b) < 12:
-                    cleaned.append((r,g,b,max(0,min(255,int((255-r)*13)))))
-                else:
-                    cleaned.append((r,g,b,a))
+        img = Image.open(file.stream)
+        img.load()
+        if img.width < 10 or img.height < 10:
+            raise ValueError('Le logo sélectionné est trop petit.')
+        if img.width * img.height > 40_000_000:
+            raise ValueError('Le logo est trop volumineux. Utilisez une image de moins de 40 mégapixels.')
+        img = img.convert('RGBA')
+        corners=[img.getpixel((0,0)),img.getpixel((img.width-1,0)),img.getpixel((0,img.height-1)),img.getpixel((img.width-1,img.height-1))]
+        if all(px[0]>235 and px[1]>235 and px[2]>235 for px in corners):
+            cleaned=[]
+            for r,g,b,a in img.getdata():
+                if r>248 and g>248 and b>248: cleaned.append((255,255,255,0))
+                elif r>235 and g>235 and b>235 and max(r,g,b)-min(r,g,b)<12: cleaned.append((r,g,b,max(0,min(255,int((255-r)*13)))))
+                else: cleaned.append((r,g,b,a))
             img.putdata(cleaned)
-        bbox = img.getbbox()
-        if bbox:
-            img = img.crop(bbox)
-        w, h = img.size
-        if not w or not h:
-            return {}
-        # Accepter le logo de l'utilisateur tel qu'il est, sans imposer une forme ronde ou carrée.
-        max_w = 2200
-        if w > max_w:
-            nh = max(1, round(h * max_w / w))
-            img = img.resize((max_w, nh), Image.Resampling.LANCZOS)
-        stamp = datetime.now().strftime('%Y%m%d%H%M%S%f')
-
+        bbox=img.getbbox()
+        if bbox: img=img.crop(bbox)
+        if img.width>2200:
+            nh=max(1,round(img.height*2200/img.width)); img=img.resize((2200,nh),Image.Resampling.LANCZOS)
+        stamp=datetime.now().strftime('%Y%m%d%H%M%S%f')
         def variant(base, scale=1, color=1.0, contrast=1.0, sharpness=1.0, alpha_factor=1.0):
-            out = base.resize((base.width * scale, base.height * scale), Image.Resampling.LANCZOS) if scale > 1 else base.copy()
-            alpha = out.getchannel('A')
-            rgb = out.convert('RGB')
-            rgb = ImageEnhance.Color(rgb).enhance(color)
-            rgb = ImageEnhance.Contrast(rgb).enhance(contrast)
-            rgb = ImageEnhance.Sharpness(rgb).enhance(sharpness)
-            result = rgb.convert('RGBA')
-            result.putalpha(alpha.point(lambda a: int(a * alpha_factor)))
-            return result
-
-        main = variant(img, 2, 1.06, 1.07, 1.3)
-        dark = variant(img, 2, 1.08, 1.08, 1.4)
-        alpha = dark.getchannel('A')
-        halo_mask = alpha.filter(ImageFilter.GaussianBlur(4))
-        halo = Image.new('RGBA', dark.size, (255,255,255,0))
-        halo.putalpha(halo_mask.point(lambda a: min(130, int(a * .65))))
-        dark = Image.alpha_composite(halo, dark)
-        print_logo = variant(img, 3, 1.04, 1.06, 1.5)
-        watermark = variant(img, 2, 1.0, 1.0, 1.0, .16)
-
-        paths = {}
-        for key, picture in {
-            'logo_path': main,
-            'logo_dark_path': dark,
-            'logo_print_path': print_logo,
-            'logo_watermark_path': watermark,
-        }.items():
-            name = f"{key}_{stamp}.png"
-            picture.save(os.path.join(folder, name), 'PNG', optimize=True)
-            paths[key] = f"uploads/logos/{name}"
+            out=base.resize((base.width*scale,base.height*scale),Image.Resampling.LANCZOS) if scale>1 else base.copy()
+            alpha=out.getchannel('A'); rgb=out.convert('RGB')
+            rgb=ImageEnhance.Color(rgb).enhance(color); rgb=ImageEnhance.Contrast(rgb).enhance(contrast); rgb=ImageEnhance.Sharpness(rgb).enhance(sharpness)
+            result=rgb.convert('RGBA'); result.putalpha(alpha.point(lambda a:int(a*alpha_factor))); return result
+        main=variant(img,2,1.06,1.07,1.3); dark=variant(img,2,1.08,1.08,1.4)
+        alpha=dark.getchannel('A'); halo_mask=alpha.filter(ImageFilter.GaussianBlur(4)); halo=Image.new('RGBA',dark.size,(255,255,255,0)); halo.putalpha(halo_mask.point(lambda a:min(130,int(a*.65)))); dark=Image.alpha_composite(halo,dark)
+        pictures={'logo_path':main,'logo_dark_path':dark,'logo_print_path':variant(img,3,1.04,1.06,1.5),'logo_watermark_path':variant(img,2,1.0,1.0,1.0,.16)}
+        paths={}
+        for key,picture in pictures.items():
+            name=f'{key}_{stamp}.png'; final=os.path.join(folder,name); temp=final+'.tmp'
+            picture.save(temp,'PNG',optimize=True); os.replace(temp,final); created.append(final); paths[key]=f'uploads/logos/{name}'
         return paths
-    except Exception:
-        return {}
+    except ValueError:
+        for f in created:
+            try: os.remove(f)
+            except OSError: pass
+        raise
+    except Exception as exc:
+        for f in created:
+            try: os.remove(f)
+            except OSError: pass
+        logging.exception('Échec du traitement du logo')
+        raise ValueError("Impossible de traiter ce logo. Essayez une image PNG ou JPG plus légère.") from exc
 
 
 def youtube_embed(url):
@@ -4830,20 +4830,29 @@ def delete_statute_document(document_id):
 def settings_page():
     con = db()
     if request.method == "POST":
-        keys = ["structure_name", "structure_motto", "structure_header", "structure_foundation", "structure_legal", "secretariat_label", "headquarters", "contact_phones", "history", "mission", "vision", "values", "objectives", "advantages", "partners", "president_name", "secretary_name", "facebook", "youtube", "whatsapp", "instagram", "tiktok", "x_twitter", "linkedin", "payment_info", "card_notice", "public_base_url", "public_communiques", "dashboard_message", "footer_note", "initiator", "stability_center_text", "privacy_policy", "terms_of_use", "support_intro", "mobile_app_name", "structure_address", "default_language", "global_search_placeholder", "ai_help_intro", "statute_intro", "windows_client_download_url", "windows_server_download_url", "android_download_url", "download_section_enabled"]
-        for key in keys:
-            con.execute("UPDATE settings SET value=? WHERE key=?", (request.form.get(key, ""), key))
-        logo_paths = save_logo_upload(request.files.get("logo"))
-        psig = save_upload(request.files.get("president_signature"), "signatures")
-        ssig = save_upload(request.files.get("secretary_signature"), "signatures")
-        stamp = save_upload(request.files.get("official_stamp"), "signatures")
-        for key, value in logo_paths.items():
-            con.execute("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, value))
-        if psig: con.execute("UPDATE settings SET value=? WHERE key='president_signature_path'", (psig,))
-        if ssig: con.execute("UPDATE settings SET value=? WHERE key='secretary_signature_path'", (ssig,))
-        if stamp: con.execute("UPDATE settings SET value=? WHERE key='official_stamp_path'", (stamp,))
-        con.execute("UPDATE settings SET value=? WHERE key='stamp_application_mode'", (request.form.get("stamp_application_mode", "validated"),))
-        con.commit(); flash("Paramètres de la structure mis à jour.", "success")
+        try:
+            keys = ["structure_name", "structure_motto", "structure_header", "structure_foundation", "structure_legal", "secretariat_label", "headquarters", "contact_phones", "history", "mission", "vision", "values", "objectives", "advantages", "partners", "president_name", "secretary_name", "facebook", "youtube", "whatsapp", "instagram", "tiktok", "x_twitter", "linkedin", "payment_info", "card_notice", "public_base_url", "public_communiques", "dashboard_message", "footer_note", "initiator", "stability_center_text", "privacy_policy", "terms_of_use", "support_intro", "mobile_app_name", "structure_address", "default_language", "global_search_placeholder", "ai_help_intro", "statute_intro", "windows_client_download_url", "windows_server_download_url", "android_download_url", "download_section_enabled"]
+            for key in keys:
+                con.execute("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, request.form.get(key, "")))
+            logo_paths = save_logo_upload(request.files.get("logo"))
+            psig = save_upload(request.files.get("president_signature"), "signatures")
+            ssig = save_upload(request.files.get("secretary_signature"), "signatures")
+            stamp = save_upload(request.files.get("official_stamp"), "signatures")
+            for key, value in logo_paths.items():
+                con.execute("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, value))
+            for key, value in [('president_signature_path',psig),('secretary_signature_path',ssig),('official_stamp_path',stamp)]:
+                if value:
+                    con.execute("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key,value))
+            con.execute("INSERT INTO settings(key,value) VALUES('stamp_application_mode',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (request.form.get("stamp_application_mode", "validated"),))
+            con.commit()
+            log_action(current_user()['id'], 'Modification des paramètres généraux', 'settings', None, status='success')
+            flash("Paramètres de la structure mis à jour.", "success")
+            return redirect(url_for('settings_page'))
+        except ValueError as exc:
+            con.rollback(); logging.warning('Paramètres refusés: %s', exc); flash(str(exc), 'warning')
+        except Exception:
+            con.rollback(); logging.exception('Erreur lors de la mise à jour des paramètres')
+            flash("La modification n’a pas été enregistrée. Vérifiez le format et la taille des fichiers, puis réessayez.", "danger")
     videos = con.execute("SELECT * FROM videos ORDER BY created_at DESC").fetchall()
     carousel = con.execute("SELECT * FROM carousel_images ORDER BY created_at DESC").fetchall()
     fields = con.execute("SELECT * FROM adhesion_fields ORDER BY sort_order, id").fetchall()
