@@ -1846,3 +1846,146 @@ html,body{max-width:100%;overflow-x:hidden}.image-load-failed{visibility:hidden!
 @media screen{
   body.admin-layout .workspace-topbar{position:sticky!important;top:0!important}
 }
+
+/* FOBAK V55 — en-tête administratif fixe, sans superposition */
+:root{
+  --fobak-sidebar-width:280px;
+  --fobak-topbar-height:126px;
+}
+
+@media screen and (min-width:781px){
+  body.admin-layout{padding-top:0!important;overflow-x:hidden!important}
+  body.admin-layout .workspace{
+    margin-left:var(--fobak-sidebar-width)!important;
+    width:calc(100% - var(--fobak-sidebar-width))!important;
+    min-width:0!important;
+  }
+  body.admin-layout .workspace-topbar{
+    position:fixed!important;
+    top:0!important;
+    left:var(--fobak-sidebar-width)!important;
+    right:0!important;
+    width:auto!important;
+    min-height:var(--fobak-topbar-height)!important;
+    z-index:1000!important;
+    display:grid!important;
+    grid-template-columns:minmax(250px,auto) minmax(220px,1fr) auto!important;
+    grid-template-areas:
+      "history welcome actions"
+      "search search language"!important;
+    align-items:center!important;
+    gap:10px 14px!important;
+    padding:12px 18px!important;
+    overflow:visible!important;
+    background:rgba(255,255,255,.98)!important;
+    border-bottom:1px solid #d8e5ef!important;
+    box-shadow:0 10px 28px rgba(5,48,84,.14)!important;
+    backdrop-filter:blur(14px)!important;
+    -webkit-backdrop-filter:blur(14px)!important;
+  }
+  body.admin-layout .workspace-content{
+    padding-top:calc(var(--fobak-topbar-height) + 22px)!important;
+  }
+  body.admin-layout .history-controls{
+    grid-area:history!important;
+    display:flex!important;
+    flex-wrap:nowrap!important;
+    align-items:center!important;
+    gap:8px!important;
+    min-width:0!important;
+  }
+  body.admin-layout .history-btn{
+    flex:0 0 auto!important;
+    min-width:0!important;
+    height:42px!important;
+    padding:8px 12px!important;
+    border-radius:12px!important;
+    white-space:nowrap!important;
+  }
+  body.admin-layout .workspace-welcome{
+    grid-area:welcome!important;
+    min-width:0!important;
+    text-align:left!important;
+    padding:0!important;
+  }
+  body.admin-layout .workspace-welcome strong{
+    display:block!important;
+    font-size:18px!important;
+    line-height:1.2!important;
+    white-space:nowrap!important;
+    overflow:hidden!important;
+    text-overflow:ellipsis!important;
+  }
+  body.admin-layout .workspace-welcome small{
+    display:block!important;
+    margin-top:3px!important;
+    white-space:nowrap!important;
+    overflow:hidden!important;
+    text-overflow:ellipsis!important;
+  }
+  body.admin-layout .global-search-form{
+    grid-area:search!important;
+    width:100%!important;
+    max-width:none!important;
+    min-width:0!important;
+    margin:0!important;
+  }
+  body.admin-layout .global-search-form input{
+    min-width:0!important;
+    height:46px!important;
+  }
+  body.admin-layout .language-select{
+    grid-area:language!important;
+    width:150px!important;
+    min-width:150px!important;
+    height:46px!important;
+    margin:0!important;
+  }
+  body.admin-layout .top-actions{
+    grid-area:actions!important;
+    display:flex!important;
+    align-items:center!important;
+    justify-content:flex-end!important;
+    flex-wrap:nowrap!important;
+    gap:8px!important;
+    min-width:max-content!important;
+  }
+  body.admin-layout .top-actions>a{
+    flex:0 0 40px!important;
+    width:40px!important;
+    height:40px!important;
+  }
+  body.admin-layout .top-date{
+    min-width:88px!important;
+    padding-left:10px!important;
+  }
+}
+
+/* Ordinateurs étroits : libellés réduits, mais aucun chevauchement */
+@media screen and (min-width:781px) and (max-width:1180px){
+  :root{--fobak-topbar-height:122px}
+  body.admin-layout .workspace-topbar{
+    grid-template-columns:auto minmax(180px,1fr) auto!important;
+    padding:10px 12px!important;
+    gap:8px 10px!important;
+  }
+  body.admin-layout .history-btn span{display:none!important}
+  body.admin-layout .history-btn{width:42px!important;padding:0!important;justify-content:center!important;font-size:20px!important}
+  body.admin-layout .top-date{display:none!important}
+  body.admin-layout .language-select{width:128px!important;min-width:128px!important}
+}
+
+/* Téléphone/tablette : en-tête fixe et contenu automatiquement décalé */
+@media screen and (max-width:780px){
+  :root{--fobak-topbar-height:274px}
+  body.admin-layout .workspace-topbar{
+    position:fixed!important;
+    top:0!important;left:0!important;right:0!important;width:100%!important;
+    max-height:none!important;
+    z-index:1350!important;
+  }
+  body.admin-layout .workspace-content{
+    padding-top:calc(var(--fobak-topbar-height) + 12px)!important;
+  }
+  body.admin-layout .mobile-sidebar-toggle{z-index:1450!important}
+}

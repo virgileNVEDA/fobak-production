@@ -679,3 +679,19 @@ document.addEventListener('DOMContentLoaded', () => {
     if (saved > 0 && location.hash === '') requestAnimationFrame(() => window.scrollTo(0, saved));
   });
 })();
+
+// FOBAK V55 — mesure réelle de la barre fixe pour éviter tout recouvrement.
+document.addEventListener('DOMContentLoaded', () => {
+  const topbar = document.querySelector('.workspace-topbar');
+  if (!topbar || !document.body.classList.contains('admin-layout')) return;
+  const syncTopbarHeight = () => {
+    const height = Math.ceil(topbar.getBoundingClientRect().height);
+    if (height > 0) document.documentElement.style.setProperty('--fobak-topbar-height', `${height}px`);
+  };
+  syncTopbarHeight();
+  window.addEventListener('resize', syncTopbarHeight, { passive: true });
+  if ('ResizeObserver' in window) {
+    const observer = new ResizeObserver(syncTopbarHeight);
+    observer.observe(topbar);
+  }
+});
