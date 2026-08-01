@@ -1749,3 +1749,100 @@ html,body{max-width:100%;overflow-x:hidden}.image-load-failed{visibility:hidden!
   .history-controls{display:none!important}
   .workspace-topbar{position:static!important;box-shadow:none!important}
 }
+
+/* FOBAK V54 — correction définitive des superpositions, barre fixe et menu pleine hauteur */
+:root{--fobak-sidebar-width:280px;--fobak-topbar-gap:10px}
+
+@media (min-width:781px){
+  body.admin-layout{overflow-x:hidden!important}
+  .app-shell{display:block!important;min-height:100vh!important}
+  .side-dashboard{
+    position:fixed!important;left:0!important;top:0!important;bottom:0!important;
+    width:var(--fobak-sidebar-width)!important;height:100vh!important;min-height:100vh!important;
+    max-height:100vh!important;overflow:hidden!important;z-index:100!important;
+    display:flex!important;flex-direction:column!important;
+    background:linear-gradient(180deg,#073e6a 0%,#052844 100%)!important;
+  }
+  .side-menu{flex:1 1 auto!important;min-height:0!important;overflow-y:auto!important;overflow-x:hidden!important}
+  .side-user,.logout-btn{flex:0 0 auto!important}
+  .workspace{margin-left:var(--fobak-sidebar-width)!important;width:calc(100% - var(--fobak-sidebar-width))!important;min-width:0!important}
+  .workspace-topbar{
+    position:sticky!important;top:0!important;z-index:90!important;width:100%!important;
+    min-width:0!important;overflow:visible!important;
+  }
+  .workspace-content{min-width:0!important}
+}
+
+/* Écrans d'ordinateur moyens : deux lignes propres, sans chevauchement */
+@media (min-width:781px) and (max-width:1280px){
+  .workspace-topbar{
+    display:grid!important;
+    grid-template-columns:auto minmax(180px,1fr) auto!important;
+    grid-template-areas:
+      "history welcome actions"
+      "search search language"!important;
+    gap:9px 12px!important;padding:10px 14px!important;align-items:center!important;
+  }
+  .history-controls{grid-area:history!important;min-width:max-content!important}
+  .workspace-welcome{grid-area:welcome!important;min-width:0!important}
+  .workspace-welcome strong,.workspace-welcome small{white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
+  .global-search-form{grid-area:search!important;width:100%!important;max-width:none!important;min-width:0!important}
+  .language-select{grid-area:language!important;display:block!important;width:132px!important;min-width:132px!important}
+  .top-actions{grid-area:actions!important;display:flex!important;align-items:center!important;justify-content:flex-end!important;gap:7px!important;min-width:max-content!important}
+  .top-date{display:none!important}
+  .history-btn{padding:8px 10px!important}
+  .history-btn span{display:none!important}
+}
+
+/* Grands écrans : une ligne ordonnée */
+@media (min-width:1281px){
+  .workspace-topbar{
+    display:grid!important;
+    grid-template-columns:auto minmax(190px,1fr) minmax(250px,420px) 145px auto!important;
+    gap:12px!important;padding:11px 18px!important;align-items:center!important;
+  }
+  .workspace-welcome,.global-search-form,.language-select,.top-actions,.history-controls{min-width:0!important}
+  .top-actions{display:flex!important;align-items:center!important;justify-content:flex-end!important;gap:8px!important}
+}
+
+/* Téléphones et tablettes : barre réellement fixe, menu sans espace blanc */
+@media (max-width:780px){
+  body.admin-layout{overflow-x:hidden!important}
+  .app-shell{display:block!important;min-height:100dvh!important}
+  .workspace{width:100%!important;min-width:0!important;margin:0!important}
+  .workspace-topbar{
+    position:sticky!important;top:0!important;z-index:850!important;
+    display:grid!important;grid-template-columns:1fr!important;
+    padding:10px 10px 10px 72px!important;gap:8px!important;
+    background:rgba(255,255,255,.985)!important;
+    border-bottom:1px solid #d8e4ef!important;
+    box-shadow:0 8px 24px rgba(9,52,91,.12)!important;
+    backdrop-filter:blur(12px)!important;-webkit-backdrop-filter:blur(12px)!important;
+  }
+  .history-controls{order:0!important;display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr))!important;width:100%!important;gap:6px!important}
+  .history-btn{width:100%!important;min-width:0!important;height:40px!important;padding:5px!important;font-size:19px!important}
+  .workspace-welcome{order:1!important;min-width:0!important}
+  .workspace-welcome strong{font-size:18px!important;line-height:1.25!important;white-space:normal!important;overflow-wrap:anywhere!important}
+  .workspace-welcome small{font-size:13px!important;line-height:1.35!important;white-space:normal!important}
+  .global-search-form{order:2!important;width:100%!important;min-width:0!important}
+  .language-select{order:3!important;width:100%!important;display:block!important}
+  .top-actions{order:4!important;width:100%!important;min-width:0!important}
+
+  .side-dashboard{
+    position:fixed!important;left:0!important;top:0!important;bottom:0!important;
+    width:min(88vw,360px)!important;height:100dvh!important;min-height:100dvh!important;max-height:100dvh!important;
+    display:flex!important;flex-direction:column!important;overflow:hidden!important;
+    background:linear-gradient(180deg,#073e6a 0%,#052844 100%)!important;
+    transform:translateX(-105%)!important;z-index:1390!important;
+  }
+  body.side-open .side-dashboard{transform:translateX(0)!important}
+  .side-menu{flex:1 1 auto!important;min-height:0!important;overflow-y:auto!important;overflow-x:hidden!important;background:transparent!important}
+  .side-user,.logout-btn{flex:0 0 auto!important}
+  .mobile-sidebar-toggle{position:fixed!important;z-index:1400!important}
+  .workspace-content{padding-top:12px!important}
+}
+
+/* Empêche les anciens styles de désactiver le sticky */
+@media screen{
+  body.admin-layout .workspace-topbar{position:sticky!important;top:0!important}
+}
