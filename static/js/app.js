@@ -696,66 +696,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 });
 
-// FOBAK V58 — réduction/réouverture du menu latéral sur ordinateur
-(function(){
-  const body = document.body;
-  const sidebar = document.getElementById('main-sidebar') || document.querySelector('.side-dashboard');
-  const closeButton = document.querySelector('.sidebar-close-button');
-  const reopenButton = document.getElementById('mobile-sidebar-toggle');
-  if (!body || !sidebar || !closeButton || !reopenButton) return;
-
-  const desktopQuery = window.matchMedia('(min-width: 781px)');
-  const storageKey = 'fobak_sidebar_collapsed_v58';
-  const icon = reopenButton.querySelector('span');
-
-  function savedState(){
-    try { return localStorage.getItem(storageKey) === '1'; }
-    catch (_) { return false; }
-  }
-
-  function setDesktopCollapsed(collapsed, persist = true){
-    if (!desktopQuery.matches) {
-      body.classList.remove('sidebar-collapsed');
-      return;
-    }
-    body.classList.toggle('sidebar-collapsed', collapsed);
-    closeButton.setAttribute('aria-label', 'Masquer le menu latéral');
-    closeButton.setAttribute('title', 'Masquer le menu latéral');
-    reopenButton.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
-    reopenButton.setAttribute('aria-label', collapsed ? 'Afficher le menu latéral' : 'Masquer le menu latéral');
-    reopenButton.setAttribute('title', collapsed ? 'Afficher le menu latéral' : 'Masquer le menu latéral');
-    if (icon) icon.textContent = collapsed ? '☰' : '×';
-    if (persist) {
-      try { localStorage.setItem(storageKey, collapsed ? '1' : '0'); } catch (_) {}
-    }
-    window.dispatchEvent(new Event('resize'));
-  }
-
-  closeButton.addEventListener('click', function(event){
-    if (!desktopQuery.matches) return;
-    event.preventDefault();
-    event.stopPropagation();
-    setDesktopCollapsed(true);
-  }, true);
-
-  reopenButton.addEventListener('click', function(event){
-    if (!desktopQuery.matches) return;
-    event.preventDefault();
-    event.stopPropagation();
-    setDesktopCollapsed(!body.classList.contains('sidebar-collapsed'));
-  }, true);
-
-  function syncForViewport(){
-    if (desktopQuery.matches) setDesktopCollapsed(savedState(), false);
-    else body.classList.remove('sidebar-collapsed');
-  }
-
-  if (desktopQuery.addEventListener) desktopQuery.addEventListener('change', syncForViewport);
-  else desktopQuery.addListener(syncForViewport);
-  syncForViewport();
-})();
-
-// FOBAK V59 — gestion robuste et unique du bouton × du menu latéral.
+// FOBAK V61 — gestion unique et fiable du bouton × / ☰ du menu latéral.
 document.addEventListener('DOMContentLoaded', function () {
   const body = document.body;
   const sidebar = document.getElementById('main-sidebar');
@@ -764,7 +705,7 @@ document.addEventListener('DOMContentLoaded', function () {
   if (!body || !sidebar || !closeButton || !reopenButton) return;
 
   const desktop = () => window.innerWidth >= 781;
-  const key = 'fobak_sidebar_collapsed_v59';
+  const key = 'fobak_sidebar_collapsed_v61';
   const reopenIcon = reopenButton.querySelector('span');
 
   function applyCollapsed(collapsed, save = true) {
@@ -797,7 +738,9 @@ document.addEventListener('DOMContentLoaded', function () {
     if (!desktop()) return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    applyCollapsed(!body.classList.contains('sidebar-collapsed'));
+    // Le bouton ☰ n'est visible sur ordinateur que lorsque le menu est masqué.
+    // On force donc toujours la réouverture au lieu de basculer deux fois l'état.
+    applyCollapsed(false);
   }, true);
 
   let saved = false;
