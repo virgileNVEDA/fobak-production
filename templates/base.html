@@ -109,7 +109,11 @@
       </nav>
 
       <div class="side-user">
+        {% if current_user_photo_path %}
+        <img class="avatar-letter avatar-photo" src="{{ url_for('static', filename=current_user_photo_path) }}" alt="Photo de profil de {{ current_user_display_name }}">
+        {% else %}
         <div class="avatar-letter">{{ (current_user.email or current_user.phone or 'A')[:1]|upper }}</div>
+        {% endif %}
         <div>
           <strong>{{ current_user_display_name }}</strong>
           <small>{{ role_labels.get(session.role, session.role) }}</small>

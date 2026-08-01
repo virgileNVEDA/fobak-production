@@ -2300,3 +2300,7 @@ body.admin-layout .top-actions{
     left:10px!important;
   }
 }
+
+/* V62 — photo réelle du profil dans le menu latéral */
+.avatar-letter.avatar-photo{display:block!important;object-fit:cover!important;object-position:center!important;padding:0!important;border:3px solid rgba(255,255,255,.85)!important;background:#fff!important;color:transparent!important;box-shadow:0 5px 16px rgba(0,0,0,.22)!important}
+.side-user .avatar-photo{width:46px!important;height:46px!important;min-width:46px!important;border-radius:50%!important}

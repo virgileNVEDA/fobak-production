@@ -64,8 +64,8 @@ UPLOAD_ROOT = os.environ.get("UPLOAD_ROOT", os.path.join(STATIC_DIR, "uploads"))
 RDC_FLAG_REL = "img/drapeau_rdc.jpg"
 RDC_FLAG_ABS = os.path.join(STATIC_DIR, RDC_FLAG_REL)
 ALLOWED_IMAGE_EXT = {"png", "jpg", "jpeg", "webp", "pdf", "doc", "docx", "xls", "xlsx"}
-APP_VERSION = "52.0.0"
-APP_RELEASE_NAME = "FOBAK Manager Pro — Navigation mobile et connexion rapide V51"
+APP_VERSION = "62.0.0"
+APP_RELEASE_NAME = "FOBAK Manager Pro — Photo de profil administrateur V62"
 LOG_DIR = os.path.join(BASE_DIR, "logs")
 os.makedirs(LOG_DIR, exist_ok=True)
 logging.basicConfig(filename=os.path.join(LOG_DIR, "application.log"), level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -1423,7 +1423,7 @@ def inject_globals():
     return dict(settings=get_settings(), role_labels=ROLE_LABELS, provinces=PROVINCES, territoires=TERRITOIRES,
                 education_levels=EDUCATION_LEVELS, experience_levels=EXPERIENCE_LEVELS, study_checkboxes=STUDY_CHECKBOXES,
                 marital_status_options=MARITAL_STATUS, adhesion_fields=get_custom_fields(), rdc_flag_rel=RDC_FLAG_REL, country_codes=COUNTRY_CODES,
-                current_user=current_user(), current_year=datetime.now().year, demo_mode=demo_mode_enabled(),
+                current_user=current_user(), current_user_photo_path=current_user_photo_path(), current_year=datetime.now().year, demo_mode=demo_mode_enabled(),
                 unread_notification_count=unread_notification_count(current_user()), lang_code=current_lang(),
                 lang_options=AVAILABLE_LANGUAGES, _=translate_label, current_user_display_name=current_user_display_name(),
                 maps_url="https://www.google.com/maps/search/?api=1&query=" + quote_plus(get_settings().get("headquarters", "Kinshasa RDC")),
@@ -1462,6 +1462,19 @@ def user_member_profile(user_id):
     row = con.execute("SELECT * FROM members WHERE user_id=? AND deleted_at IS NULL ORDER BY is_administrative DESC, id DESC LIMIT 1", (user_id,)).fetchone()
     con.close()
     return row
+
+
+def current_user_photo_path():
+    """Retourne la photo du profil membre lié à l'utilisateur connecté."""
+    user = current_user()
+    if not user:
+        return ""
+    try:
+        member = user_member_profile(user["id"])
+        return (member["photo_path"] or "").strip() if member else ""
+    except Exception:
+        logging.exception("Impossible de charger la photo du profil utilisateur")
+        return ""
 
 
 def current_user_display_name():
@@ -3207,22 +3220,53 @@ def update_profile():
     phone = request.form.get("phone", "").strip()
     profession = request.form.get("profession", "").strip()
     physical_address = request.form.get("physical_address", "").strip()
-    photo_path = save_upload(request.files.get("photo"), "photos")
+    uploaded_photo = request.files.get("photo")
     new_password = request.form.get("new_password", "")
+
+    # Une photo sélectionnée mais refusée ne doit pas être ignorée silencieusement.
+    photo_path = ""
+    if uploaded_photo and getattr(uploaded_photo, "filename", ""):
+        ext = uploaded_photo.filename.rsplit(".", 1)[-1].lower() if "." in uploaded_photo.filename else ""
+        if ext not in {"png", "jpg", "jpeg", "webp"}:
+            flash("La photo de profil doit être une image PNG, JPG, JPEG ou WEBP.", "error")
+            return redirect(url_for("my_profile" if user["role"] in ADMIN_ROLES else "member_dashboard"))
+        photo_path = save_upload(uploaded_photo, "photos")
+        if not photo_path:
+            flash("La photo n'a pas pu être enregistrée. Essayez une image JPG ou PNG plus légère.", "error")
+            return redirect(url_for("my_profile" if user["role"] in ADMIN_ROLES else "member_dashboard"))
+
     con = db()
-    if photo_path:
-        con.execute("UPDATE members SET photo_path=? WHERE user_id=?", (photo_path, user["id"]))
-    if phone:
-        con.execute("UPDATE members SET phone=? WHERE user_id=?", (phone, user["id"]))
-        con.execute("UPDATE users SET phone=? WHERE id=?", (phone, user["id"]))
-    if profession:
-        con.execute("UPDATE members SET profession=? WHERE user_id=?", (profession, user["id"]))
-    if physical_address:
-        con.execute("UPDATE members SET physical_address=? WHERE user_id=?", (physical_address, user["id"]))
-    if new_password and len(new_password) >= 6:
-        con.execute("UPDATE users SET password_hash=? WHERE id=?", (generate_password_hash(new_password), user["id"]))
-    con.commit(); con.close()
-    flash("Profil mis à jour.", "success")
+    try:
+        member = con.execute("SELECT id FROM members WHERE user_id=? AND deleted_at IS NULL ORDER BY is_administrative DESC, id DESC LIMIT 1", (user["id"],)).fetchone()
+        if not member:
+            create_person_member_for_user(
+                con, user["id"],
+                user["first_name"] if "first_name" in user.keys() else "",
+                user["last_name"] if "last_name" in user.keys() else "",
+                user["email"] or "", user["phone"] or "", user["role"],
+                user["province"] or "", "", photo_path, user["id"]
+            )
+        elif photo_path:
+            con.execute("UPDATE members SET photo_path=?, updated_at=? WHERE id=?", (photo_path, now(), member["id"]))
+        if phone:
+            con.execute("UPDATE members SET phone=?, updated_at=? WHERE user_id=? AND deleted_at IS NULL", (phone, now(), user["id"]))
+            con.execute("UPDATE users SET phone=? WHERE id=?", (phone, user["id"]))
+        if profession:
+            con.execute("UPDATE members SET profession=?, updated_at=? WHERE user_id=? AND deleted_at IS NULL", (profession, now(), user["id"]))
+        if physical_address:
+            con.execute("UPDATE members SET physical_address=?, updated_at=? WHERE user_id=? AND deleted_at IS NULL", (physical_address, now(), user["id"]))
+        if new_password and len(new_password) >= 6:
+            con.execute("UPDATE users SET password_hash=? WHERE id=?", (generate_password_hash(new_password), user["id"]))
+        con.commit()
+    except Exception:
+        con.rollback()
+        logging.exception("Échec de mise à jour du profil de l'utilisateur %s", user["id"])
+        flash("La mise à jour du profil a échoué. Vérifiez les informations puis réessayez.", "error")
+        return redirect(url_for("my_profile" if user["role"] in ADMIN_ROLES else "member_dashboard"))
+    finally:
+        con.close()
+
+    flash("Profil et photo mis à jour avec succès.", "success")
     return redirect(url_for("my_profile" if user["role"] in ADMIN_ROLES else "member_dashboard"))
 
 
