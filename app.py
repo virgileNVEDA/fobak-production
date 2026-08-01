@@ -1233,12 +1233,16 @@ def init_db():
     }
     for k, v in defaults.items():
         cur.execute("INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)", (k, v))
-    cur.execute("SELECT id FROM users WHERE email=?", ("admin@asbl.local",))
-    if not cur.fetchone():
-        cur.execute("INSERT INTO users(email, phone, password_hash, role, province, localite, active, created_at, force_password_change) VALUES(?,?,?,?,?,?,?,?,?)",
-                    ("admin@asbl.local", "0990000000", generate_password_hash("admin123"), "super_admin", "National", "National", 1, now(), 1))
-    else:
-        cur.execute("UPDATE users SET force_password_change=1 WHERE email='admin@asbl.local' AND (password_changed_at IS NULL OR password_changed_at='')")
+    # V53 : création idempotente et sûre du compte administrateur technique.
+    # Le téléphone est laissé à NULL afin d'éviter une collision avec un compte
+    # déjà enregistré et INSERT OR IGNORE protège aussi contre le démarrage
+    # simultané de plusieurs workers Gunicorn.
+    cur.execute(
+        "INSERT OR IGNORE INTO users(email, phone, password_hash, role, province, localite, active, created_at, force_password_change) "
+        "VALUES(?,?,?,?,?,?,?,?,?)",
+        ("admin@asbl.local", None, generate_password_hash("admin123"), "super_admin", "National", "National", 1, now(), 1),
+    )
+    cur.execute("UPDATE users SET force_password_change=1 WHERE email='admin@asbl.local' AND (password_changed_at IS NULL OR password_changed_at='')")
     # V45 : le compte administrateur technique n'est plus automatiquement un membre.
     admin_row = cur.execute("SELECT * FROM users WHERE email=?", ("admin@asbl.local",)).fetchone()
     if admin_row:
