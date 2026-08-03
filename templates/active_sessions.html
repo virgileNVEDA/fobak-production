@@ -1,0 +1,43 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="dashboard-welcome session-welcome">
+  <div>
+    <span class="eyebrow">Supervision en temps réel</span>
+    <h1>Connexions en cours</h1>
+    <p>Visualisez les appareils actifs, leur adresse réseau, l’heure de connexion et leur dernière activité. Une connexion inconnue peut être fermée immédiatement.</p>
+  </div>
+  <div class="session-live-count"><strong>{{ online_count }}</strong><span>en ligne</span></div>
+</section>
+
+<section class="card">
+  <div class="list-page-head">
+    <div><h2>Sessions des 30 derniers jours</h2><p class="muted">Le statut « En ligne » correspond à une activité observée durant les 15 dernières minutes.</p></div>
+    <a class="btn" href="{{ url_for('active_sessions_page') }}">↻ Actualiser</a>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>État</th><th>Utilisateur</th><th>Rôle</th><th>Adresse IP</th><th>Appareil / navigateur</th><th>Connexion</th><th>Dernière activité</th><th class="actions-cell">Action</th></tr></thead>
+      <tbody>
+      {% for row in rows %}
+        <tr>
+          <td><span class="connection-status {{ 'online' if row.online else 'offline' }}">{{ '● En ligne' if row.online else 'Hors ligne' }}</span></td>
+          <td><strong>{{ (row.first_name or '') ~ ' ' ~ (row.last_name or '') }}</strong><small class="cell-subtitle">{{ row.email or row.phone or 'Compte ' ~ row.user_id }}</small></td>
+          <td>{{ role_labels.get(row.role, row.role) }}<small class="cell-subtitle">{{ row.province or 'National' }}</small></td>
+          <td><code>{{ row.ip_address or 'Non disponible' }}</code></td>
+          <td class="user-agent-cell" title="{{ row.user_agent }}">{{ row.user_agent or 'Appareil non identifié' }}</td>
+          <td>{{ row.login_at }}</td>
+          <td>{{ row.last_seen }}</td>
+          <td class="actions-cell">
+            {% if row.online %}
+            <form method="post" action="{{ url_for('revoke_active_session', session_id=row.id) }}" onsubmit="return confirm('Fermer immédiatement cette connexion ?')">
+              <button class="btn small danger" type="submit">{{ 'Me déconnecter' if row.session_token == current_session_token else 'Fermer' }}</button>
+            </form>
+            {% else %}<span class="muted">Terminée</span>{% endif %}
+          </td>
+        </tr>
+      {% else %}<tr><td colspan="8">Aucune connexion récente.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

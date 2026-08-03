@@ -2,10 +2,12 @@
 {% block content %}
 <section class="card">
   <h1>Recherche globale</h1>
-  <form class="form search-large" action="{{ url_for('global_search') }}" method="get"><input name="q" value="{{ q }}" placeholder="{{ settings.get('global_search_placeholder','Recherche...') }}"><button class="btn primary">Rechercher</button></form>
+  <p class="muted">Recherche tolérante aux accents, mots incomplets, ordre des mots et petites fautes de frappe.</p>
+  <form class="form search-large advanced-search-form" action="{{ url_for('global_search') }}" method="get"><div class="advanced-search-field"><input name="q" type="search" autocomplete="off" value="{{ q }}" placeholder="{{ settings.get('global_search_placeholder','Recherche...') }}"><div class="advanced-search-results" hidden></div></div><button class="btn primary">Rechercher</button></form>
 </section>
 {% if q %}
 <section class="grid two">
+  <article class="card"><h2>Modules et actions</h2>{% for item in results.modules %}<a class="search-module-result" href="{{ item.url }}"><span>{{ item.icon }}</span><span><strong>{{ item.title }}</strong><small>{{ item.description }}</small></span></a>{% else %}<p>Aucun module correspondant.</p>{% endfor %}</article>
   <article class="card"><h2>Membres</h2>{% for m in results.members %}<div class="list-item"><strong>{{ m.last_name }} {{ m.first_name }}</strong><span>{{ m.code }} — {{ m.province }} — <a href="{{ url_for('card', member_id=m.id) }}">Carte</a></span></div>{% else %}<p>Aucun membre trouvé.</p>{% endfor %}</article>
   <article class="card"><h2>Utilisateurs</h2>{% for u in results.users %}<div class="list-item"><strong>{{ u.first_name or '' }} {{ u.last_name or '' }}</strong><span>{{ u.email }} — {{ role_labels.get(u.role,u.role) }}</span></div>{% else %}<p>Aucun utilisateur ou accès limité.</p>{% endfor %}</article>
   <article class="card"><h2>Cotisations</h2>{% for p in results.payments %}<div class="list-item"><strong>{{ p.amount }} {{ p.currency }}</strong><span>{{ p.last_name }} {{ p.first_name }} — {{ p.reference or '-' }}</span></div>{% else %}<p>Aucune cotisation trouvée.</p>{% endfor %}</article>

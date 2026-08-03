@@ -15,6 +15,7 @@ import struct
 import html
 import re
 import unicodedata
+from difflib import SequenceMatcher
 import logging
 import traceback
 import tempfile
@@ -65,9 +66,9 @@ UPLOAD_ROOT = os.environ.get("UPLOAD_ROOT", os.path.join(STATIC_DIR, "uploads"))
 RDC_FLAG_REL = "img/drapeau_rdc.jpg"
 RDC_FLAG_ABS = os.path.join(STATIC_DIR, RDC_FLAG_REL)
 ALLOWED_IMAGE_EXT = {"png", "jpg", "jpeg", "webp", "pdf", "doc", "docx", "xls", "xlsx"}
-APP_VERSION = "69.0.0"
-APP_RELEASE_NAME = "FOBAK Manager Pro — Carte haute lisibilité et contacts cliquables V69"
-CARD_TEMPLATE_VERSION = "paysage-v69-police-embarquee-sans-qr-verso"
+APP_VERSION = "70.0.0"
+APP_RELEASE_NAME = "FOBAK Manager Pro — QR fiable, recherche avancée et connexions V70"
+CARD_TEMPLATE_VERSION = "paysage-v70-qr-court-haute-fiabilite"
 
 # Numérotation protocolaire nationale. Le numéro de cadre reste distinct du
 # code unique de la carte afin de conserver la traçabilité des anciens membres.
@@ -1388,9 +1389,10 @@ def get_settings():
         data["card_notice"] = "Les autorités tant civiles, militaires que policières sont priées d'apporter leur assistance en cas de nécessité."
     configured_base = os.environ.get("BASE_URL", "").strip().rstrip("/")
     current_public = (data.get("public_base_url") or "").strip().rstrip("/")
-    if configured_base and (not current_public or "127.0.0.1" in current_public or "localhost" in current_public):
+    invalid_public_hosts = ("127.0.0.1", "localhost", "fondationbakitanis.org")
+    if configured_base and (not current_public or any(host in current_public.lower() for host in invalid_public_hosts)):
         data["public_base_url"] = configured_base
-    elif not current_public:
+    elif not current_public or any(host in current_public.lower() for host in invalid_public_hosts):
         data["public_base_url"] = configured_base or "https://fondationbakitani.org"
     return data
 
@@ -1474,6 +1476,14 @@ def enforce_idle_timeout_and_heartbeat():
         if token:
             try:
                 con = db()
+                tracked = con.execute("SELECT active FROM active_sessions WHERE session_token=? AND user_id=?", (token, user_id)).fetchone()
+                if not tracked or not tracked["active"]:
+                    con.close()
+                    session.clear()
+                    if request.path.startswith("/api/") or request.is_json:
+                        return jsonify({"ok": False, "error": "session_revoked"}), 401
+                    flash("Cette connexion a été fermée par un administrateur.", "warning")
+                    return redirect(url_for("login"))
                 con.execute("UPDATE active_sessions SET last_seen=?, active=1 WHERE session_token=? AND user_id=?", (now(), token, user_id))
                 con.execute("UPDATE active_sessions SET active=0 WHERE active=1 AND datetime(last_seen) < datetime('now','-10 minutes')")
                 con.commit(); con.close()
@@ -1495,6 +1505,49 @@ def get_latest_login_sound_alert(user):
         return None
 
 
+MODULE_GUIDES = {
+    "dashboard": ("Tableau de bord", "Suivez les indicateurs essentiels, les communications récentes et accédez rapidement aux tâches autorisées pour votre rôle.", "Consulter les statistiques", "Ouvrir une action rapide"),
+    "members": ("Membres et cartes", "Recherchez, enregistrez ou modifiez un membre, puis prévisualisez et imprimez sa carte officielle et sa fiche d’adhésion.", "Rechercher un membre", "Gérer sa carte"),
+    "applications": ("Demandes d’adhésion", "Contrôlez les dossiers reçus, leurs photos et informations avant validation ou rejet.", "Vérifier le dossier", "Valider la demande"),
+    "payments": ("Cotisations", "Enregistrez et retrouvez les paiements, filtrez-les et éditez les justificatifs selon vos droits.", "Ajouter un paiement", "Filtrer ou exporter"),
+    "treasury": ("Trésorerie", "Suivez les entrées, sorties, soldes et pièces justificatives de la Fondation.", "Contrôler les mouvements", "Produire un état"),
+    "activities": ("Activités", "Planifiez, publiez et suivez les activités nationales ou provinciales.", "Créer une activité", "Suivre son état"),
+    "services": ("Services de la Fondation", "Consultez les services disponibles, ajoutez une structure et ouvrez les modules spécialisés associés.", "Choisir un service", "Ajouter ou organiser"),
+    "health": ("Centre de santé", "Gérez les centres, le personnel, les patients, consultations, fiches, cartes et rapports sanitaires.", "Choisir un module sanitaire", "Contrôler les données"),
+    "notifications": ("Communication", "Consultez les notifications, alertes et messages destinés à votre rôle ou à votre province.", "Lire un message", "Marquer comme traité"),
+    "support": ("Aide et support", "Décrivez votre besoin avec quelques mots : la recherche tolère les accents, mots incomplets et petites fautes.", "Rechercher une réponse", "Créer un ticket"),
+    "users": ("Utilisateurs et connexions", "Gérez les comptes, rôles et droits, puis contrôlez les appareils actuellement connectés.", "Filtrer les utilisateurs", "Voir les connexions"),
+    "security": ("Sécurité", "Protégez l’accès avec mot de passe, PIN ou biométrie et contrôlez les sessions ouvertes.", "Vérifier les accès", "Renforcer la protection"),
+    "settings": ("Paramètres généraux", "Configurez les informations officielles, logos, contacts, signatures, documents et options de l’application.", "Modifier un réglage", "Vérifier son application"),
+    "reports": ("Rapports", "Filtrez les données utiles, contrôlez le périmètre et générez un rapport imprimable ou exportable.", "Choisir la période", "Exporter le résultat"),
+    "profile": ("Mon profil", "Consultez vos informations, votre photo et les documents associés à votre compte.", "Vérifier mes données", "Mettre à jour mon profil"),
+}
+
+
+def module_guide_for_endpoint(endpoint):
+    name = (endpoint or "").lower()
+    rules = (
+        (("dashboard",), "dashboard"), (("health", "patient", "consultation", "medical"), "health"),
+        (("member", "card", "adhesion"), "members"),
+        (("application",), "applications"), (("payment",), "payments"), (("treasury",), "treasury"),
+        (("activit", "project"), "activities"),
+        (("service",), "services"), (("notification", "alert"), "notifications"), (("support", "help", "guide", "report_problem", "search"), "support"),
+        (("user", "role", "active_session"), "users"), (("security", "audit", "diagnostic", "production"), "security"),
+        (("setting", "setup"), "settings"), (("report", "print", "export"), "reports"), (("profile",), "profile"),
+    )
+    for needles, guide_key in rules:
+        if any(needle in name for needle in needles):
+            title, description, action_one, action_two = MODULE_GUIDES[guide_key]
+            return {"title": title, "description": description, "actions": (action_one, action_two)}
+    if name and name not in {"static", "logout", "set_language"}:
+        return {
+            "title": "Espace de travail",
+            "description": "Consultez les informations de ce module, utilisez les filtres disponibles et exécutez uniquement les actions autorisées pour votre rôle.",
+            "actions": ("Consulter les données", "Utiliser les actions disponibles"),
+        }
+    return None
+
+
 @app.context_processor
 def inject_globals():
     return dict(settings=get_settings(), role_labels=ROLE_LABELS, provinces=PROVINCES, territoires=TERRITOIRES,
@@ -1508,7 +1561,8 @@ def inject_globals():
                 voice_role=ROLE_LABELS.get(session.get("role"), session.get("role", "utilisateur")),
                 voice_welcome_pending=bool(session.pop("voice_welcome_pending", 0)),
                 login_sound_alert=get_latest_login_sound_alert(current_user()),
-                app_version=APP_VERSION, app_release_name=APP_RELEASE_NAME, module_allowed=module_allowed)
+                app_version=APP_VERSION, app_release_name=APP_RELEASE_NAME, module_allowed=module_allowed,
+                module_guide=module_guide_for_endpoint(request.endpoint) if current_user() else None)
 
 
 def current_user():
@@ -2175,6 +2229,32 @@ def verification_url(code):
     settings = get_settings()
     base = (settings.get("public_base_url") or "http://127.0.0.1:5000").rstrip("/")
     return f"{base}/verification/{code}"
+
+
+def short_verification_url(member_id):
+    """URL courte : moins de modules QR, donc lecture plus rapide sur une carte PVC."""
+    base = (get_settings().get("public_base_url") or "https://fondationbakitani.org").rstrip("/")
+    return f"{base}/v/{int(member_id)}"
+
+
+def make_scannable_qr(payload, size=226):
+    """Produit un QR net, à modules carrés entiers, avec marge ISO de 4 modules."""
+    generator = qrcode.QRCode(
+        version=None,
+        error_correction=qrcode.constants.ERROR_CORRECT_M,
+        box_size=10,
+        border=4,
+    )
+    generator.add_data(payload)
+    generator.make(fit=True)
+    raw = generator.make_image(fill_color="black", back_color="white").convert("RGB")
+    modules = generator.modules_count + generator.border * 2
+    scale = max(1, size // modules)
+    crisp = raw.resize((modules * scale, modules * scale), Image.Resampling.NEAREST)
+    canvas_image = Image.new("RGB", (size, size), "white")
+    offset = ((size - crisp.width) // 2, (size - crisp.height) // 2)
+    canvas_image.paste(crisp, offset)
+    return canvas_image
 
 def scoped_members_rows(user, include_deleted=False):
     base = "WHERE 1=1" if include_deleted else "WHERE deleted_at IS NULL"
@@ -2964,14 +3044,14 @@ def generate_member_card_assets(member):
     y = 341
     for label, value in rows:
         draw.text((330, y), label, font=_card_font(20, True), fill=muted)
-        value_font = fitted_font(draw, value, 23, 17, 290)
+        value_font = fitted_font(draw, value, 23, 14, 205)
         draw.text((505, y), str(value or "-"), font=value_font, fill=dark)
-        draw.line((330, y+29, 785, y+29), fill=line, width=2)
+        draw.line((330, y+29, 720, y+29), fill=line, width=2)
         y += 37
-    qr_image = qrcode.make(verification_url(card_number)).convert("RGB").resize((145, 145), Image.Resampling.NEAREST)
-    draw.rounded_rectangle((811, 327, 966, 500), radius=17, fill="white", outline=blue, width=3)
-    front.paste(qr_image, (816, 333))
-    draw.text((888, 487), "SCANNER POUR VÉRIFIER", font=_card_font(10, True), anchor="mm", fill=navy)
+    qr_image = make_scannable_qr(short_verification_url(member["id"]), 218)
+    draw.rounded_rectangle((742, 292, 978, 530), radius=17, fill="white", outline=blue, width=4)
+    front.paste(qr_image, (751, 295))
+    draw.text((860, 520), "VÉRIFICATION OFFICIELLE", font=_card_font(10, True), anchor="mm", fill=navy)
     draw_contact_footer(draw, f"Valide jusqu'au {(member['expires_at'] or '')[:10] or '—'}")
 
     back, draw = base_card("CARTE DE MEMBRE")
@@ -3027,7 +3107,7 @@ def generate_member_card_assets(member):
         for key, path in paths.items():
             if key != "pdf":
                 archive.write(path, os.path.basename(path))
-        archive.writestr("LISEZ_MOI.txt", "Modèle FOBAK paysage V69, format PVC-ID1 85,6 x 54 mm. Police embarquée haute lisibilité, QR au recto uniquement, signature, cachet et contacts cliquables dans le PDF.\n")
+        archive.writestr("LISEZ_MOI.txt", "Modèle FOBAK paysage V70, format PVC-ID1 85,6 x 54 mm. Police embarquée haute lisibilité, QR court haute fiabilité au recto uniquement, signature, cachet et contacts cliquables dans le PDF.\n")
     paths["zip"] = zip_path
     Path(os.path.join(cards_dir, ".card_template_version")).write_text(CARD_TEMPLATE_VERSION, encoding="utf-8")
     return paths
@@ -3665,7 +3745,8 @@ def start_user_session(user, method="password"):
     session["voice_welcome_pending"] = 1
     session["last_activity_ts"] = int(datetime.now().timestamp())
     con = db()
-    con.execute("UPDATE active_sessions SET active=0, logout_at=? WHERE user_id=? AND active=1", (now(), user["id"]))
+    # Plusieurs appareils autorisés : chaque connexion reste visible et révocable séparément.
+    con.execute("UPDATE active_sessions SET active=0, logout_at=COALESCE(logout_at,?) WHERE user_id=? AND active=1 AND datetime(last_seen)<datetime('now','-24 hours')", (now(), user["id"]))
     con.execute("INSERT INTO active_sessions(session_token,user_id,login_at,last_seen,ip_address,user_agent,active) VALUES(?,?,?,?,?,?,1)", (session["session_token"], user["id"], now(), now(), request.remote_addr or "", (request.user_agent.string or "")[:500]))
     con.execute("UPDATE users SET last_login=?, failed_login_count=0, locked_until=NULL WHERE id=?", (now(), user["id"]))
     con.commit(); con.close()
@@ -3980,24 +4061,118 @@ def my_profile():
 def global_search():
     user = current_user()
     q = request.args.get("q", "").strip()
-    like = f"%{q}%"
-    results = {"members": [], "users": [], "payments": [], "activities": [], "tickets": []}
-    if q:
-        con = db()
-        where, params = member_scope_query(user)
-        results["members"] = con.execute(f"""SELECT * FROM members {where} AND (first_name LIKE ? OR last_name LIKE ? OR code LIKE ? OR phone LIKE ? OR email LIKE ?) ORDER BY joined_at DESC LIMIT 20""", params + [like, like, like, like, like]).fetchall()
-        if user["role"] in NATIONAL_ROLES:
-            results["users"] = con.execute("SELECT * FROM users WHERE deleted_at IS NULL AND (first_name LIKE ? OR last_name LIKE ? OR email LIKE ? OR phone LIKE ? OR role LIKE ?) LIMIT 20", (like, like, like, like, like)).fetchall()
-        pay_rows, _ = get_payment_rows(user, {"status":"", "method":"", "currency":"", "contribution_type":""})
-        results["payments"] = [p for p in pay_rows if q.lower() in (str(p["reference"] or "") + str(p["first_name"] or "") + str(p["last_name"] or "") + str(p["code"] or "")).lower()][:20]
-        if user["role"] in NATIONAL_ROLES:
-            results["activities"] = con.execute("SELECT * FROM activities WHERE title LIKE ? OR body LIKE ? OR province LIKE ? ORDER BY published_at DESC LIMIT 20", (like, like, like)).fetchall()
-        else:
-            results["activities"] = con.execute("SELECT * FROM activities WHERE province=? AND (title LIKE ? OR body LIKE ?) ORDER BY published_at DESC LIMIT 20", (user["province"], like, like)).fetchall()
-        t_where, t_params = support_scope_sql(user)
-        results["tickets"] = con.execute(f"SELECT * FROM support_tickets {t_where} AND (title LIKE ? OR message LIKE ? OR full_name LIKE ? OR tracking_code LIKE ?) ORDER BY created_at DESC LIMIT 20", t_params + [like, like, like, like]).fetchall()
-        con.close()
+    results = collect_advanced_search_results(user, q) if q else empty_search_results()
     return render_template("search_results.html", q=q, results=results)
+
+
+SEARCH_MODULES = (
+    ("🏠", "Tableau de bord", "Statistiques, communications et actions rapides", "dashboard", "all"),
+    ("👥", "Membres et cartes", "Membres, photos, fiches et cartes officielles", "members", "staff"),
+    ("🪪", "Demandes d’adhésion", "Validation des nouvelles adhésions", "applications", "staff"),
+    ("💰", "Cotisations", "Paiements, reçus, filtres et exports", "payments", "staff"),
+    ("🏦", "Trésorerie", "Entrées, sorties et états financiers", "treasury_page", "staff"),
+    ("📅", "Activités", "Programme et communications des activités", "manage_activities", "staff"),
+    ("🏛️", "Services de la Fondation", "Services disponibles et nouveaux services", "foundation_services_page", "staff"),
+    ("🏥", "Centre de santé", "Centres, personnel, patients et consultations", "health_dashboard", "staff"),
+    ("🔔", "Notifications", "Messages et alertes internes", "notifications", "all"),
+    ("🛟", "Aide et support", "Questions, assistance et tickets", "intelligent_help", "all"),
+    ("🛡️", "Utilisateurs", "Comptes, rôles et état de connexion", "users_page", "national"),
+    ("🟢", "Connexions en cours", "Appareils connectés et dernière activité", "active_sessions_page", "national"),
+    ("🧾", "Journal d’audit", "Traçabilité des opérations", "audit_center", "national"),
+    ("⚙️", "Paramètres généraux", "Identité, contacts, logos et configuration", "settings_page", "super"),
+)
+
+
+def normalize_search_text(value):
+    value = unicodedata.normalize("NFKD", str(value or ""))
+    value = "".join(char for char in value if not unicodedata.combining(char)).lower()
+    return " ".join(re.findall(r"[a-z0-9]+", value))
+
+
+def advanced_search_score(query, candidate):
+    """Correspondance par mots incomplets, ordre libre, accents et petites fautes."""
+    normalized_query, normalized_candidate = normalize_search_text(query), normalize_search_text(candidate)
+    if not normalized_query or not normalized_candidate:
+        return 0
+    query_tokens, candidate_tokens = normalized_query.split(), normalized_candidate.split()
+    token_scores = []
+    for token in query_tokens:
+        if token in normalized_candidate:
+            token_scores.append(1.0)
+            continue
+        similarities = [SequenceMatcher(None, token, word).ratio() for word in candidate_tokens]
+        best = max(similarities or [0])
+        if best < (0.64 if len(token) >= 5 else 0.72):
+            return 0
+        token_scores.append(best)
+    phrase_bonus = 0.15 if normalized_query in normalized_candidate else 0
+    return round((sum(token_scores) / len(token_scores) + phrase_bonus) * 100, 2)
+
+
+def ranked_rows(query, rows, text_builder, limit=20):
+    ranked = [(advanced_search_score(query, text_builder(row)), row) for row in rows]
+    ranked = [item for item in ranked if item[0] > 0]
+    ranked.sort(key=lambda item: item[0], reverse=True)
+    return [row for _, row in ranked[:limit]]
+
+
+def empty_search_results():
+    return {"modules": [], "members": [], "users": [], "payments": [], "activities": [], "tickets": []}
+
+
+def searchable_modules(user, query):
+    role = user["role"]
+    rows = []
+    for icon, title, description, endpoint, access in SEARCH_MODULES:
+        if access == "staff" and role == "member":
+            continue
+        if access == "national" and role not in NATIONAL_ROLES:
+            continue
+        if access == "super" and role != "super_admin":
+            continue
+        if endpoint not in app.view_functions:
+            continue
+        score = advanced_search_score(query, f"{title} {description}")
+        if score:
+            rows.append({"icon": icon, "title": title, "description": description, "url": url_for(endpoint), "score": score})
+    return sorted(rows, key=lambda row: row["score"], reverse=True)[:12]
+
+
+def collect_advanced_search_results(user, query):
+    results = empty_search_results()
+    if not normalize_search_text(query):
+        return results
+    results["modules"] = searchable_modules(user, query)
+    con = db()
+    where, params = member_scope_query(user)
+    member_rows = con.execute(f"SELECT * FROM members {where} ORDER BY joined_at DESC LIMIT 600", params).fetchall()
+    results["members"] = ranked_rows(query, member_rows, lambda row: " ".join(str(row[key] or "") for key in ("first_name", "last_name", "code", "adhesion_number", "phone", "email", "province", "role_label")))
+    if user["role"] in NATIONAL_ROLES:
+        user_rows = con.execute("SELECT * FROM users WHERE deleted_at IS NULL ORDER BY id DESC LIMIT 400").fetchall()
+        results["users"] = ranked_rows(query, user_rows, lambda row: " ".join(str(row[key] or "") for key in ("first_name", "last_name", "email", "phone", "role", "province")))
+    pay_rows, _ = get_payment_rows(user, {"status": "", "method": "", "currency": "", "contribution_type": ""})
+    results["payments"] = ranked_rows(query, pay_rows[:800], lambda row: " ".join(str(row[key] or "") for key in ("reference", "first_name", "last_name", "code", "amount", "currency", "status", "method")))
+    if user["role"] in NATIONAL_ROLES:
+        activity_rows = con.execute("SELECT * FROM activities ORDER BY published_at DESC LIMIT 400").fetchall()
+    else:
+        activity_rows = con.execute("SELECT * FROM activities WHERE province=? OR province IS NULL OR province='' ORDER BY published_at DESC LIMIT 400", (user["province"],)).fetchall()
+    results["activities"] = ranked_rows(query, activity_rows, lambda row: f"{row['title'] or ''} {row['body'] or ''} {row['province'] or ''} {row['status'] or ''}")
+    t_where, t_params = support_scope_sql(user)
+    ticket_rows = con.execute(f"SELECT * FROM support_tickets {t_where} ORDER BY created_at DESC LIMIT 400", t_params).fetchall()
+    results["tickets"] = ranked_rows(query, ticket_rows, lambda row: f"{row['tracking_code'] or ''} {row['title'] or ''} {row['message'] or ''} {row['full_name'] or ''} {row['status'] or ''}")
+    con.close()
+    return results
+
+
+@app.get("/api/recherche-avancee")
+@login_required
+def advanced_search_api():
+    query = request.args.get("q", "").strip()
+    results = collect_advanced_search_results(current_user(), query) if query else empty_search_results()
+    suggestions = list(results["modules"][:6])
+    for member in results["members"][:5]:
+        suggestions.append({"icon": "👤", "title": f"{member['last_name'] or ''} {member['first_name'] or ''}".strip(), "description": f"{member['code'] or 'Membre'} · {member['province'] or ''}", "url": url_for("card", member_id=member["id"])})
+    return jsonify({"ok": True, "query": query, "suggestions": suggestions[:10], "search_url": url_for("global_search", q=query)})
 
 
 @app.route("/aide-intelligente", methods=["GET", "POST"])
@@ -4005,18 +4180,19 @@ def intelligent_help():
     question = request.form.get("question", "").strip() if request.method == "POST" else request.args.get("q", "").strip()
     answer = ""
     if question:
-        ql = question.lower()
-        if any(k in ql for k in ["membre", "adhésion", "adhesion", "ajouter"]):
+        ql = normalize_search_text(question)
+        relates_to = lambda *subjects: any(advanced_search_score(ql, subject) for subject in subjects)
+        if relates_to("membre adhesion ajouter enregistrer personne"):
             answer = "Pour ajouter un membre : ouvrez Administration > Membres > Ajouter membre localement, remplissez la fiche, puis enregistrez. La carte et la fiche PDF sont générées automatiquement."
-        elif any(k in ql for k in ["carte", "qr", "laisser-passer"]):
+        elif relates_to("carte qr code verification scanner impression"):
             answer = "Pour imprimer une carte : ouvrez la liste des membres, cliquez sur Carte + QR. Le QR code permet de vérifier publiquement la validité du membre."
-        elif any(k in ql for k in ["contribution", "paiement", "cotisation"]):
+        elif relates_to("contribution paiement cotisation argent recu"):
             answer = "Pour gérer les cotisations : ouvrez Cotisations, choisissez le membre, le type, le montant et le mode de paiement. Vous pouvez filtrer, imprimer et exporter selon vos droits."
-        elif any(k in ql for k in ["mot de passe", "connexion", "login"]):
+        elif relates_to("mot de passe connexion login session pin biometrie"):
             answer = "Pour changer le mot de passe : cliquez sur Mon profil ou l’icône cadenas en haut. Les nouveaux comptes doivent changer le mot de passe initial."
-        elif any(k in ql for k in ["langue", "lingala", "anglais", "portugais", "espagnol"]):
+        elif relates_to("langue lingala anglais portugais espagnol traduction"):
             answer = "Pour changer la langue : utilisez le sélecteur de langue en haut ou dans le footer. Les libellés principaux de l’application changent immédiatement."
-        elif any(k in ql for k in ["paramètre", "parametre", "logo", "adresse", "structure"]):
+        elif relates_to("parametre logo adresse structure configuration contact"):
             answer = "Les paramètres de structure sont réservés à l’Administrateur général informaticien. Il peut modifier logo, adresse, contacts, signatures, langues et informations officielles."
         else:
             answer = "Je peux vous aider sur les membres, les cartes, les cotisations, la recherche, les tickets, la langue, le profil, les impressions et les paramètres. Reformulez votre question avec l’un de ces mots-clés."
@@ -4684,6 +4860,15 @@ def verify_member(code):
     return render_template("verification.html", member=member, code=code, today=today())
 
 
+@app.route("/v/<int:member_id>")
+def verify_member_short(member_id):
+    """Point public court utilisé par les QR des cartes V70."""
+    con = db()
+    member = con.execute("SELECT * FROM members WHERE id=? AND deleted_at IS NULL", (member_id,)).fetchone()
+    con.close()
+    return render_template("verification.html", member=member, code=(member["code"] if member else str(member_id)), today=today())
+
+
 @app.route("/admin/members/new", methods=["GET", "POST"])
 @login_required
 @role_required("super_admin", "president", "secretary", "national_secretary", "provincial_president", "provincial_admin", "provincial_secretary", "local_admin", "registration_agent")
@@ -5017,6 +5202,47 @@ def export_users_csv():
         writer.writerow([r['first_name'] or '',r['last_name'] or '',r['email'] or '',r['phone'] or '',ROLE_LABELS.get(r['role'],r['role']),r['province'] or '',r['localite'] or '',"Oui" if r['active'] else "Non",r['connected'],r['last_login'] or ''])
     data='﻿'+output.getvalue()
     return Response(data, mimetype='text/csv; charset=utf-8', headers={'Content-Disposition':'attachment; filename=utilisateurs_fobak.csv'})
+
+
+@app.get("/admin/connexions")
+@login_required
+@role_required("super_admin", "president", "secretary", "national_secretary")
+def active_sessions_page():
+    con = db()
+    con.execute("UPDATE active_sessions SET active=0 WHERE active=1 AND datetime(last_seen)<datetime('now','-15 minutes')")
+    con.commit()
+    rows = con.execute("""
+        SELECT s.*, u.email, u.phone, u.first_name, u.last_name, u.role, u.province,
+               CASE WHEN s.active=1 AND datetime(s.last_seen)>=datetime('now','-15 minutes') THEN 1 ELSE 0 END AS online
+        FROM active_sessions s JOIN users u ON u.id=s.user_id
+        WHERE datetime(s.login_at)>=datetime('now','-30 days')
+        ORDER BY online DESC, datetime(s.last_seen) DESC
+        LIMIT 300
+    """).fetchall()
+    con.close()
+    online_count = sum(1 for row in rows if row["online"])
+    return render_template("active_sessions.html", rows=rows, online_count=online_count, current_session_token=session.get("session_token"))
+
+
+@app.post("/admin/connexions/<int:session_id>/fermer")
+@login_required
+@role_required("super_admin", "president", "secretary", "national_secretary")
+def revoke_active_session(session_id):
+    con = db()
+    tracked = con.execute("SELECT * FROM active_sessions WHERE id=?", (session_id,)).fetchone()
+    if not tracked:
+        con.close()
+        abort(404)
+    con.execute("UPDATE active_sessions SET active=0, logout_at=?, last_seen=? WHERE id=?", (now(), now(), session_id))
+    con.commit()
+    con.close()
+    log_action(current_user()["id"], "Fermeture d'une connexion active", "active_session", session_id)
+    if tracked["session_token"] == session.get("session_token"):
+        session.clear()
+        flash("Votre connexion a été fermée.", "info")
+        return redirect(url_for("login"))
+    flash("La connexion sélectionnée a été fermée immédiatement.", "success")
+    return redirect(url_for("active_sessions_page"))
 
 
 @app.route("/admin/users/print")

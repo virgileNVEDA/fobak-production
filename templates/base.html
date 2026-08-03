@@ -58,6 +58,7 @@
         <button id="side-menu-search-clear" type="button" title="Effacer la recherche" aria-label="Effacer la recherche">×</button>
       </div>
       <small id="side-menu-search-empty" class="side-menu-search-empty" hidden>Aucune rubrique trouvée.</small>
+      <div id="side-menu-search-results" class="advanced-search-results side-search-results" hidden></div>
 
       <nav class="side-menu">
         <div class="v63-side-navigation">
@@ -117,10 +118,11 @@
           {% endif %}
 
           {% if session.role in ['super_admin','president','secretary','national_secretary'] %}
-          <details class="side-menu-group" {{ 'open' if request.endpoint in ['users_page','roles_permissions_page','settings_page','production_center_admin','synchronization_center','recycle_bin','audit_center','diagnostic_center','setup_wizard','year_closure'] else '' }}>
+          <details class="side-menu-group" {{ 'open' if request.endpoint in ['users_page','active_sessions_page','roles_permissions_page','settings_page','production_center_admin','synchronization_center','recycle_bin','audit_center','diagnostic_center','setup_wizard','year_closure'] else '' }}>
             <summary><span>🛡️</span> Administration <b>⌄</b></summary>
             <div class="side-submenu">
               {% if module_allowed('utilisateurs','voir') %}<a href="{{ url_for('users_page') }}">Utilisateurs</a>{% endif %}
+              <a href="{{ url_for('active_sessions_page') }}">Connexions en cours</a>
               {% if session.role == 'super_admin' %}<a href="{{ url_for('roles_permissions_page') }}">Rôles et autorisations</a>{% endif %}
               <a href="{{ url_for('production_center_admin') }}">Sauvegarde et sécurité</a>
               <a href="{{ url_for('synchronization_center') }}">Synchronisation</a>
@@ -220,7 +222,7 @@
           <strong>{{ _("Bienvenue") }}, {{ current_user_display_name }}</strong>
           <small>{{ settings.dashboard_message }}</small>
         </div>
-        <form class="global-search-form" action="{{ url_for('global_search') }}" method="get"><input name="q" placeholder="{{ settings.get('global_search_placeholder', 'Recherche rapide...') }}"><button>🔎</button></form>
+        <form class="global-search-form advanced-search-form" action="{{ url_for('global_search') }}" method="get"><div class="advanced-search-field"><input name="q" type="search" autocomplete="off" placeholder="{{ settings.get('global_search_placeholder', 'Recherche rapide...') }}" aria-label="Recherche avancée"><div class="advanced-search-results" hidden></div></div><button type="submit" title="Lancer la recherche">🔎</button></form>
         <select class="language-select" onchange="if(this.value) location.href=this.value">{% for code,label in lang_options.items() %}<option value="{{ url_for('set_language', code=code) }}" {{ 'selected' if code==lang_code else '' }}>{{ label }}</option>{% endfor %}</select>
         <div class="top-actions">
           <a href="{{ url_for('notifications') }}" title="Notifications">🔔{% if unread_notification_count %}<sup>{{ unread_notification_count }}</sup>{% endif %}</a>
@@ -279,6 +281,13 @@
         </div>
       {% endif %}
     {% endwith %}
+    {% if current_user and module_guide %}
+    <aside class="module-guide" aria-label="Présentation du module">
+      <div class="module-guide-icon" aria-hidden="true">💡</div>
+      <div><span>Dans ce module</span><h2>{{ module_guide.title }}</h2><p>{{ module_guide.description }}</p></div>
+      <ul>{% for action in module_guide.actions %}<li>✓ {{ action }}</li>{% endfor %}</ul>
+    </aside>
+    {% endif %}
     {% block content %}{% endblock %}
   </main>
 
@@ -357,6 +366,6 @@
       flag: {{ url_for('static', filename=rdc_flag_rel)|tojson }}
     };
   </script>
-  <script src="{{ url_for('static', filename='js/app.js') }}?v=63"></script>
+  <script src="{{ url_for('static', filename='js/app.js') }}?v={{ app_version }}"></script>
 </body>
 </html>

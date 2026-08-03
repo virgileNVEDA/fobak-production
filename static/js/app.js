@@ -232,12 +232,27 @@ document.addEventListener('DOMContentLoaded', () => {
   const menu = document.querySelector('.side-menu');
   if (!input || !menu) return;
   const links = [...menu.querySelectorAll('a')];
-  const normalize = (value) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('fr').trim();
+  const normalize = (value) => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('fr').replace(/[^a-z0-9]+/g, ' ').trim();
+  const fuzzyMatch = (query, text) => {
+    if (!query) return true;
+    const words = normalize(text).split(' ').filter(Boolean);
+    return normalize(query).split(' ').filter(Boolean).every(token => words.some(word => word.includes(token) || token.includes(word) || levenshteinClose(token, word)));
+  };
+  const levenshteinClose = (a, b) => {
+    if (Math.abs(a.length - b.length) > 2 || Math.min(a.length, b.length) < 4) return false;
+    let previous = Array.from({length: b.length + 1}, (_, i) => i);
+    for (let i = 0; i < a.length; i += 1) {
+      const current = [i + 1];
+      for (let j = 0; j < b.length; j += 1) current.push(Math.min(current[j] + 1, previous[j + 1] + 1, previous[j] + (a[i] === b[j] ? 0 : 1)));
+      previous = current;
+    }
+    return previous[b.length] <= (Math.max(a.length, b.length) >= 7 ? 2 : 1);
+  };
   const apply = () => {
     const query = normalize(input.value);
     let visible = 0;
     links.forEach((link) => {
-      const match = !query || normalize(link.textContent).includes(query);
+      const match = fuzzyMatch(query, link.textContent);
       link.hidden = !match;
       if (match) visible += 1;
     });
@@ -262,6 +277,44 @@ document.addEventListener('DOMContentLoaded', () => {
     input.value = '';
     apply();
     input.focus();
+  });
+});
+
+// FOBAK V70 — suggestions universelles : modules + données, avec saisie incomplète.
+document.addEventListener('DOMContentLoaded', () => {
+  const fields = [...document.querySelectorAll('.advanced-search-form input[name="q"]'), document.getElementById('side-menu-search-input')].filter(Boolean);
+  const escapeHtml = (value) => String(value || '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+  fields.forEach((input) => {
+    const resultsBox = input.id === 'side-menu-search-input'
+      ? document.getElementById('side-menu-search-results')
+      : input.closest('.advanced-search-field')?.querySelector('.advanced-search-results');
+    if (!resultsBox) return;
+    let timer;
+    let suggestions = [];
+    const hide = () => { resultsBox.hidden = true; resultsBox.innerHTML = ''; suggestions = []; };
+    const load = () => {
+      const query = input.value.trim();
+      if (query.length < 2) { hide(); return; }
+      fetch(`/api/recherche-avancee?q=${encodeURIComponent(query)}`, {headers: {'Accept': 'application/json'}})
+        .then(response => response.ok ? response.json() : Promise.reject())
+        .then(data => {
+          suggestions = data.suggestions || [];
+          if (!suggestions.length) {
+            resultsBox.innerHTML = `<a href="${data.search_url}"><strong>🔎 Rechercher « ${escapeHtml(query)} »</strong><small>Voir tous les résultats</small></a>`;
+          } else {
+            resultsBox.innerHTML = suggestions.map(item => `<a href="${escapeHtml(item.url)}"><span>${escapeHtml(item.icon)}</span><span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.description)}</small></span></a>`).join('') + `<a class="all-results" href="${data.search_url}">Voir tous les résultats →</a>`;
+          }
+          resultsBox.hidden = false;
+        }).catch(hide);
+    };
+    input.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(load, 180); });
+    input.addEventListener('focus', () => { if (input.value.trim().length >= 2) load(); });
+    input.addEventListener('keydown', event => {
+      if (event.key === 'ArrowDown' && !resultsBox.hidden) { event.preventDefault(); resultsBox.querySelector('a')?.focus(); }
+      if (event.key === 'Enter' && input.id === 'side-menu-search-input' && suggestions[0]) { event.preventDefault(); location.href = suggestions[0].url; }
+      if (event.key === 'Escape') hide();
+    });
+    document.addEventListener('click', event => { if (!resultsBox.contains(event.target) && event.target !== input) hide(); });
   });
 });
 
@@ -295,8 +348,13 @@ document.addEventListener('DOMContentLoaded', () => {
       count.textContent = `${visible} ligne${visible > 1 ? 's' : ''}`;
     };
     search.addEventListener('input', () => {
-      const q = search.value.toLocaleLowerCase('fr').trim();
-      rows.forEach(row => { row.style.display = !q || row.innerText.toLocaleLowerCase('fr').includes(q) ? '' : 'none'; });
+      const normalize = value => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('fr').replace(/[^a-z0-9]+/g, ' ').trim();
+      const tokens = normalize(search.value).split(' ').filter(Boolean);
+      rows.forEach(row => {
+        const words = normalize(row.innerText).split(' ').filter(Boolean);
+        const matches = tokens.every(token => words.some(word => word.includes(token) || (token.length >= 4 && word.startsWith(token.slice(0, -1)))));
+        row.style.display = matches ? '' : 'none';
+      });
       updateCount();
     });
     updateCount();
