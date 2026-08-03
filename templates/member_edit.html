@@ -1,0 +1,53 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-heading">
+  <div><span class="eyebrow">Dossier membre</span><h1>Modifier {{ member.last_name }} {{ member.first_name }}</h1><p>Les changements sont appliqués au profil et la carte est automatiquement régénérée.</p></div>
+</section>
+<section class="card adhesion-paper">
+  <form method="post" enctype="multipart/form-data" class="form grid two">
+    <h3 class="full section-line">I. Identité</h3>
+    <label>Nom / Postnom <input name="last_name" value="{{ member.last_name or '' }}" required></label>
+    <label>Prénom <input name="first_name" value="{{ member.first_name or '' }}" required></label>
+    <label>Genre <select name="gender">{% for value in ['M','F','Autre'] %}<option value="{{ value }}" {{ 'selected' if member.gender==value else '' }}>{{ value }}</option>{% endfor %}</select></label>
+    <label>État-civil <select name="marital_status"><option value=""></option>{% for value in marital_status_options %}<option {{ 'selected' if member.marital_status==value else '' }}>{{ value }}</option>{% endfor %}</select></label>
+    <label>Lieu de naissance <input name="birth_place" value="{{ member.birth_place or '' }}"></label>
+    <label>Date de naissance <input type="date" name="birth_date" value="{{ (member.birth_date or '')[:10] }}"></label>
+    <label>Nationalité <input name="nationality" value="{{ member.nationality or 'Congolaise' }}"></label>
+    <label>Province <select name="province" class="province-select" required><option value="">Choisir</option>{% for p in provinces %}<option value="{{ p }}" {{ 'selected' if member.province==p else '' }}>{{ p }}</option>{% endfor %}</select></label>
+    <label>Territoire <input name="territory" value="{{ member.territory or '' }}"></label>
+    <label>Commune / Secteur <input name="commune" value="{{ member.commune or '' }}"></label>
+    <label>Localité / Cellule <input name="localite" value="{{ member.localite or '' }}"></label>
+    <label>Téléphone <input name="phone" value="{{ member.phone or '' }}" required></label>
+    <label>E-mail <input type="email" name="email" value="{{ member.email or '' }}"></label>
+    <label class="full">Adresse physique <input name="physical_address" value="{{ member.physical_address or '' }}"></label>
+
+    <h3 class="full section-line">II. Photo et informations professionnelles</h3>
+    <div class="full member-edit-photo">
+      {% if member.photo_path %}<img src="{{ url_for('static', filename=member.photo_path) }}" alt="Photo actuelle">{% endif %}
+      <label>Remplacer la photo <input type="file" name="photo" accept="image/png,image/jpeg,image/webp"></label>
+      <small>La nouvelle carte affiche toute la photo sans couper le visage ni le corps.</small>
+    </div>
+    <label>Profession / Service <input name="profession" value="{{ member.profession or '' }}"></label>
+    <label>Niveau d'étude <input name="education" value="{{ member.education or '' }}"></label>
+    <label>Expérience <input name="experience" value="{{ member.experience or '' }}"></label>
+    <label>Qualité / Fonction affichée <input name="role_label" value="{{ member.role_label or 'Membre' }}"></label>
+
+    {% if can_manage_executive %}
+    <h3 class="full section-line">III. Classement des hauts cadres</h3>
+    <label>Fonction protocolaire
+      <select name="executive_position">
+        <option value="">Membre sans rang national</option>
+        {% for position, number in executive_positions.items() %}<option value="{{ position }}" {{ 'selected' if member.executive_position==position else '' }}>{{ number }} — {{ position }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Numéro de cadre <input name="executive_number" value="{{ member.executive_number or '' }}" maxlength="3" inputmode="numeric" placeholder="001"></label>
+    <p class="full declaration">Le Président National porte le n° 001. Les autres cadres sont classés suivant la hiérarchie nationale, sans doublon.</p>
+    {% endif %}
+
+    <h3 class="full section-line">IV. Validité</h3>
+    <label>Date d’adhésion <input type="date" name="joined_at" value="{{ (member.joined_at or '')[:10] }}"></label>
+    <label>Date d’expiration <input type="date" name="expires_at" value="{{ (member.expires_at or '')[:10] }}"></label>
+    <div class="full actions-row"><button class="btn primary" type="submit">Enregistrer et régénérer la carte</button><a class="btn" href="{{ url_for('members') }}">Annuler</a></div>
+  </form>
+</section>
+{% endblock %}
