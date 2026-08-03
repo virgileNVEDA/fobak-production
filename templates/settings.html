@@ -14,6 +14,8 @@
     <label>Adresse officielle complète <input name="structure_address" value="{{ settings.get('structure_address','') }}"></label>
     <label>Langue par défaut <select name="default_language">{% for code,label in lang_options.items() %}<option value="{{ code }}" {{ 'selected' if settings.get('default_language','fr')==code else '' }}>{{ label }}</option>{% endfor %}</select></label>
     <label class="full">Téléphones officiels <input name="contact_phones" value="{{ settings.contact_phones }}"></label>
+    <label>E-mail officiel <input type="email" name="contact_email" value="{{ settings.get('contact_email','fondationbakitani@gmail.com') }}"></label>
+    <label>Libellé du site <input name="site_label" value="{{ settings.get('site_label','www.fondationbakitani.org') }}"></label>
     <label class="full">Communiqués dans la bande passante en bas <textarea name="public_communiques" rows="3">{{ settings.public_communiques }}</textarea></label>
     <label class="full">Message du dashboard <textarea name="dashboard_message" rows="2">{{ settings.dashboard_message }}</textarea></label>
     <label class="full">Note du footer <textarea name="footer_note" rows="2">{{ settings.footer_note }}</textarea></label>
@@ -27,6 +29,7 @@
     <label class="full">Partenaires <textarea name="partners" rows="2">{{ settings.partners }}</textarea></label>
     <label>Nom du Président National <input name="president_name" value="{{ settings.president_name }}"></label>
     <label>Nom du Secrétaire Général <input name="secretary_name" value="{{ settings.secretary_name }}"></label>
+    <label>Fonction du Secrétaire <input name="secretary_function" value="{{ settings.get('secretary_function','Secrétaire Général') }}"></label>
     <label>Logo / filigrane des pages <input type="file" name="logo" accept="image/*"></label>
     <label>Signature Président <input type="file" name="president_signature" accept="image/*"></label>
     <label>Signature Secrétaire <input type="file" name="secretary_signature" accept="image/*"></label>
@@ -37,6 +40,8 @@
     <p class="full muted">Utilisez de préférence une image PNG transparente. Le sceau sera ajouté automatiquement aux PDF et impressions selon le mode choisi.</p>
     <label>YouTube <input name="youtube" value="{{ settings.youtube }}"></label>
     <label>Facebook <input name="facebook" value="{{ settings.facebook }}"></label>
+    <label>Nom affiché YouTube <input name="youtube_label" value="{{ settings.get('youtube_label','Fondation Bakitani TV') }}"></label>
+    <label>Nom affiché Facebook <input name="facebook_label" value="{{ settings.get('facebook_label','Fondation Bakitani') }}"></label>
     <label>WhatsApp <input name="whatsapp" value="{{ settings.whatsapp }}"></label>
     <label>Instagram <input name="instagram" value="{{ settings.instagram }}"></label><label>TikTok <input name="tiktok" value="{{ settings.tiktok }}" placeholder="https://www.tiktok.com/@..."></label><label>X / Twitter <input name="x_twitter" value="{{ settings.x_twitter }}" placeholder="https://x.com/..."></label><label>LinkedIn <input name="linkedin" value="{{ settings.linkedin }}" placeholder="https://www.linkedin.com/..."></label>
     <label class="full">Informations paiement <textarea name="payment_info" rows="4">{{ settings.payment_info }}</textarea></label>

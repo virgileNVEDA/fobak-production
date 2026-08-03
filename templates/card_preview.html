@@ -1,0 +1,46 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-heading card-preview-heading">
+  <div>
+    <span class="eyebrow">Contrôle avant téléchargement</span>
+    <h1>Aperçu de la carte</h1>
+    <p>{{ member.last_name }} {{ member.first_name }} - {{ member.code }}</p>
+  </div>
+</section>
+
+<section class="card card-preview-toolbar">
+  <div>
+    <strong>Vérifiez le cadrage, la photo et les informations.</strong>
+    <small>Cliquez sur une face pour l'agrandir. Aucun fichier n'est téléchargé automatiquement.</small>
+  </div>
+  <div class="actions-row">
+    <a class="btn primary" href="{{ url_for('card_a4_preview', member_id=member.id) }}" target="_blank" rel="noopener">Voir la planche A4 agrandie</a>
+    <a class="btn primary" href="{{ url_for('card_pdf_preview', member_id=member.id) }}" target="_blank" rel="noopener">Ouvrir le PDF pour imprimer</a>
+    <a class="btn" href="{{ url_for('card', member_id=member.id) }}">Télécharger le PDF</a>
+    <a class="btn" href="{{ url_for('edit_member', member_id=member.id) }}">Modifier le membre</a>
+    <a class="btn light-btn" href="{{ url_for('members') }}">Retour aux membres</a>
+  </div>
+</section>
+
+<section class="card preview-format-note">
+  <strong>Deux formats complémentaires</strong>
+  <p>La planche A4 agrandie facilite le contrôle des textes, de la photo, de la signature et du cachet. Le PDF d’impression conserve la dimension physique normalisée d’une carte PVC : 54 × 85,6 mm.</p>
+</section>
+
+<section class="card-preview-grid">
+  <article class="card card-face-preview">
+    <div class="card-face-title"><span>1</span><div><strong>RECTO</strong><small>Identité et photo</small></div></div>
+    <a href="{{ url_for('card_preview_image', member_id=member.id, side='recto', v=app_version) }}" target="_blank" rel="noopener" title="Agrandir le recto">
+      <img src="{{ url_for('card_preview_image', member_id=member.id, side='recto', v=app_version) }}" alt="Aperçu du recto de la carte">
+    </a>
+    <a class="btn small" href="{{ url_for('card_export', member_id=member.id, side='recto', fmt='png') }}">Télécharger le recto PNG</a>
+  </article>
+  <article class="card card-face-preview">
+    <div class="card-face-title"><span>2</span><div><strong>VERSO</strong><small>Validité et QR code</small></div></div>
+    <a href="{{ url_for('card_preview_image', member_id=member.id, side='verso', v=app_version) }}" target="_blank" rel="noopener" title="Agrandir le verso">
+      <img src="{{ url_for('card_preview_image', member_id=member.id, side='verso', v=app_version) }}" alt="Aperçu du verso de la carte">
+    </a>
+    <a class="btn small" href="{{ url_for('card_export', member_id=member.id, side='verso', fmt='png') }}">Télécharger le verso PNG</a>
+  </article>
+</section>
+{% endblock %}

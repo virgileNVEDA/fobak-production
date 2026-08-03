@@ -35,7 +35,8 @@
           <td><span class="badge {{ m.status or 'active' }}">{{ m.status or 'active' }}</span></td>
           <td>{{ m.joined_at[:10] }}<br><small>Exp. {{ m.expires_at[:10] }}</small></td>
           <td class="card-actions-cell">
-<a class="btn small" href="{{ url_for('card', member_id=m.id) }}">PDF recto-verso</a>
+<a class="btn small primary" href="{{ url_for('card_preview', member_id=m.id) }}">Aperçu carte</a>
+<a class="btn small" href="{{ url_for('card', member_id=m.id) }}">Télécharger PDF</a>
 <a class="btn small light-btn" href="{{ url_for('card_export', member_id=m.id, side='recto', fmt='png') }}">Recto PNG</a>
 <a class="btn small light-btn" href="{{ url_for('card_export', member_id=m.id, side='verso', fmt='png') }}">Verso PNG</a>
 <a class="btn small light-btn" href="{{ url_for('card_export', member_id=m.id, side='recto', fmt='sources') }}">Sources Photoshop</a>

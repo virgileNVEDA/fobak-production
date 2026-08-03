@@ -22,7 +22,7 @@ from datetime import datetime, timedelta
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
-from flask import Flask, render_template, request, redirect, url_for, session, flash, send_file, send_from_directory, Response, abort, has_request_context, jsonify
+from flask import Flask, render_template, request, redirect, url_for, session, flash, send_file, send_from_directory, Response, abort, has_request_context, jsonify, make_response
 from reportlab.lib.pagesizes import landscape, A6, A4
 from reportlab.lib.units import mm
 from reportlab.lib import colors
@@ -65,9 +65,9 @@ UPLOAD_ROOT = os.environ.get("UPLOAD_ROOT", os.path.join(STATIC_DIR, "uploads"))
 RDC_FLAG_REL = "img/drapeau_rdc.jpg"
 RDC_FLAG_ABS = os.path.join(STATIC_DIR, RDC_FLAG_REL)
 ALLOWED_IMAGE_EXT = {"png", "jpg", "jpeg", "webp", "pdf", "doc", "docx", "xls", "xlsx"}
-APP_VERSION = "65.0.0"
-APP_RELEASE_NAME = "FOBAK Manager Pro — Carte PVC grand texte et fiche d'adhésion professionnelle V65"
-CARD_TEMPLATE_VERSION = "portrait-v65-grand-texte"
+APP_VERSION = "67.0.0"
+APP_RELEASE_NAME = "FOBAK Manager Pro — Cartes professionnelles et contacts officiels V67"
+CARD_TEMPLATE_VERSION = "portrait-v67-signature-cachet-grand-texte"
 
 # Numérotation protocolaire nationale. Le numéro de cadre reste distinct du
 # code unique de la carte afin de conserver la traçabilité des anciens membres.
@@ -1243,6 +1243,11 @@ def init_db():
         "history": "La Fondation Bakitani œuvre pour le développement intégral, la solidarité, l'organisation des membres et la promotion des initiatives communautaires.",
         "president_name": "Présidence nationale",
         "secretary_name": "Secrétaire du Bureau National",
+        "secretary_function": "Secrétaire Général",
+        "contact_email": "fondationbakitani@gmail.com",
+        "facebook_label": "Fondation Bakitani",
+        "youtube_label": "Fondation Bakitani TV",
+        "site_label": "www.fondationbakitani.org",
         "logo_path": "img/fobak_logo_official_v25.png",
         "president_signature_path": "",
         "secretary_signature_path": "",
@@ -1250,14 +1255,14 @@ def init_db():
         "stamp_application_mode": "validated",
         "facebook": "#",
         "youtube": "#",
-        "whatsapp": "#",
+        "whatsapp": "+243 81 45 70 392",
         "instagram": "#",
         "tiktok": "#",
         "x_twitter": "#",
         "linkedin": "#",
         "payment_info": "Paiement possible par banque, Airtel Money, M-Pesa, Orange Money ou autre Mobile Money. Configurez ici les numéros et comptes officiels.",
         "card_notice": "Les autorités civiles, militaires que policières sont priées d'apporter leur assistance en cas de nécessité",
-        "public_base_url": "http://127.0.0.1:5000",
+        "public_base_url": "https://fondationbakitani.org",
         "mission": "Servir la population, promouvoir l'unité et soutenir le développement intégral.",
         "vision": "Une structure organisée, transparente et proche de ses membres dans toutes les provinces.",
         "values": "Unité, discipline, transparence, service, responsabilité.",
@@ -1366,6 +1371,13 @@ def get_settings():
         data["headquarters"] = "96, Av. Yauma, Quartier SAIO, Commune de Kasa-Vubu, Kinshasa - RDC"
     if not data.get("contact_phones") or data.get("contact_phones") == "Tél. : +243 ...":
         data["contact_phones"] = "+243 81 45 70 392 ; +243 81 44 00 233"
+    data.setdefault("secretary_function", "Secrétaire Général")
+    data.setdefault("contact_email", "fondationbakitani@gmail.com")
+    data.setdefault("facebook_label", "Fondation Bakitani")
+    data.setdefault("youtube_label", "Fondation Bakitani TV")
+    data.setdefault("site_label", "www.fondationbakitani.org")
+    if not data.get("whatsapp") or data.get("whatsapp") == "#":
+        data["whatsapp"] = "+243 81 45 70 392"
     if not data.get("footer_note") or data.get("footer_note") == "Gestion professionnelle des adhésions, cartes, cotisations et activités de la structure.":
         data["footer_note"] = "Plateforme professionnelle de gestion des adhésions, cartes, cotisations, activités et services de la Fondation Bakitani."
     configured_base = os.environ.get("BASE_URL", "").strip().rstrip("/")
@@ -2567,13 +2579,13 @@ def generate_member_card_assets(member):
     blue, blue2 = (5, 66, 111), (7, 112, 159)
     cyan, gold = (32, 178, 220), (250, 207, 39)
     dark, muted, line = (10, 43, 68), (59, 78, 94), (205, 224, 235)
-    logo = _open_contained(_static_or_upload_path(settings.get("logo_path", "")), (345, 96))
+    logo = _open_contained(_static_or_upload_path(settings.get("logo_path", "")), (360, 104))
     watermark = _open_contained(
         _static_or_upload_path(settings.get("logo_watermark_path") or settings.get("logo_path", "")),
         (390, 310),
     )
     flag = _open_contained(RDC_FLAG_ABS, (88, 55), False)
-    photo = _contain_photo(_static_or_upload_path(member["photo_path"]), (198, 248)) if member["photo_path"] else None
+    photo = _contain_photo(_static_or_upload_path(member["photo_path"]), (216, 270)) if member["photo_path"] else None
     status, _ = _card_status(member)
     full_name = f"{member['first_name'] or ''} {member['last_name'] or ''}".strip().upper()
     role = (
@@ -2608,47 +2620,47 @@ def generate_member_card_assets(member):
 
     def card_header(image, draw, title):
         if logo:
-            image.paste(logo, (22, 24), logo)
+            image.paste(logo, (18, 20), logo)
         else:
             draw.text((190, 72), "FOBAK", font=_card_font(38, True), anchor="mm", fill="white")
         if flag:
             image.paste(flag.convert("RGB"), (526, 20))
-        draw.text((570, 86), "RÉPUBLIQUE", font=_card_font(15, True), anchor="mm", fill="white")
-        draw.text((570, 106), "DÉMOCRATIQUE", font=_card_font(15, True), anchor="mm", fill="white")
-        draw.text((570, 126), "DU CONGO", font=_card_font(15, True), anchor="mm", fill="white")
-        draw.text((width//2, 151), settings.get("structure_name", "FONDATION BAKITANI ASBL"), font=_card_font(22, True), anchor="mm", fill="white")
-        draw.text((width//2, 191), title, font=_card_font(21, True), anchor="mm", fill=gold)
+        draw.text((570, 87), "RÉPUBLIQUE", font=_card_font(16, True), anchor="mm", fill="white")
+        draw.text((570, 108), "DÉMOCRATIQUE", font=_card_font(16, True), anchor="mm", fill="white")
+        draw.text((570, 129), "DU CONGO", font=_card_font(16, True), anchor="mm", fill="white")
+        draw.text((width//2, 154), settings.get("structure_name", "FONDATION BAKITANI ASBL"), font=_card_font(24, True), anchor="mm", fill="white")
+        draw.text((width//2, 195), title, font=_card_font(23, True), anchor="mm", fill=gold)
 
     front, draw = base_card()
     card_header(front, draw, "CARTE OFFICIELLE DE MEMBRE")
     place_watermark(front)
-    draw.rounded_rectangle((23, 263, 233, 523), radius=18, fill=(238, 247, 252), outline=cyan, width=6)
+    draw.rounded_rectangle((20, 257, 248, 539), radius=18, fill=(238, 247, 252), outline=cyan, width=6)
     if photo:
-        front.paste(photo, (29, 269))
+        front.paste(photo, (26, 263))
     else:
-        draw.text((128, 392), "PHOTO", font=_card_font(24, True), anchor="mm", fill=(105, 122, 136))
-    name_font = _card_font(30, True)
-    draw.text((258, 278), _fit_text(draw, full_name, name_font, 352, 40), font=name_font, fill=dark)
-    draw.text((258, 330), _fit_text(draw, role or "Membre", _card_font(24, True), 352, 40), font=_card_font(24, True), fill=blue2)
+        draw.text((134, 398), "PHOTO", font=_card_font(26, True), anchor="mm", fill=(105, 122, 136))
+    name_font = _card_font(28, True)
+    draw.text((270, 279), _fit_text(draw, full_name, name_font, 330, 48), font=name_font, fill=dark)
+    draw.text((270, 336), _fit_text(draw, role or "Membre", _card_font(25, True), 330, 38), font=_card_font(25, True), fill=blue2)
     if executive_number:
-        draw.rounded_rectangle((258, 370, 492, 416), radius=20, fill=blue)
-        draw.text((375, 393), f"HAUT CADRE N° {str(executive_number).zfill(3)}", font=_card_font(19, True), anchor="mm", fill="white")
-    draw.text((258, 449), "N° CARTE", font=_card_font(20, True), fill=muted)
-    draw.text((258, 481), _fit_text(draw, code, _card_font(19, True), 352, 42), font=_card_font(19, True), fill=dark)
+        draw.rounded_rectangle((270, 377, 535, 427), radius=20, fill=blue)
+        draw.text((402, 402), f"HAUT CADRE N° {str(executive_number).zfill(3)}", font=_card_font(21, True), anchor="mm", fill="white")
+    draw.text((270, 459), "N° CARTE", font=_card_font(22, True), fill=muted)
+    draw.text((270, 496), _fit_text(draw, code, _card_font(17, True), 330, 60), font=_card_font(17, True), fill=dark)
     fields = [
-        ("NAISSANCE", (member["birth_date"] or "")[:10], 22),
-        ("TÉLÉPHONE", member["phone"], 22),
-        ("E-MAIL", member["email"], 20),
-        ("PROVINCE", member["province"], 22),
-        ("ADHÉSION", (member["joined_at"] or "")[:10], 22),
-        ("EXPIRATION", (member["expires_at"] or "")[:10], 22),
+        ("NAISSANCE", (member["birth_date"] or "")[:10], 24),
+        ("TÉLÉPHONE", member["phone"], 24),
+        ("E-MAIL", member["email"], 22),
+        ("PROVINCE", member["province"], 24),
+        ("ADHÉSION", (member["joined_at"] or "")[:10], 24),
+        ("EXPIRATION", (member["expires_at"] or "")[:10], 24),
     ]
     y = 553
     for label, value, value_size in fields:
         draw.line((38, y+38, 600, y+38), fill=line, width=2)
-        draw.text((45, y), label, font=_card_font(22, True), fill=blue)
+        draw.text((40, y), label, font=_card_font(24, True), fill=blue)
         value_font = _card_font(value_size, True)
-        draw.text((238, y), ": " + _fit_text(draw, value, value_font, 350, 48), font=value_font, fill=dark)
+        draw.text((230, y), ": " + _fit_text(draw, value, value_font, 365, 48), font=value_font, fill=dark)
         y += 53
     badge_color = (15, 126, 73) if status == "ACTIVE" else (185, 42, 51)
     draw.rounded_rectangle((210, 868, 428, 910), radius=19, fill=badge_color)
@@ -2668,25 +2680,35 @@ def generate_member_card_assets(member):
         draw.text((48, y), label, font=_card_font(21, True), fill=blue)
         draw.text((220, y), ": " + _fit_text(draw, value, _card_font(20, True), 370, 45), font=_card_font(20, True), fill=dark)
         y += 48
-    qr_image = qrcode.make(verification_url(code)).convert("RGB").resize((242, 242), Image.Resampling.NEAREST)
-    draw.rounded_rectangle((35, 550, 301, 816), radius=18, fill="white", outline=blue, width=4)
-    back.paste(qr_image, (47, 562))
-    draw.text((447, 575), "VÉRIFICATION", font=_card_font(22, True), anchor="mm", fill=blue)
-    draw.text((447, 621), "Scannez le QR code", font=_card_font(20, True), anchor="mm", fill=dark)
-    draw.text((447, 658), "pour confirmer", font=_card_font(19), anchor="mm", fill=muted)
-    draw.text((447, 690), "l'identité et la validité", font=_card_font(19), anchor="mm", fill=muted)
-    draw.text((447, 722), "de cette carte.", font=_card_font(19), anchor="mm", fill=muted)
-    signature = _open_contained(_static_or_upload_path(settings.get("president_signature_path", "")), (150, 55))
+    qr_image = qrcode.make(verification_url(code)).convert("RGB").resize((218, 218), Image.Resampling.NEAREST)
+    draw.rounded_rectangle((34, 554, 276, 796), radius=18, fill="white", outline=blue, width=4)
+    back.paste(qr_image, (46, 566))
+    draw.text((155, 824), "SCAN DE VÉRIFICATION", font=_card_font(17, True), anchor="mm", fill=blue)
+    draw.text((449, 558), "SIGNATURE ET CACHET", font=_card_font(21, True), anchor="mm", fill=blue)
+    draw.rounded_rectangle((304, 590, 439, 707), radius=12, fill=(249, 252, 254), outline=line, width=2)
+    draw.rounded_rectangle((454, 590, 589, 707), radius=12, fill=(249, 252, 254), outline=line, width=2)
+    signature = _open_contained(_static_or_upload_path(settings.get("secretary_signature_path", "")), (119, 90))
+    stamp = _open_contained(_static_or_upload_path(settings.get("official_stamp_path", "")), (119, 90))
     if signature:
-        back.paste(signature, (372, 745), signature)
-    draw.line((360, 806, 535, 806), fill=(91, 107, 120), width=2)
-    draw.text((447, 828), "Signature autorisée", font=_card_font(16, True), anchor="mm", fill=muted)
+        back.paste(signature, (312, 602), signature)
+    else:
+        draw.text((371, 646), "SIGNATURE", font=_card_font(15, True), anchor="mm", fill=muted)
+    if stamp:
+        back.paste(stamp, (462, 602), stamp)
+    else:
+        draw.text((521, 646), "CACHET", font=_card_font(15, True), anchor="mm", fill=muted)
+    secretary_name = settings.get("secretary_name") or "Secrétaire du Bureau National"
+    secretary_function = settings.get("secretary_function") or "Secrétaire Général"
+    draw.text((447, 745), _fit_text(draw, secretary_name, _card_font(16, True), 290, 48), font=_card_font(16, True), anchor="mm", fill=dark)
+    draw.text((447, 778), secretary_function.upper(), font=_card_font(18, True), anchor="mm", fill=blue2)
+    draw.line((330, 806, 564, 806), fill=(91, 107, 120), width=2)
     notice = settings.get("card_notice", "Les autorités sont priées d'apporter assistance au porteur en cas de nécessité.")
     draw.rounded_rectangle((35, 838, 603, 921), radius=14, fill=(235, 247, 252), outline=(189, 222, 238), width=2)
     notice_lines = wrap_text(notice, 52)[:3]
     for index, line in enumerate(notice_lines):
-        draw.text((319, 858 + index*22), line, font=_card_font(14, True), anchor="mm", fill=dark)
-    draw.text((width//2, 963), _fit_text(draw, settings.get("contact_phones", ""), _card_font(18, True), 530, 80), font=_card_font(18, True), anchor="mm", fill="white")
+        draw.text((319, 858 + index*22), line, font=_card_font(15, True), anchor="mm", fill=dark)
+    draw.text((width//2, 951), _fit_text(draw, f"Tél. {settings.get('contact_phones', '')}", _card_font(14, True), 570, 100), font=_card_font(14, True), anchor="mm", fill="white")
+    draw.text((width//2, 978), settings.get('site_label', 'www.fondationbakitani.org'), font=_card_font(14, True), anchor="mm", fill="white")
 
     paths = {}
     for side, image in (("recto", front), ("verso", back)):
@@ -2716,7 +2738,7 @@ def generate_member_card_assets(member):
         for key, path in paths.items():
             if key != "pdf":
                 archive.write(path, os.path.basename(path))
-        archive.writestr("LISEZ_MOI.txt", "Modèle FOBAK portrait V65 grand texte. Recto et verso séparés, format PVC vertical 54 x 85,6 mm.\n")
+        archive.writestr("LISEZ_MOI.txt", "Modèle FOBAK portrait V67. Recto et verso séparés, format PVC vertical 54 x 85,6 mm, signature du Secrétaire Général et cachet officiel.\n")
     paths["zip"] = zip_path
     Path(os.path.join(cards_dir, ".card_template_version")).write_text(CARD_TEMPLATE_VERSION, encoding="utf-8")
     return paths
@@ -2724,6 +2746,49 @@ def generate_member_card_assets(member):
 
 def generate_member_card_pdf(member):
     return generate_member_card_assets(member)["pdf"]
+
+
+def generate_member_card_preview_sheet_pdf(member):
+    """Crée une planche A4 agrandie pour contrôler les détails sans modifier le format PVC final."""
+    assets = generate_member_card_assets(member)
+    settings = get_settings()
+    code = member["code"] or create_member_code(member["id"], member["province"] or "NAT")
+    preview_path = os.path.join(os.path.dirname(assets["pdf"]), "apercu_a4_agrandi.pdf")
+    document = canvas.Canvas(preview_path, pagesize=landscape(A4))
+    page_w, page_h = landscape(A4)
+    blue_pdf = colors.HexColor("#06466F")
+    cyan_pdf = colors.HexColor("#1AAFD7")
+    gold_pdf = colors.HexColor("#F3C72B")
+    document.setFillColor(colors.white)
+    document.rect(0, 0, page_w, page_h, fill=1, stroke=0)
+    document.setFillColor(blue_pdf)
+    document.setFont("Helvetica-Bold", 18)
+    document.drawCentredString(page_w/2, page_h-16*mm, "APERÇU AGRANDI DE LA CARTE DE MEMBRE")
+    document.setFont("Helvetica", 10)
+    document.drawCentredString(page_w/2, page_h-22*mm, f"Contrôle visuel — {code} — le PDF d'impression reste au format PVC exact 54 × 85,6 mm")
+    card_h = 145*mm
+    card_w = card_h * 638 / 1011
+    gap = 20*mm
+    start_x = (page_w-(2*card_w+gap))/2
+    y = 24*mm
+    for index, (side, label) in enumerate((("recto", "RECTO — IDENTITÉ"), ("verso", "VERSO — VALIDITÉ"))):
+        x = start_x + index*(card_w+gap)
+        document.setStrokeColor(cyan_pdf)
+        document.setLineWidth(1.4)
+        document.roundRect(x-2*mm, y-2*mm, card_w+4*mm, card_h+4*mm, 3*mm, fill=0, stroke=1)
+        document.drawImage(assets[side+"_png"], x, y, card_w, card_h, preserveAspectRatio=False, mask="auto")
+        document.setFillColor(blue_pdf)
+        document.setFont("Helvetica-Bold", 11)
+        document.drawCentredString(x+card_w/2, 13*mm, label)
+    document.setStrokeColor(cyan_pdf); document.setLineWidth(1.2)
+    document.line(12*mm, 8*mm, page_w-12*mm, 8*mm)
+    document.setStrokeColor(gold_pdf); document.setLineWidth(.8)
+    document.line(12*mm, 6.5*mm, page_w-12*mm, 6.5*mm)
+    document.setFillColor(blue_pdf); document.setFont("Helvetica", 8.5)
+    contact = f"{settings.get('contact_email', 'fondationbakitani@gmail.com')}  •  {settings.get('site_label', 'www.fondationbakitani.org')}"
+    document.drawCentredString(page_w/2, 2.8*mm, contact)
+    document.save()
+    return preview_path
 
 def draw_contained_pdf_image(c, image_path, x, y, width, height):
     """Place une image entière dans son cadre PDF, sans recadrage ni déformation."""
@@ -2998,6 +3063,34 @@ def generate_adhesion_form_pdf(member=None, blank=False):
     return pdf_path
 
 
+def draw_official_pdf_footer(document, settings, page_w, page_number=None):
+    """Pied de page A4 professionnel commun, avec double ligne et canaux officiels."""
+    blue_pdf = colors.HexColor("#06466F")
+    cyan_pdf = colors.HexColor("#1AAFD7")
+    gold_pdf = colors.HexColor("#F3C72B")
+    document.saveState()
+    document.setStrokeColor(cyan_pdf); document.setLineWidth(1.7)
+    document.line(14*mm, 29*mm, page_w-14*mm, 29*mm)
+    document.setStrokeColor(gold_pdf); document.setLineWidth(.9)
+    document.line(14*mm, 27*mm, page_w-14*mm, 27*mm)
+    document.setFillColor(blue_pdf)
+    document.setFont("Helvetica-Bold", 8.2)
+    phone = settings.get("contact_phones", "+243 81 45 70 392 ; +243 81 44 00 233")
+    whatsapp = settings.get("whatsapp", "+243 81 45 70 392")
+    email = settings.get("contact_email", "fondationbakitani@gmail.com")
+    document.drawCentredString(page_w/2, 21.5*mm, f"TEL  {phone}     |     WA  {whatsapp}"[:130])
+    document.setFont("Helvetica", 7.8)
+    document.drawCentredString(page_w/2, 16.5*mm, f"@  {email}     |     Facebook  {settings.get('facebook_label', 'Fondation Bakitani')}"[:130])
+    document.drawCentredString(page_w/2, 11.5*mm, f"YouTube  {settings.get('youtube_label', 'Fondation Bakitani TV')}     |     Site  {settings.get('site_label', 'www.fondationbakitani.org')}"[:130])
+    document.setFont("Helvetica", 7)
+    document.setFillColor(colors.HexColor("#526A7A"))
+    document.drawCentredString(page_w/2, 6.5*mm, settings.get("headquarters", "Kinshasa - République Démocratique du Congo")[:135])
+    if page_number is not None:
+        document.setFont("Helvetica-Bold", 7)
+        document.drawRightString(page_w-14*mm, 3.5*mm, f"Page {page_number}")
+    document.restoreState()
+
+
 def generate_adhesion_form_pdf(member=None, blank=False):
     """Fiche A4 V65 sur deux pages, avec photo/logo persistants et zones protégées."""
     settings = get_settings()
@@ -3039,19 +3132,7 @@ def generate_adhesion_form_pdf(member=None, blank=False):
                 document.restoreState()
 
     def footer():
-        phones = settings.get("contact_phones", "+243 81 45 70 392 ; +243 81 44 00 233")
-        address = settings.get("headquarters", "96, Av. Yauma, Quartier SAIO, Commune de Kasa-Vubu, Kinshasa - RDC")
-        document.setFillColor(gold_pdf)
-        document.rect(0, 27*mm, page_w, 1.7*mm, fill=1, stroke=0)
-        document.setFillColor(blue_pdf)
-        document.rect(0, 0, page_w, 27*mm, fill=1, stroke=0)
-        document.setFillColor(colors.white)
-        document.setFont("Helvetica-Bold", 9.5)
-        document.drawCentredString(center_x, 18*mm, f"Contacts : {phones}"[:115])
-        document.setFont("Helvetica", 8.5)
-        document.drawCentredString(center_x, 11*mm, address[:125])
-        document.setFont("Helvetica-Bold", 8)
-        document.drawRightString(page_w-10*mm, 5*mm, f"Page {page_number}")
+        draw_official_pdf_footer(document, settings, page_w, page_number)
 
     def header(first_page=True):
         logo_rel = settings.get("logo_print_path") or settings.get("logo_path", "")
@@ -3186,14 +3267,21 @@ def generate_adhesion_form_pdf(member=None, blank=False):
     signature_y = 82*mm
     document.setFillColor(blue_pdf)
     document.setFont("Helvetica-Bold", 10.5)
-    document.drawCentredString(content_left+42*mm, signature_y, "Visa du Bureau National")
+    document.drawCentredString(content_left+42*mm, signature_y, "Visa du Secrétaire Général")
     document.drawCentredString(content_right-42*mm, signature_y, "Signature de l'adhérent")
     document.setStrokeColor(colors.HexColor("#758896"))
     document.line(content_left+10*mm, 51*mm, content_left+74*mm, 51*mm)
     document.line(content_right-74*mm, 51*mm, content_right-10*mm, 51*mm)
     stamp_path = _static_or_upload_path(settings.get("official_stamp_path", ""))
+    secretary_signature_path = _static_or_upload_path(settings.get("secretary_signature_path", ""))
     if member and (settings.get("stamp_application_mode", "validated") == "registered" or val("status") in ("active", "accepted", "validated", "")):
-        draw_contained_pdf_image(document, stamp_path, content_left+22*mm, 54*mm, 40*mm, 24*mm)
+        draw_contained_pdf_image(document, secretary_signature_path, content_left+12*mm, 56*mm, 34*mm, 18*mm)
+        draw_contained_pdf_image(document, stamp_path, content_left+46*mm, 55*mm, 27*mm, 21*mm)
+    document.setFillColor(colors.HexColor("#263746"))
+    document.setFont("Helvetica-Bold", 8.5)
+    document.drawCentredString(content_left+42*mm, 46*mm, (settings.get("secretary_name") or "Secrétaire du Bureau National")[:42])
+    document.setFont("Helvetica", 8)
+    document.drawCentredString(content_left+42*mm, 42*mm, settings.get("secretary_function", "Secrétaire Général"))
     document.showPage()
     document.save()
     return pdf_path
@@ -3946,6 +4034,81 @@ def card(member_id):
         abort(403)
     pdf_path = generate_member_card_pdf(member)
     response = send_file(pdf_path, as_attachment=True, download_name=f"carte_{member['code']}.pdf", max_age=0)
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    return response
+
+
+@app.route("/card/<int:member_id>/preview")
+@login_required
+def card_preview(member_id):
+    """Affiche le recto et le verso avant toute décision de téléchargement."""
+    user = current_user()
+    con = db()
+    member = con.execute("SELECT * FROM members WHERE id=? AND deleted_at IS NULL", (member_id,)).fetchone()
+    con.close()
+    if not member:
+        abort(404)
+    if user["role"] == "member" or not can_manage_member(user, member) or not can_output_member_card(user):
+        abort(403)
+    generate_member_card_assets(member)
+    response = make_response(render_template("card_preview.html", member=member))
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    return response
+
+
+@app.route("/card/<int:member_id>/preview/<side>.png")
+@login_required
+def card_preview_image(member_id, side):
+    if side not in {"recto", "verso"}:
+        abort(404)
+    user = current_user()
+    con = db()
+    member = con.execute("SELECT * FROM members WHERE id=? AND deleted_at IS NULL", (member_id,)).fetchone()
+    con.close()
+    if not member:
+        abort(404)
+    if user["role"] == "member" or not can_manage_member(user, member) or not can_output_member_card(user):
+        abort(403)
+    path = generate_member_card_assets(member)[side + "_png"]
+    response = send_file(path, mimetype="image/png", as_attachment=False, max_age=0)
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    return response
+
+
+@app.route("/card/<int:member_id>/preview.pdf")
+@login_required
+def card_pdf_preview(member_id):
+    """Ouvre le PDF dans le lecteur du navigateur pour imprimer ou contrôler les deux faces."""
+    user = current_user()
+    con = db()
+    member = con.execute("SELECT * FROM members WHERE id=? AND deleted_at IS NULL", (member_id,)).fetchone()
+    con.close()
+    if not member:
+        abort(404)
+    if user["role"] == "member" or not can_manage_member(user, member) or not can_output_member_card(user):
+        abort(403)
+    pdf_path = generate_member_card_pdf(member)
+    response = send_file(pdf_path, mimetype="application/pdf", as_attachment=False, download_name=f"apercu_carte_{member['code']}.pdf", max_age=0)
+    response.headers["Content-Disposition"] = f'inline; filename="apercu_carte_{member["code"]}.pdf"'
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    return response
+
+
+@app.route("/card/<int:member_id>/preview-a4.pdf")
+@login_required
+def card_a4_preview(member_id):
+    """Affiche les deux faces en grand sur une planche A4 de contrôle."""
+    user = current_user()
+    con = db()
+    member = con.execute("SELECT * FROM members WHERE id=? AND deleted_at IS NULL", (member_id,)).fetchone()
+    con.close()
+    if not member:
+        abort(404)
+    if user["role"] == "member" or not can_manage_member(user, member) or not can_output_member_card(user):
+        abort(403)
+    pdf_path = generate_member_card_preview_sheet_pdf(member)
+    response = send_file(pdf_path, mimetype="application/pdf", as_attachment=False, download_name=f"apercu_a4_carte_{member['code']}.pdf", max_age=0)
+    response.headers["Content-Disposition"] = f'inline; filename="apercu_a4_carte_{member["code"]}.pdf"'
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     return response
 
@@ -5727,7 +5890,7 @@ def settings_page():
     con = db()
     if request.method == "POST":
         try:
-            keys = ["structure_name", "structure_motto", "structure_header", "structure_foundation", "structure_legal", "secretariat_label", "headquarters", "contact_phones", "history", "mission", "vision", "values", "objectives", "advantages", "partners", "president_name", "secretary_name", "facebook", "youtube", "whatsapp", "instagram", "tiktok", "x_twitter", "linkedin", "payment_info", "card_notice", "public_base_url", "public_communiques", "dashboard_message", "footer_note", "initiator", "stability_center_text", "privacy_policy", "terms_of_use", "support_intro", "mobile_app_name", "structure_address", "default_language", "global_search_placeholder", "ai_help_intro", "statute_intro", "windows_client_download_url", "windows_server_download_url", "android_download_url", "download_section_enabled"]
+            keys = ["structure_name", "structure_motto", "structure_header", "structure_foundation", "structure_legal", "secretariat_label", "headquarters", "contact_phones", "contact_email", "history", "mission", "vision", "values", "objectives", "advantages", "partners", "president_name", "secretary_name", "secretary_function", "facebook", "facebook_label", "youtube", "youtube_label", "whatsapp", "site_label", "instagram", "tiktok", "x_twitter", "linkedin", "payment_info", "card_notice", "public_base_url", "public_communiques", "dashboard_message", "footer_note", "initiator", "stability_center_text", "privacy_policy", "terms_of_use", "support_intro", "mobile_app_name", "structure_address", "default_language", "global_search_placeholder", "ai_help_intro", "statute_intro", "windows_client_download_url", "windows_server_download_url", "android_download_url", "download_section_enabled"]
             for key in keys:
                 con.execute("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, request.form.get(key, "")))
             logo_paths = save_logo_upload(request.files.get("logo"))
