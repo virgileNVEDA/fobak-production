@@ -1,11 +1,11 @@
 <div class="official-contact-footer" aria-label="Coordonnées officielles de la Fondation Bakitani">
   <div class="official-double-line"><span></span><span></span></div>
   <div class="official-contact-items">
-    <span><b aria-hidden="true">☎</b><strong>Téléphone</strong> {{ settings.contact_phones }}</span>
-    <span><b aria-hidden="true">WA</b><strong>WhatsApp</strong> {{ settings.whatsapp }}</span>
-    <span><b aria-hidden="true">@</b><strong>E-mail</strong> {{ settings.get('contact_email','fondationbakitani@gmail.com') }}</span>
-    <span><b aria-hidden="true">f</b><strong>Facebook</strong> {{ settings.get('facebook_label','Fondation Bakitani') }}</span>
-    <span><b aria-hidden="true">▶</b><strong>YouTube</strong> {{ settings.get('youtube_label','Fondation Bakitani TV') }}</span>
-    <span><b aria-hidden="true">⌂</b><strong>Site</strong> {{ settings.get('site_label','www.fondationbakitani.org') }}</span>
+    <a href="tel:{{ settings.contact_phones.split(';')[0]|replace(' ','') }}"><b aria-hidden="true">☎</b><strong>Téléphone</strong> {{ settings.contact_phones }}</a>
+    <a href="{{ settings.whatsapp if settings.whatsapp.startswith('http') else 'https://wa.me/' + settings.whatsapp|replace('+','')|replace(' ','') }}" target="_blank" rel="noopener"><b aria-hidden="true">WA</b><strong>WhatsApp</strong> {{ settings.whatsapp }}</a>
+    <a href="mailto:{{ settings.get('contact_email','fondationbakitani@gmail.com') }}"><b aria-hidden="true">@</b><strong>E-mail</strong> {{ settings.get('contact_email','fondationbakitani@gmail.com') }}</a>
+    <a href="{{ settings.facebook if settings.facebook and settings.facebook != '#' else 'https://www.facebook.com/search/top?q=Fondation%20Bakitani' }}" target="_blank" rel="noopener"><b aria-hidden="true">f</b><strong>Facebook</strong> {{ settings.get('facebook_label','Fondation Bakitani') }}</a>
+    <a href="{{ settings.youtube if settings.youtube and settings.youtube != '#' else 'https://www.youtube.com/results?search_query=Fondation+Bakitani+TV' }}" target="_blank" rel="noopener"><b aria-hidden="true">▶</b><strong>YouTube</strong> {{ settings.get('youtube_label','Fondation Bakitani TV') }}</a>
+    <a href="{{ settings.get('public_base_url') or 'https://fondationbakitani.org' }}" target="_blank" rel="noopener"><b aria-hidden="true">⌂</b><strong>Site</strong> {{ settings.get('site_label','www.fondationbakitani.org') }}</a>
   </div>
 </div>
