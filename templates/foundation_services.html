@@ -1,6 +1,6 @@
 {% extends 'base.html' %}{% block content %}
 <section class="dashboard-welcome"><div><span class="eyebrow">Fondation</span><h1>Services de la Fondation</h1><p>Architecture extensible : ajoutez aujourd’hui la santé, demain l’éducation, l’assistance sociale, l’agriculture ou tout autre secteur.</p></div><div class="dashboard-seal">🏛️</div></section>
-<section class="card"><h2>Ajouter un service</h2><form method="post" class="form-grid">
+<section class="card" id="nouveau-service"><h2>Ajouter un service</h2><form method="post" class="form-grid">
 <label>Code<input name="code" required placeholder="EDUCATION"></label><label>Nom<input name="name" required placeholder="Éducation"></label>
 <label>Icône<input name="icon" value="🏛️" maxlength="8"></label><label>Couleur<input type="color" name="color" value="#0f766e"></label>
 <label>Portée<select name="scope"><option value="national">Nationale</option><option value="province">Provinciale</option><option value="local">Locale</option></select></label>

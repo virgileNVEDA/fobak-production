@@ -17,6 +17,7 @@ import re
 import unicodedata
 import logging
 import traceback
+import tempfile
 from datetime import datetime, timedelta
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -64,8 +65,9 @@ UPLOAD_ROOT = os.environ.get("UPLOAD_ROOT", os.path.join(STATIC_DIR, "uploads"))
 RDC_FLAG_REL = "img/drapeau_rdc.jpg"
 RDC_FLAG_ABS = os.path.join(STATIC_DIR, RDC_FLAG_REL)
 ALLOWED_IMAGE_EXT = {"png", "jpg", "jpeg", "webp", "pdf", "doc", "docx", "xls", "xlsx"}
-APP_VERSION = "62.0.0"
-APP_RELEASE_NAME = "FOBAK Manager Pro — Photo de profil administrateur V62"
+APP_VERSION = "63.0.0"
+APP_RELEASE_NAME = "FOBAK Manager Pro — Carte portrait, navigation et sécurité V63"
+CARD_TEMPLATE_VERSION = "portrait-v63"
 LOG_DIR = os.path.join(BASE_DIR, "logs")
 os.makedirs(LOG_DIR, exist_ok=True)
 logging.basicConfig(filename=os.path.join(LOG_DIR, "application.log"), level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -101,6 +103,33 @@ app.config.update(
     SESSION_COOKIE_SAMESITE="Lax",
     SESSION_COOKIE_SECURE=os.environ.get("COOKIE_SECURE", "0") == "1",
 )
+
+
+def csrf_token():
+    """Retourne le jeton CSRF lié à la session courante."""
+    token = session.get("_csrf_token")
+    if not token:
+        token = secrets.token_urlsafe(32)
+        session["_csrf_token"] = token
+    return token
+
+
+@app.before_request
+def verify_csrf_token():
+    """Protège tous les formulaires et appels JSON qui modifient des données."""
+    if request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
+        return None
+    expected = session.get("_csrf_token", "")
+    supplied = request.form.get("csrf_token", "") or request.headers.get("X-CSRF-Token", "")
+    if not expected or not supplied or not secrets.compare_digest(expected, supplied):
+        if request.path.startswith("/api/") or request.is_json:
+            return jsonify({"ok": False, "error": "Jeton de sécurité absent ou expiré. Rechargez la page."}), 400
+        abort(400, description="Jeton de sécurité absent ou expiré. Rechargez la page puis recommencez.")
+
+
+@app.context_processor
+def inject_csrf_helper():
+    return {"csrf_token": csrf_token}
 
 ROLE_LABELS = {
     "super_admin": "Super administrateur",
@@ -1132,6 +1161,22 @@ def init_db():
     CREATE INDEX IF NOT EXISTS idx_health_losses_center_date ON health_losses(center_id,loss_date);
     """)
 
+    ensure_column("health_invoices", "deleted_at", "TEXT")
+    ensure_column("health_invoices", "updated_at", "TEXT")
+
+    cur.execute('''CREATE TABLE IF NOT EXISTS password_reset_requests (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        email TEXT,
+        phone TEXT,
+        status TEXT DEFAULT 'pending',
+        requested_at TEXT NOT NULL,
+        reviewed_at TEXT,
+        reviewed_by INTEGER,
+        FOREIGN KEY(user_id) REFERENCES users(id)
+    )''')
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_password_reset_status ON password_reset_requests(status, requested_at)")
+
     default_permissions = ['voir','ajouter','modifier','supprimer','imprimer','exporter','valider','parametres','imprimer_cartes','telecharger_cartes']
     for role_key, role_label in ROLE_LABELS.items():
         for perm in default_permissions:
@@ -1574,6 +1619,42 @@ def allowed_file(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_IMAGE_EXT
 
 
+def valid_upload_content(file, extension):
+    """Vérifie la signature réelle du fichier au lieu de croire son seul nom."""
+    try:
+        position = file.stream.tell()
+        header = file.stream.read(16)
+        file.stream.seek(position)
+        ext = extension.lower()
+        if ext in {"png", "jpg", "jpeg", "webp"}:
+            image = Image.open(file.stream)
+            image.verify()
+            file.stream.seek(position)
+            return (image.format or "").lower() in {"png", "jpeg", "webp"}
+        if ext == "pdf":
+            return header.startswith(b"%PDF-")
+        if ext in {"docx", "xlsx"}:
+            return header.startswith(b"PK\x03\x04")
+        if ext in {"doc", "xls"}:
+            return header.startswith(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1")
+    except Exception:
+        try: file.stream.seek(0)
+        except Exception: pass
+    return False
+
+
+def upload_size_allowed(file, extension):
+    limits = {"png": 12, "jpg": 12, "jpeg": 12, "webp": 12, "pdf": 64, "doc": 25, "docx": 25, "xls": 25, "xlsx": 25}
+    try:
+        position = file.stream.tell()
+        file.stream.seek(0, os.SEEK_END)
+        size = file.stream.tell()
+        file.stream.seek(position)
+        return size <= limits.get(extension.lower(), 10) * 1024 * 1024
+    except Exception:
+        return False
+
+
 def save_data_url_image(data_url, subfolder="photos"):
     """Enregistre une photo capturée par caméra (data URL) dans les uploads."""
     if not data_url or not data_url.startswith("data:image/"):
@@ -1592,6 +1673,13 @@ def save_data_url_image(data_url, subfolder="photos"):
         file_path = os.path.join(folder, name)
         with open(file_path, "wb") as f:
             f.write(raw)
+        try:
+            with Image.open(file_path) as check:
+                check.verify()
+        except Exception:
+            try: os.remove(file_path)
+            except OSError: pass
+            return ""
         if subfolder == 'photos':
             _normalize_passport_image(file_path)
         return f"uploads/{subfolder}/{name}"
@@ -1637,6 +1725,13 @@ def save_upload(file, folder):
     try:
         safe = secure_filename(file.filename)
         if not safe:
+            return ""
+        extension = safe.rsplit(".", 1)[-1].lower()
+        if not upload_size_allowed(file, extension):
+            logging.warning("Téléversement refusé : fichier trop volumineux pour .%s", extension)
+            return ""
+        if not valid_upload_content(file, extension):
+            logging.warning("Téléversement refusé : contenu incompatible avec .%s", extension)
             return ""
         stamp = datetime.now().strftime("%Y%m%d%H%M%S%f")
         name = f"{stamp}_{safe}"
@@ -1860,22 +1955,37 @@ def validate_new_password(new_password, confirm_password=""):
     return ""
 
 
+def backup_storage_dir():
+    """Stockage persistant des sauvegardes, local comme sur Railway."""
+    return os.path.join(UPLOAD_ROOT, "backups")
+
+
 def create_backup_archive(reason="manuel"):
-    backup_dir = os.path.join(BASE_DIR, "backups")
+    backup_dir = backup_storage_dir()
     os.makedirs(backup_dir, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     archive_path = os.path.join(backup_dir, f"sauvegarde_asbl_{stamp}.zip")
     with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_DEFLATED) as zf:
         if os.path.exists(DB_PATH):
-            zf.write(DB_PATH, "asbl.db")
+            # L'API SQLite produit une image cohérente même lorsque WAL est actif.
+            snapshot = os.path.join(backup_dir, f".snapshot_{stamp}.db")
+            source = db(); target = sqlite3.connect(snapshot)
+            try:
+                source.backup(target)
+            finally:
+                target.close(); source.close()
+            zf.write(snapshot, "asbl.db")
+            try: os.remove(snapshot)
+            except OSError: pass
         # Sauvegarder les fichiers utiles ajoutés par l'administration.
-        upload_base = os.path.join(STATIC_DIR, "uploads")
+        upload_base = UPLOAD_ROOT
         if os.path.isdir(upload_base):
             for root, _, files in os.walk(upload_base):
                 for name in files:
                     full = os.path.join(root, name)
-                    arc = os.path.relpath(full, BASE_DIR)
-                    if "backups" not in arc.replace("\\", "/"):
+                    rel = os.path.relpath(full, upload_base).replace("\\", "/")
+                    arc = "static/uploads/" + rel
+                    if not rel.startswith("backups/"):
                         zf.write(full, arc)
         for extra in [".env", ".env.example", "server_url.txt"]:
             full = os.path.join(BASE_DIR, extra)
@@ -1893,7 +2003,7 @@ def production_health_status():
     ticket_open = con.execute("SELECT COUNT(*) AS n FROM support_tickets WHERE status NOT IN ('closed','résolu','resolu')").fetchone()["n"]
     users_force = con.execute("SELECT COUNT(*) AS n FROM users WHERE deleted_at IS NULL AND COALESCE(force_password_change,0)=1").fetchone()["n"]
     con.close()
-    backup_dir = os.path.join(BASE_DIR, "backups")
+    backup_dir = backup_storage_dir()
     backups = []
     if os.path.isdir(backup_dir):
         for name in sorted(os.listdir(backup_dir), reverse=True):
@@ -2215,7 +2325,7 @@ def _card_svg(member, side, settings):
     return '<svg xmlns="http://www.w3.org/2000/svg" width="1011" height="638" viewBox="0 0 1011 638">' + common + body + '</svg>'
 
 
-def generate_member_card_assets(member):
+def _generate_member_card_assets_legacy(member):
     settings = get_settings()
     cards_dir = os.path.join(UPLOAD_ROOT, "cards", member["code"])
     os.makedirs(cards_dir, exist_ok=True)
@@ -2291,6 +2401,181 @@ def generate_member_card_assets(member):
             if k!="pdf": z.write(pth,os.path.basename(pth))
         z.writestr("LISEZ_MOI.txt","PSD : compatible Photoshop, image aplatie. SVG : source entièrement modifiable dans Photoshop/Illustrator/Inkscape. Recto et verso séparés pour impression PVC.\n")
     paths["zip"]=zip_path
+    return paths
+
+
+def _static_or_upload_path(relative_path):
+    """Résout correctement un média local ou placé sur le volume persistant."""
+    rel = (relative_path or "").replace("\\", "/").lstrip("/")
+    if rel.startswith("uploads/"):
+        return os.path.join(UPLOAD_ROOT, rel[len("uploads/"):])
+    return os.path.join(STATIC_DIR, rel)
+
+
+def _cover_image(path, size):
+    if not path or not os.path.exists(path):
+        return None
+    try:
+        with Image.open(path) as source:
+            im = source.convert("RGB")
+            target_ratio = size[0] / size[1]
+            ratio = im.width / im.height
+            if ratio > target_ratio:
+                width = int(im.height * target_ratio)
+                left = (im.width - width) // 2
+                im = im.crop((left, 0, left + width, im.height))
+            else:
+                height = int(im.width / target_ratio)
+                top = (im.height - height) // 2
+                im = im.crop((0, top, im.width, top + height))
+            return im.resize(size, Image.Resampling.LANCZOS)
+    except Exception:
+        return None
+
+
+def _portrait_card_svg(member, side, settings):
+    """Source vectorielle verticale simple, modifiable par un graphiste."""
+    esc = lambda value: html.escape(str(value or ""))
+    code = member["code"] or create_member_code(member["id"], member["province"] or "NAT")
+    full_name = f"{member['first_name'] or ''} {member['last_name'] or ''}".strip().upper()
+    role = member["role_label"] if "role_label" in member.keys() and member["role_label"] else member["profession"]
+    header = '''<defs><linearGradient id="blue" x2="0" y2="1"><stop stop-color="#074b80"/><stop offset="1" stop-color="#087bb6"/></linearGradient></defs>
+<rect width="638" height="1011" rx="34" fill="#ffffff"/><rect x="7" y="7" width="624" height="997" rx="30" fill="none" stroke="#07568e" stroke-width="4"/>
+<path d="M0 0H638V250Q470 205 320 245T0 230Z" fill="url(#blue)"/><path d="M0 212Q165 260 330 218T638 232" fill="none" stroke="#29b8e5" stroke-width="16" opacity=".85"/>
+<path d="M0 900Q170 850 320 900T638 875V1011H0Z" fill="#07568e"/><path d="M0 875Q170 825 330 875T638 850" fill="none" stroke="#29b8e5" stroke-width="13"/>'''
+    if side == "recto":
+        body = f'''<text x="319" y="74" text-anchor="middle" font-family="Arial" font-size="25" font-weight="700" fill="white">{esc(settings.get('structure_name','FONDATION BAKITANI'))}</text>
+<text x="319" y="108" text-anchor="middle" font-family="Arial" font-size="14" fill="#dff6ff">CARTE OFFICIELLE DE MEMBRE</text>
+<circle cx="319" cy="270" r="101" fill="white" stroke="#38bee8" stroke-width="9"/><text x="319" y="280" text-anchor="middle" font-family="Arial" font-size="20" fill="#718096">PHOTO</text>
+<text x="319" y="410" text-anchor="middle" font-family="Arial" font-size="29" font-weight="700" fill="#073f70">{esc(full_name)}</text>
+<text x="319" y="444" text-anchor="middle" font-family="Arial" font-size="17" fill="#1597bd">{esc(role)}</text>
+<text x="78" y="515" font-family="Arial" font-size="18" fill="#435466">N° CARTE</text><text x="235" y="515" font-family="Arial" font-size="18" font-weight="700">: {esc(code)}</text>
+<text x="78" y="559" font-family="Arial" font-size="18" fill="#435466">TÉLÉPHONE</text><text x="235" y="559" font-family="Arial" font-size="18">: {esc(member['phone'])}</text>
+<text x="78" y="603" font-family="Arial" font-size="18" fill="#435466">E-MAIL</text><text x="235" y="603" font-family="Arial" font-size="18">: {esc(member['email'])}</text>
+<text x="78" y="647" font-family="Arial" font-size="18" fill="#435466">PROVINCE</text><text x="235" y="647" font-family="Arial" font-size="18">: {esc(member['province'])}</text>
+<text x="78" y="691" font-family="Arial" font-size="18" fill="#435466">ADHÉSION</text><text x="235" y="691" font-family="Arial" font-size="18">: {esc((member['joined_at'] or '')[:10])}</text>
+<text x="78" y="735" font-family="Arial" font-size="18" fill="#435466">EXPIRATION</text><text x="235" y="735" font-family="Arial" font-size="18">: {esc((member['expires_at'] or '')[:10])}</text>
+<text x="319" y="957" text-anchor="middle" font-family="Arial" font-size="18" font-weight="700" fill="white">FOBAK — UNIS POUR SERVIR</text>'''
+    else:
+        body = f'''<text x="319" y="74" text-anchor="middle" font-family="Arial" font-size="25" font-weight="700" fill="white">CONDITIONS ET VALIDITÉ</text>
+<text x="319" y="325" text-anchor="middle" font-family="Arial" font-size="19" font-weight="700" fill="#073f70">CARTE PERSONNELLE ET INCESSIBLE</text>
+<text x="319" y="365" text-anchor="middle" font-family="Arial" font-size="16" fill="#526475">Cette carte atteste de la qualité de membre FOBAK.</text>
+<text x="319" y="394" text-anchor="middle" font-family="Arial" font-size="16" fill="#526475">Toute utilisation abusive doit être signalée à la Fondation.</text>
+<text x="105" y="475" font-family="Arial" font-size="18">Adhésion</text><text x="315" y="475" font-family="Arial" font-size="18" font-weight="700">: {esc((member['joined_at'] or '')[:10])}</text>
+<text x="105" y="518" font-family="Arial" font-size="18">Expiration</text><text x="315" y="518" font-family="Arial" font-size="18" font-weight="700">: {esc((member['expires_at'] or '')[:10])}</text>
+<rect x="219" y="585" width="200" height="200" rx="18" fill="white" stroke="#07568e" stroke-width="3"/><text x="319" y="690" text-anchor="middle" font-family="Arial" font-size="19" fill="#07568e">QR CODE</text>
+<text x="319" y="820" text-anchor="middle" font-family="Arial" font-size="14" fill="#526475">Scannez pour vérifier l’authenticité et la validité.</text>
+<text x="319" y="957" text-anchor="middle" font-family="Arial" font-size="15" font-weight="700" fill="white">{esc(settings.get('contact_phones',''))}</text>'''
+    return '<svg xmlns="http://www.w3.org/2000/svg" width="638" height="1011" viewBox="0 0 638 1011">' + header + body + '</svg>'
+
+
+def generate_member_card_assets(member):
+    """Génère le modèle portrait V63 pour tout membre, ancien ou nouveau."""
+    settings = get_settings()
+    code = member["code"] or create_member_code(member["id"], member["province"] or "NAT")
+    cards_dir = os.path.join(UPLOAD_ROOT, "cards", code)
+    os.makedirs(cards_dir, exist_ok=True)
+    width, height = 638, 1011
+    blue, cyan, dark, muted = (7, 75, 128), (40, 184, 229), (13, 52, 82), (82, 100, 117)
+    logo = _open_contained(_static_or_upload_path(settings.get("logo_path", "")), (330, 100))
+    flag = _open_contained(RDC_FLAG_ABS, (78, 48), False)
+    photo = _cover_image(_static_or_upload_path(member["photo_path"]), (190, 190)) if member["photo_path"] else None
+    status, _ = _card_status(member)
+    full_name = f"{member['first_name'] or ''} {member['last_name'] or ''}".strip().upper()
+    role = member["role_label"] if "role_label" in member.keys() and member["role_label"] else member["profession"]
+
+    def base_card():
+        image = Image.new("RGB", (width, height), "white")
+        draw = ImageDraw.Draw(image)
+        draw.rounded_rectangle((7, 7, width-7, height-7), radius=30, outline=blue, width=4)
+        draw.rectangle((10, 10, width-10, 220), fill=blue)
+        draw.polygon([(10, 205), (170, 245), (335, 214), (500, 250), (628, 220), (628, 280), (10, 280)], fill=(225, 247, 254))
+        draw.line([(10, 224), (170, 260), (335, 230), (500, 265), (628, 238)], fill=cyan, width=14)
+        draw.polygon([(10, 905), (160, 862), (330, 900), (495, 855), (628, 884), (628, 1000), (10, 1000)], fill=blue)
+        draw.line([(10, 884), (160, 842), (330, 882), (495, 837), (628, 865)], fill=cyan, width=13)
+        if flag:
+            image.paste(flag.convert("RGB"), (535, 28))
+        return image, draw
+
+    front, draw = base_card()
+    if logo:
+        logo_front = logo.copy()
+        front.paste(logo_front, ((width-logo_front.width)//2, 30), logo_front)
+    else:
+        draw.text((width//2, 55), settings.get("structure_name", "FONDATION BAKITANI"), font=_card_font(24, True), anchor="mm", fill="white")
+    draw.text((width//2, 145), "CARTE OFFICIELLE DE MEMBRE", font=_card_font(17, True), anchor="mm", fill=(224, 247, 255))
+    mask = Image.new("L", (190, 190), 0)
+    ImageDraw.Draw(mask).ellipse((0, 0, 189, 189), fill=255)
+    draw.ellipse((width//2-105, 175, width//2+105, 385), fill="white", outline=cyan, width=9)
+    if photo:
+        front.paste(photo, (width//2-95, 185), mask)
+    else:
+        draw.text((width//2, 280), "PHOTO", font=_card_font(20, True), anchor="mm", fill=(115, 128, 140))
+    draw.text((width//2, 425), _fit_text(draw, full_name, _card_font(28, True), 540, 48), font=_card_font(28, True), anchor="mm", fill=dark)
+    draw.text((width//2, 462), _fit_text(draw, role, _card_font(17, True), 500, 55), font=_card_font(17, True), anchor="mm", fill=(18, 145, 182))
+    fields = [
+        ("N° CARTE", code), ("DATE NAISS.", (member["birth_date"] or "")[:10]),
+        ("TÉLÉPHONE", member["phone"]), ("E-MAIL", member["email"]),
+        ("PROVINCE", member["province"]), ("ADHÉSION", (member["joined_at"] or "")[:10]),
+        ("EXPIRATION", (member["expires_at"] or "")[:10]),
+    ]
+    y = 520
+    for label, value in fields:
+        draw.text((72, y), label, font=_card_font(16, True), fill=muted)
+        draw.text((220, y), ": " + _fit_text(draw, value, _card_font(16), 340, 52), font=_card_font(16), fill=dark)
+        y += 45
+    draw.text((width//2, 956), "FOBAK — UNIS POUR SERVIR", font=_card_font(18, True), anchor="mm", fill="white")
+
+    back, draw = base_card()
+    draw.text((width//2, 78), "CONDITIONS ET VALIDITÉ", font=_card_font(24, True), anchor="mm", fill="white")
+    draw.text((width//2, 122), settings.get("structure_name", "FONDATION BAKITANI"), font=_card_font(17, True), anchor="mm", fill=(221, 246, 255))
+    draw.text((width//2, 315), "CARTE PERSONNELLE ET INCESSIBLE", font=_card_font(19, True), anchor="mm", fill=dark)
+    draw.text((width//2, 357), "Cette carte atteste de la qualité de membre FOBAK.", font=_card_font(15), anchor="mm", fill=muted)
+    draw.text((width//2, 386), "Toute utilisation abusive doit être signalée.", font=_card_font(15), anchor="mm", fill=muted)
+    draw.text((100, 448), "Adhésion", font=_card_font(17, True), fill=muted)
+    draw.text((285, 448), ": " + (member["joined_at"] or "")[:10], font=_card_font(17), fill=dark)
+    draw.text((100, 489), "Expiration", font=_card_font(17, True), fill=muted)
+    draw.text((285, 489), ": " + (member["expires_at"] or "")[:10], font=_card_font(17), fill=dark)
+    draw.text((100, 530), "Statut", font=_card_font(17, True), fill=muted)
+    draw.text((285, 530), ": " + status, font=_card_font(17, True), fill=(190, 38, 48) if status != "ACTIVE" else (15, 126, 73))
+    qr_image = qrcode.make(verification_url(code)).convert("RGB").resize((205, 205), Image.Resampling.NEAREST)
+    draw.rounded_rectangle((width//2-118, 585, width//2+118, 821), radius=18, fill="white", outline=blue, width=3)
+    back.paste(qr_image, (width//2-102, 600))
+    draw.rounded_rectangle((70, 825, width-70, 941), radius=14, fill="white")
+    draw.text((width//2, 845), "Scannez pour vérifier cette carte", font=_card_font(14, True), anchor="mm", fill=blue)
+    signature = _open_contained(_static_or_upload_path(settings.get("president_signature_path", "")), (150, 55))
+    if signature:
+        back.paste(signature, (width//2-75, 855), signature)
+    draw.line((width//2-100, 914, width//2+100, 914), fill=(100, 115, 128), width=2)
+    draw.text((width//2, 931), "Signature autorisée", font=_card_font(12, True), anchor="mm", fill=muted)
+    draw.text((width//2, 972), _fit_text(draw, settings.get("contact_phones", ""), _card_font(14, True), 520, 80), font=_card_font(14, True), anchor="mm", fill="white")
+
+    paths = {}
+    for side, image in (("recto", front), ("verso", back)):
+        png = os.path.join(cards_dir, side + ".png")
+        image.save(png, dpi=(300, 300), optimize=True)
+        paths[side + "_png"] = png
+        psd = os.path.join(cards_dir, side + ".psd")
+        _save_flat_psd(image, psd)
+        paths[side + "_psd"] = psd
+        svg = os.path.join(cards_dir, side + ".svg")
+        Path(svg).write_text(_portrait_card_svg(member, side, settings), encoding="utf-8")
+        paths[side + "_svg"] = svg
+    pdf = os.path.join(cards_dir, "carte_recto_verso.pdf")
+    document = canvas.Canvas(pdf, pagesize=(54*mm, 85.6*mm))
+    for side in ("recto", "verso"):
+        document.drawImage(paths[side + "_png"], 0, 0, 54*mm, 85.6*mm, preserveAspectRatio=False, mask="auto")
+        document.showPage()
+    document.save()
+    paths["pdf"] = pdf
+    zip_path = os.path.join(cards_dir, "sources_graphiques_portrait.zip")
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as archive:
+        for key, path in paths.items():
+            if key != "pdf":
+                archive.write(path, os.path.basename(path))
+        archive.writestr("LISEZ_MOI.txt", "Modèle FOBAK portrait V63. Recto et verso séparés, format PVC vertical 54 x 85,6 mm.\n")
+    paths["zip"] = zip_path
+    Path(os.path.join(cards_dir, ".card_template_version")).write_text(CARD_TEMPLATE_VERSION, encoding="utf-8")
     return paths
 
 
@@ -2656,6 +2941,8 @@ def start_user_session(user, method="password"):
     session.clear()
     session["user_id"] = user["id"]
     session["role"] = user["role"]
+    session["province"] = user["province"] or ""
+    session["localite"] = user["localite"] or ""
     session["session_token"] = secrets.token_urlsafe(24)
     session["voice_welcome_pending"] = 1
     session["last_activity_ts"] = int(datetime.now().timestamp())
@@ -2876,17 +3163,18 @@ def reset_password():
     if request.method == "POST":
         email = request.form.get("email", "").strip()
         phone = request.form.get("phone", "").strip()
-        new_password = request.form.get("new_password", "")
         con = db()
         user = con.execute("SELECT * FROM users WHERE email=? AND phone=? AND active=1", (email, phone)).fetchone()
-        if user and len(new_password) >= 6:
-            con.execute("UPDATE users SET password_hash=?, force_password_change=0, failed_login_count=0, locked_until=NULL, password_changed_at=? WHERE id=?", (generate_password_hash(new_password), now(), user["id"]))
+        if user:
+            existing = con.execute("SELECT id FROM password_reset_requests WHERE user_id=? AND status='pending'", (user["id"],)).fetchone()
+            if not existing:
+                con.execute("INSERT INTO password_reset_requests(user_id,email,phone,status,requested_at) VALUES(?,?,?,?,?)", (user["id"], email, phone, "pending", now()))
             con.commit()
-            con.close()
-            flash("Mot de passe modifié. Connectez-vous avec le nouveau mot de passe.", "success")
-            return redirect(url_for("login"))
         con.close()
-        flash("Vérifiez l'e-mail, le téléphone et utilisez au moins 6 caractères.", "danger")
+        # Réponse identique même lorsque le compte n'existe pas : aucune donnée
+        # de connexion n'est révélée publiquement.
+        flash("Si les informations correspondent à un compte, la demande a été transmise à l’administration. Un mot de passe temporaire vous sera communiqué après validation.", "success")
+        return redirect(url_for("login"))
     return render_template("reset_password.html")
 
 
@@ -3034,7 +3322,7 @@ def admin_dashboard():
     if demo_mode_enabled():
         nums = demo_numbers()
         demo_activities, demo_notifications, demo_pending, demo_anniversaries = generate_demo_lists()
-        return render_template("admin_dashboard.html", total_members=nums["total_members"], active_members=nums["active_members"], pending=demo_pending, activities=demo_activities, payments=[], pending_activities=[], anniversaries=demo_anniversaries, contribution_total=nums["contribution_total"], contribution_currency=nums["contribution_currency"], recent_notifications=demo_notifications, support_tickets=[])
+        return render_template("admin_dashboard.html", total_members=nums["total_members"], active_members=nums["active_members"], pending=demo_pending, activities=demo_activities, payments=[], pending_activities=[], anniversaries=demo_anniversaries, contribution_total=nums["contribution_total"], contribution_currency=nums["contribution_currency"], recent_notifications=demo_notifications, support_tickets=[], service_count=8, patient_count=436, payment_pending_count=4, communication_count=len(demo_notifications), activity_count=nums["activities_count"])
     con = db()
     where, params = member_scope_query(user)
     total_members = con.execute(f"SELECT COUNT(*) AS n FROM members {where}", params).fetchone()["n"]
@@ -3065,9 +3353,18 @@ def admin_dashboard():
     recent_notifications = con.execute("SELECT * FROM notifications ORDER BY created_at DESC LIMIT 4").fetchall() if user["role"] in NATIONAL_ROLES else con.execute("SELECT * FROM notifications WHERE province=? OR target_scope='members' ORDER BY created_at DESC LIMIT 4", (user["province"],)).fetchall()
     ticket_where, ticket_params = support_scope_sql(user, "WHERE status!='closed'")
     support_tickets = con.execute(f"SELECT * FROM support_tickets {ticket_where} ORDER BY created_at DESC LIMIT 5", ticket_params).fetchall()
+    service_count = con.execute("SELECT COUNT(*) AS n FROM foundation_services WHERE COALESCE(active,1)=1").fetchone()["n"]
+    if user["role"] in NATIONAL_ROLES:
+        patient_count = con.execute("SELECT COUNT(*) AS n FROM patients WHERE deleted_at IS NULL").fetchone()["n"]
+        activity_count = con.execute("SELECT COUNT(*) AS n FROM activities").fetchone()["n"]
+    else:
+        patient_count = con.execute("SELECT COUNT(*) AS n FROM patients p JOIN health_centers c ON c.id=p.center_id WHERE p.deleted_at IS NULL AND c.province=?", (user["province"] or "",)).fetchone()["n"]
+        activity_count = con.execute("SELECT COUNT(*) AS n FROM activities WHERE province=?", (user["province"] or "",)).fetchone()["n"]
+    payment_pending_count = sum(1 for payment in payments if (payment["status"] or "").lower() == "pending")
+    communication_count = len(recent_notifications) + len(support_tickets)
     con.close()
     anniversaries = upcoming_anniversaries(user, 30)[:8]
-    return render_template("admin_dashboard.html", total_members=total_members, active_members=active_members, pending=pending, activities=activities, payments=payments, pending_activities=pending_activities, anniversaries=anniversaries, contribution_total=contribution_total, contribution_currency=contribution_currency, recent_notifications=recent_notifications, support_tickets=support_tickets)
+    return render_template("admin_dashboard.html", total_members=total_members, active_members=active_members, pending=pending, activities=activities, payments=payments, pending_activities=pending_activities, anniversaries=anniversaries, contribution_total=contribution_total, contribution_currency=contribution_currency, recent_notifications=recent_notifications, support_tickets=support_tickets, service_count=service_count, patient_count=patient_count, payment_pending_count=payment_pending_count, communication_count=communication_count, activity_count=activity_count)
 
 
 @app.route("/admin/applications")
@@ -3299,7 +3596,7 @@ def card_export(member_id, side, fmt):
     if not can_output_member_card(user): abort(403)
     assets=generate_member_card_assets(member); key="zip" if fmt=="sources" else f"{side}_{fmt}"
     if key not in assets: abort(404)
-    if fmt=="sources": return send_file(assets[key],as_attachment=True,download_name=f"carte_{member['code']}_sources_photoshop.zip")
+    if fmt=="sources": return send_file(assets[key],as_attachment=True,download_name=f"carte_{member['code']}_portrait_sources.zip")
     return send_file(assets[key],as_attachment=True,download_name=f"carte_{member['code']}_{side}.{fmt}")
 
 
@@ -4120,7 +4417,7 @@ def release_readiness_status():
         active_users = con.execute("SELECT COUNT(*) AS n FROM users WHERE deleted_at IS NULL AND active=1").fetchone()["n"]
     finally:
         con.close()
-    backup_dir = os.path.join(BASE_DIR, "backups")
+    backup_dir = backup_storage_dir()
     recent_backup = False
     if os.path.isdir(backup_dir):
         for name in os.listdir(backup_dir):
@@ -4145,7 +4442,7 @@ def release_readiness_status():
 
 def ensure_daily_backup():
     try:
-        marker_path = os.path.join(BASE_DIR, "backups", ".last_auto_backup")
+        marker_path = os.path.join(backup_storage_dir(), ".last_auto_backup")
         today_key = datetime.now().strftime("%Y-%m-%d")
         previous = Path(marker_path).read_text(encoding="utf-8").strip() if os.path.exists(marker_path) else ""
         if previous != today_key and os.path.exists(DB_PATH):
@@ -4158,10 +4455,20 @@ def ensure_daily_backup():
 
 @app.after_request
 def add_security_headers(response):
+    # Injection centrale : même les anciens modèles de formulaires reçoivent la
+    # protection CSRF sans devoir dupliquer le champ dans plus de cent pages.
+    if response.mimetype == "text/html" and response.status_code < 400:
+        body = response.get_data(as_text=True)
+        hidden = f'<input type="hidden" name="csrf_token" value="{html.escape(csrf_token())}">' 
+        pattern = re.compile(r'(<form\b[^>]*\bmethod=["\']?post["\']?[^>]*>)', re.IGNORECASE)
+        body, count = pattern.subn(lambda match: match.group(1) + hidden, body)
+        if count:
+            response.set_data(body)
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
     response.headers.setdefault("Permissions-Policy", "camera=(self), geolocation=(self), microphone=()")
+    response.headers.setdefault("Content-Security-Policy", "default-src 'self'; img-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self'; frame-src 'self' https://www.google.com https://maps.google.com https://www.youtube.com https://youtube.com")
     if request.is_secure:
         response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
     return response
@@ -4188,8 +4495,11 @@ def production_center_admin():
         LIMIT 60
     """).fetchall()
     locked_users = con.execute("SELECT * FROM users WHERE deleted_at IS NULL AND locked_until IS NOT NULL ORDER BY locked_until DESC").fetchall()
+    reset_requests = con.execute("""SELECT r.*,u.first_name,u.last_name,u.role,u.province
+                                    FROM password_reset_requests r JOIN users u ON u.id=r.user_id
+                                    WHERE r.status='pending' ORDER BY r.requested_at DESC""").fetchall()
     con.close()
-    return render_template("production_center.html", status=status, audit_logs=audit_logs, locked_users=locked_users)
+    return render_template("production_center.html", status=status, audit_logs=audit_logs, locked_users=locked_users, reset_requests=reset_requests)
 
 
 @app.route("/admin/production/migration", methods=["POST"])
@@ -4240,6 +4550,39 @@ def force_user_password_change(user_id):
     log_action(admin["id"], "Changement mot de passe imposé", "user", user_id)
     flash("Le compte devra changer son mot de passe à la prochaine connexion.", "success")
     return redirect(url_for("users_page"))
+
+
+@app.route("/admin/production/password-reset/<int:request_id>/approve", methods=["POST"])
+@login_required
+@role_required("super_admin", "secretary", "national_secretary")
+def approve_password_reset(request_id):
+    admin = current_user()
+    con = db()
+    reset_request = con.execute("SELECT * FROM password_reset_requests WHERE id=? AND status='pending'", (request_id,)).fetchone()
+    if not reset_request:
+        con.close()
+        abort(404)
+    temporary_password = "FOB-" + str(secrets.randbelow(900000) + 100000)
+    con.execute("""UPDATE users SET password_hash=?,force_password_change=1,failed_login_count=0,locked_until=NULL
+                   WHERE id=?""", (generate_password_hash(temporary_password), reset_request["user_id"]))
+    con.execute("UPDATE password_reset_requests SET status='approved',reviewed_at=?,reviewed_by=? WHERE id=?", (now(), admin["id"], request_id))
+    con.commit(); con.close()
+    log_action(admin["id"], "Validation récupération mot de passe", "user", reset_request["user_id"])
+    flash(f"Demande validée. Mot de passe temporaire à communiquer personnellement : {temporary_password}", "success")
+    return redirect(url_for("production_center_admin"))
+
+
+@app.route("/admin/production/password-reset/<int:request_id>/reject", methods=["POST"])
+@login_required
+@role_required("super_admin", "secretary", "national_secretary")
+def reject_password_reset(request_id):
+    admin = current_user()
+    con = db()
+    con.execute("UPDATE password_reset_requests SET status='rejected',reviewed_at=?,reviewed_by=? WHERE id=? AND status='pending'", (now(), admin["id"], request_id))
+    con.commit(); con.close()
+    log_action(admin["id"], "Rejet récupération mot de passe", "password_reset", request_id)
+    flash("Demande de récupération rejetée.", "info")
+    return redirect(url_for("production_center_admin"))
 
 
 
@@ -4484,23 +4827,45 @@ def restore_backup():
         flash('Veuillez fournir une archive .zip de sauvegarde.', 'danger')
         return redirect(url_for('production_center_admin'))
     current = create_backup_archive('Sauvegarde automatique avant restauration')
-    temp_path = os.path.join(BASE_DIR, 'backups', secure_filename(f'restore_{datetime.now().strftime("%Y%m%d_%H%M%S")}.zip'))
+    os.makedirs(backup_storage_dir(), exist_ok=True)
+    temp_path = os.path.join(backup_storage_dir(), secure_filename(f'restore_{datetime.now().strftime("%Y%m%d_%H%M%S")}.zip'))
     f.save(temp_path)
     try:
         with zipfile.ZipFile(temp_path, 'r') as zf:
             names = zf.namelist()
             if 'asbl.db' not in names:
                 raise ValueError('Archive invalide : asbl.db introuvable')
-            zf.extract('asbl.db', BASE_DIR)
+            with tempfile.TemporaryDirectory(prefix='fobak_restore_') as temp_dir:
+                restored_db = os.path.join(temp_dir, 'asbl.db')
+                with zf.open('asbl.db') as source, open(restored_db, 'wb') as target:
+                    shutil.copyfileobj(source, target)
+                check = sqlite3.connect(restored_db)
+                integrity = check.execute('PRAGMA integrity_check').fetchone()[0]
+                check.close()
+                if integrity != 'ok':
+                    raise ValueError('La base contenue dans la sauvegarde est endommagée.')
+                os.makedirs(os.path.dirname(DB_PATH) or BASE_DIR, exist_ok=True)
+                shutil.copy2(restored_db, DB_PATH)
             for name in names:
                 norm = name.replace('\\','/')
-                if norm.startswith('static/uploads/') and not norm.endswith('/'):
-                    zf.extract(name, BASE_DIR)
+                prefix = 'static/uploads/'
+                if not norm.startswith(prefix) or norm.endswith('/'):
+                    continue
+                relative = norm[len(prefix):]
+                parts = [part for part in relative.split('/') if part]
+                if not parts or any(part in {'.','..'} for part in parts) or parts[0] == 'backups':
+                    continue
+                destination = os.path.abspath(os.path.join(UPLOAD_ROOT, *parts))
+                if os.path.commonpath([os.path.abspath(UPLOAD_ROOT), destination]) != os.path.abspath(UPLOAD_ROOT):
+                    raise ValueError('Chemin de fichier non autorisé dans la sauvegarde.')
+                os.makedirs(os.path.dirname(destination), exist_ok=True)
+                with zf.open(name) as source, open(destination, 'wb') as target:
+                    shutil.copyfileobj(source, target)
         init_db()
         log_action(user['id'], 'Restauration sauvegarde', 'backup', None, os.path.basename(temp_path))
         flash('Sauvegarde restaurée. Une copie de sécurité de l’ancienne base a été gardée.', 'success')
     except Exception as e:
-        shutil.copy(current, os.path.join(BASE_DIR, 'backups', 'restauration_echouee_copie.zip'))
+        shutil.copy(current, os.path.join(backup_storage_dir(), 'restauration_echouee_copie.zip'))
         flash('Restauration impossible : ' + str(e), 'danger')
     return redirect(url_for('production_center_admin'))
 
@@ -4940,6 +5305,55 @@ def module_permission_required(module, action='voir'):
             return fn(*args, **kwargs)
         return wrapper
     return deco
+
+
+BUSINESS_ENDPOINT_MODULES = {
+    'members':'membres', 'new_member':'membres', 'toggle_member':'membres', 'delete_member':'membres',
+    'delete_member_permanent':'membres', 'print_members':'membres', 'export_members_csv':'membres',
+    'export_members_xlsx':'membres', 'import_members':'membres', 'card':'membres', 'card_export':'membres',
+    'fiche_adhesion':'membres', 'renew_member_card':'membres', 'applications':'adhesions',
+    'accept_application':'adhesions', 'reject_application':'adhesions', 'payments':'cotisations',
+    'print_payments':'cotisations', 'export_payments_csv':'cotisations', 'export_payments_xlsx':'cotisations',
+    'payment_receipt':'cotisations', 'payment_receipt_print':'cotisations', 'treasury_page':'tresorerie',
+    'treasury_edit':'tresorerie', 'treasury_export':'tresorerie', 'treasury_print':'tresorerie',
+    'manage_activities':'activites', 'approve_activity':'activites', 'reject_activity':'activites',
+    'delete_activity':'activites', 'projects_page':'projets', 'update_project':'projets', 'delete_project':'projets',
+    'documents_page':'documents', 'update_document':'documents', 'delete_document':'documents',
+    'notifications':'notifications', 'mark_all_notifications_read':'notifications', 'alerts_page':'alertes',
+    'support_tickets_page':'support', 'support_ticket_detail':'support', 'anniversaries_page':'anniversaires',
+    'users_page':'utilisateurs', 'update_user':'utilisateurs', 'delete_user':'utilisateurs',
+}
+
+
+def _permission_action_for_endpoint(endpoint):
+    name = endpoint or ''
+    if 'delete' in name:
+        return 'supprimer'
+    if any(word in name for word in ('approve', 'accept', 'reject', 'validate')):
+        return 'valider'
+    if 'print' in name or name in {'card', 'fiche_adhesion'}:
+        return 'imprimer'
+    if 'export' in name:
+        return 'exporter'
+    if request.method == 'POST':
+        if any(word in name for word in ('new', 'import')):
+            return 'ajouter'
+        return 'modifier'
+    return 'voir'
+
+
+@app.before_request
+def enforce_custom_business_permissions():
+    """Applique la matrice personnalisée aux anciens modules historiques."""
+    user = current_user()
+    if not user or user['role'] == 'super_admin':
+        return None
+    module = BUSINESS_ENDPOINT_MODULES.get(request.endpoint)
+    if not module:
+        return None
+    action = _permission_action_for_endpoint(request.endpoint)
+    if not role_permission_allowed(user, f'{module}.{action}', False):
+        abort(403)
 
 def health_scope_clause(user, alias=''):
     prefix=(alias+'.') if alias else ''

@@ -30,6 +30,20 @@
   {% if session.role == 'super_admin' %}<form method="post" action="{{ url_for('restore_backup') }}" enctype="multipart/form-data" class="admin-shortcut form-shortcut" onsubmit="return confirm('Restaurer cette sauvegarde ? Une copie de sécurité sera créée avant.');"><span>♻️</span><strong>Restaurer une sauvegarde</strong><small>Archive .zip générée par l'application</small><input type="file" name="backup_file" accept=".zip" required><button class="btn small primary" type="submit">Restaurer</button></form>{% endif %}
 </section>
 
+<section class="card">
+  <div class="panel-head"><div><span class="eyebrow">Validation administrative</span><h2>Demandes de récupération du mot de passe</h2></div><span class="badge scope">{{ reset_requests|length }} en attente</span></div>
+  {% for r in reset_requests %}
+    <div class="dash-list password-reset-row">
+      <span>🔑</span>
+      <div><strong>{{ r.first_name or '' }} {{ r.last_name or '' }} — {{ r.email }}</strong><small>{{ r.phone }} · {{ role_labels.get(r.role,r.role) }} · {{ r.province or 'National' }} · {{ r.requested_at }}</small></div>
+      <div class="actions">
+        <form method="post" action="{{ url_for('approve_password_reset',request_id=r.id) }}" onsubmit="return confirm('Valider cette identité et créer un mot de passe temporaire ?');"><button class="btn small primary">Valider</button></form>
+        <form method="post" action="{{ url_for('reject_password_reset',request_id=r.id) }}"><button class="btn small danger">Rejeter</button></form>
+      </div>
+    </div>
+  {% else %}<p>Aucune demande de récupération en attente.</p>{% endfor %}
+</section>
+
 <section class="dashboard-panels two-columns">
   <article class="panel-card">
     <div class="panel-head"><h2>Dernières migrations</h2></div>

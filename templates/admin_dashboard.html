@@ -1,144 +1,68 @@
 {% extends 'base.html' %}
 {% block content %}
-<section class="dashboard-welcome">
-  <div>
-    <span class="eyebrow">Plateforme officielle de gestion ASBL</span>
-    <h1>Bienvenue, {{ role_labels.get(session.role, session.role) }}</h1>
+<section class="dashboard-welcome dashboard-welcome-v63">
+  <div class="welcome-copy">
+    <span class="eyebrow">Espace professionnel FOBAK</span>
+    <h1>Bienvenue, {{ current_user_display_name }}</h1>
     <p>{{ settings.dashboard_message }}</p>
-    {% if session.role not in ['super_admin','president','secretary','national_secretary'] %}
-      <span class="badge scope">Vue limitée : {{ current_user.province or 'Province' }}{% if current_user.localite %} / {{ current_user.localite }}{% endif %}</span>
-    {% else %}
-      <span class="badge active">Vue nationale complète</span>
-    {% endif %}
+    <div class="welcome-meta">
+      <span>👤 {{ role_labels.get(session.role, session.role) }}</span>
+      <span>📍 {{ current_user.province or 'Vue nationale' }}{% if current_user.localite %} / {{ current_user.localite }}{% endif %}</span>
+      <span>🕘 Session sécurisée</span>
+    </div>
     {% if session.role in ['super_admin','president','secretary','national_secretary'] %}
       <form method="post" action="{{ url_for('toggle_demo_mode') }}" class="inline demo-toggle-form">
         <input type="hidden" name="enabled" value="{{ '0' if demo_mode else '1' }}">
-        <button class="btn small {{ '' if demo_mode else 'primary' }}" type="submit">{{ 'Désactiver le mode démo' if demo_mode else 'Activer le mode démo' }}</button>
+        <button class="btn small" type="submit">{{ 'Désactiver le mode démo' if demo_mode else 'Activer le mode démo' }}</button>
       </form>
     {% endif %}
   </div>
-  <div class="dashboard-seal large-seal logo-seal">
-    {% if settings.logo_path %}<img src="{{ url_for('static', filename=settings.logo_path) }}" alt="Logo" onerror="this.onerror=null;this.src='{{ url_for('static', filename='img/fobak_logo_official_v25.png') }}'">{% else %}ASBL{% endif %}
+  <div class="dashboard-seal logo-seal">
+    {% if settings.logo_path %}<img src="{{ url_for('static', filename=settings.logo_path) }}" alt="Logo FOBAK" onerror="this.onerror=null;this.src='{{ url_for('static', filename='img/fobak_logo_official_v25.png') }}'">{% else %}FOBAK{% endif %}
   </div>
 </section>
 
-<section class="kpi-grid">
-  <article class="kpi-card"><div class="kpi-icon blue">👥</div><div><small>Membres actifs</small><strong>{{ active_members }}</strong><span>Selon les droits d'accès</span></div></article>
-  <article class="kpi-card"><div class="kpi-icon yellow">🪪</div><div><small>Adhésions en attente</small><strong>{{ pending|length }}</strong><span>À vérifier ou valider</span></div></article>
-  <article class="kpi-card"><div class="kpi-icon red">💰</div><div><small>Cotisations ce mois</small><strong>{{ contribution_total|round(2) }} {{ contribution_currency }}</strong><span>Filtré selon votre rôle</span></div></article>
-  <article class="kpi-card"><div class="kpi-icon blue">📅</div><div><small>Activités suivies</small><strong>{{ activities|length }}</strong><span>Publiées ou en validation</span></div></article>
-</section>
-
-<section class="dashboard-panels">
-  <article class="panel-card cotisation-panel">
-    <div class="panel-head"><h2>Aperçu des cotisations</h2><a href="{{ url_for('payments') }}">Voir tout</a></div>
-    <div class="chart-line-demo" aria-hidden="true">
-      <span style="height:24%"></span><span style="height:34%"></span><span style="height:42%"></span><span style="height:38%"></span><span style="height:58%"></span><span style="height:70%"></span><span style="height:62%"></span><span style="height:78%"></span><span style="height:86%"></span>
-    </div>
-    <div class="quick-actions-row">
-      <a class="btn primary" href="{{ url_for('payments') }}">Enregistrer cotisation</a>
-      <a class="btn" href="{{ url_for('print_payments') }}">Imprimer rapport</a>
-      <a class="btn" href="{{ url_for('export_payments_csv') }}">Exporter CSV</a>
-    </div>
-  </article>
-
-  <article class="panel-card">
-    <div class="panel-head"><h2>Activités récentes</h2><a href="{{ url_for('manage_activities') }}">Gérer</a></div>
-    {% for a in activities[:5] %}
-      <div class="dash-list"><span>📌</span><div><strong>{{ a.title }}</strong><small>{{ a.province or 'National' }} — {{ a.published_at[:10] }} — {{ a.status or 'approved' }}</small></div></div>
-    {% else %}<p>Aucune activité.</p>{% endfor %}
-  </article>
-
-  <article class="panel-card notification-panel">
-    <div class="panel-head"><h2>Notifications</h2><a href="{{ url_for('notifications') }}">Tout voir</a></div>
-    {% for n in recent_notifications %}
-      <div class="dash-list"><span>🔔</span><div><strong>{{ n.message[:58] }}{% if n.message|length > 58 %}...{% endif %}</strong><small>{{ n.province or n.target_scope }} — {{ n.created_at }}</small></div><b class="dot"></b></div>
-    {% else %}<p>Aucune notification.</p>{% endfor %}
-  </article>
-</section>
-
-
-<section class="dashboard-module-catalog">
-  <div class="section-heading"><span class="eyebrow">Navigation complète</span><h2>Tous les modules de votre espace</h2><p>Les rubriques sont classées comme dans le menu latéral et filtrées selon vos autorisations.</p></div>
-  <div class="module-groups">
-    <article class="module-group"><h3>👥 Gestion associative</h3><div class="module-card-grid">
-      {% if module_allowed('membres','voir') %}<a href="{{url_for('members')}}"><span>👥</span><strong>Membres</strong><small>Registre et cartes</small></a>{% endif %}
-      {% if module_allowed('adhesions','voir') %}<a href="{{url_for('applications')}}"><span>🪪</span><strong>Adhésions</strong><small>Demandes et validation</small></a>{% endif %}
-      {% if module_allowed('cotisations','voir') %}<a href="{{url_for('payments')}}"><span>💰</span><strong>Cotisations</strong><small>Paiements et reçus</small></a>{% endif %}
-      {% if module_allowed('tresorerie','voir') %}<a href="{{url_for('treasury_page')}}"><span>🏦</span><strong>Trésorerie</strong><small>Recettes et dépenses</small></a>{% endif %}
-      {% if module_allowed('activites','voir') %}<a href="{{url_for('manage_activities')}}"><span>📅</span><strong>Activités</strong><small>Publications</small></a>{% endif %}
-      {% if module_allowed('projets','voir') %}<a href="{{url_for('projects_page')}}"><span>🚀</span><strong>Projets</strong><small>Programmes FOBAK</small></a>{% endif %}
-      {% if module_allowed('documents','voir') %}<a href="{{url_for('documents_page')}}"><span>📁</span><strong>Documents</strong><small>Archives et pièces</small></a>{% endif %}
-      {% if module_allowed('statuts','voir') %}<a href="{{url_for('manage_statutes')}}"><span>📘</span><strong>Statuts</strong><small>Textes officiels</small></a>{% endif %}
-    </div></article>
-    <article class="module-group"><h3>🏛️ Services de la Fondation</h3><div class="module-card-grid">
-      {% if module_allowed('services','voir') %}<a href="{{url_for('foundation_services_page')}}"><span>🧩</span><strong>Services</strong><small>Ajouter et configurer</small></a>{% endif %}
-      {% if module_allowed('centres_sante','voir') %}<a href="{{url_for('health_dashboard')}}"><span>🏥</span><strong>Centre de santé</strong><small>Réseau sanitaire national</small></a>{% endif %}
-      {% if module_allowed('personnel_sante','voir') %}<a href="{{url_for('health_staff_page')}}"><span>👩🏽‍⚕️</span><strong>Personnel sanitaire</strong><small>Membres affectés</small></a>{% endif %}
-      {% if module_allowed('patients','voir') %}<a href="{{url_for('patients_page')}}"><span>🧑🏽</span><strong>Patients</strong><small>Dossiers patients</small></a>{% endif %}
-      {% if module_allowed('consultations','voir') %}<a href="{{url_for('consultations_page')}}"><span>📋</span><strong>Consultations</strong><small>Suivi clinique</small></a>{% endif %}
-      {% if module_allowed('laboratoire','voir') %}<a href="{{url_for('health_operations_page')}}#laboratoire"><span>🧪</span><strong>Laboratoire</strong><small>Demandes et résultats</small></a>{% endif %}
-      {% if module_allowed('pharmacie','voir') %}<a href="{{url_for('health_operations_page')}}#pharmacie"><span>💊</span><strong>Pharmacie</strong><small>Produits et délivrance</small></a>{% endif %}
-      {% if module_allowed('hospitalisation','voir') %}<a href="{{url_for('health_operations_page')}}#hospitalisation"><span>🛏️</span><strong>Hospitalisation</strong><small>Lits et admissions</small></a>{% endif %}
-      {% if module_allowed('facturation','voir') %}<a href="{{url_for('health_operations_page')}}#facturation"><span>🧾</span><strong>Facturation santé</strong><small>Factures et paiements</small></a>{% endif %}
-      {% if module_allowed('modeles_fiches','voir') %}<a href="{{url_for('medical_forms_page')}}"><span>🗂️</span><strong>Modèles de fiches</strong><small>Créer ou importer</small></a>{% endif %}
-      {% if module_allowed('qualite_donnees','voir') %}<a href="{{url_for('health_data_quality_page')}}"><span>📊</span><strong>Qualité des données</strong><small>Contrôle national</small></a>{% endif %}
-    </div></article>
-    <article class="module-group"><h3>🔔 Communication et assistance</h3><div class="module-card-grid">
-      {% if module_allowed('alertes','voir') %}<a href="{{url_for('alerts_page')}}"><span>🚨</span><strong>Alertes</strong><small>Échéances et anomalies</small></a>{% endif %}{% if module_allowed('notifications','voir') %}<a href="{{url_for('notifications')}}"><span>🔔</span><strong>Notifications</strong><small>Messages et suivi</small></a>{% endif %}
-      {% if module_allowed('support','voir') %}<a href="{{url_for('support_tickets_page')}}"><span>🛟</span><strong>Support</strong><small>Tickets techniques</small></a>{% endif %}
-      {% if module_allowed('anniversaires','voir') %}<a href="{{url_for('anniversaries_page')}}"><span>🎂</span><strong>Anniversaires</strong><small>Rappels des membres</small></a>{% endif %}
-      <a href="{{url_for('my_profile')}}"><span>👤</span><strong>Mon profil</strong><small>Compte et carte</small></a><a href="{{url_for('intelligent_help')}}"><span>🤖</span><strong>Aide intelligente</strong><small>Assistance guidée</small></a><a href="{{url_for('quick_guide')}}"><span>📖</span><strong>Guide rapide</strong><small>Prise en main</small></a><a href="{{url_for('index')}}"><span>🌐</span><strong>Site public</strong><small>Voir la vitrine FOBAK</small></a>
-    </div></article>
-    {% if session.role in ['super_admin','president','secretary','national_secretary'] %}<article class="module-group"><h3>🛡️ Administration et sécurité</h3><div class="module-card-grid">
-      {% if module_allowed('utilisateurs','voir') %}<a href="{{url_for('users_page')}}"><span>👤</span><strong>Utilisateurs</strong><small>Comptes et accès</small></a>{% endif %}
-      {% if session.role=='super_admin' %}<a href="{{url_for('roles_permissions_page')}}"><span>☑️</span><strong>Droits personnalisés</strong><small>Tous les modules</small></a>{% endif %}
-      <a href="{{url_for('year_closure')}}"><span>📦</span><strong>Clôture d’exercice</strong><small>Archivage annuel</small></a><a href="{{url_for('production_center_admin')}}"><span>🛡️</span><strong>Production</strong><small>Sauvegarde et sécurité</small></a><a href="{{url_for('synchronization_center')}}"><span>🔄</span><strong>Synchronisation</strong><small>Données et conflits</small></a><a href="{{url_for('recycle_bin')}}"><span>🗑️</span><strong>Corbeille</strong><small>Restaurer les éléments</small></a><a href="{{url_for('audit_center')}}"><span>🧾</span><strong>Journal d’audit</strong><small>Traçabilité</small></a><a href="{{url_for('diagnostic_center')}}"><span>🩺</span><strong>Diagnostic général</strong><small>État de l’application</small></a>{% if session.role=='super_admin' %}<a href="{{url_for('setup_wizard')}}"><span>🧭</span><strong>Assistant démarrage</strong><small>Configuration guidée</small></a>{% endif %}
-      {% if session.role=='super_admin' %}<a href="{{url_for('settings_page')}}"><span>⚙️</span><strong>Paramètres</strong><small>Configuration générale</small></a>{% endif %}
-    </div></article>{% endif %}
+<section class="dashboard-stat-section" aria-labelledby="statistics-title">
+  <div class="dashboard-section-head">
+    <div><span class="eyebrow">Vue d’ensemble</span><h2 id="statistics-title">Statistiques essentielles</h2></div>
+    <small>Données adaptées à votre rôle et à votre zone d’action</small>
+  </div>
+  <div class="kpi-grid kpi-grid-v63">
+    {% if module_allowed('membres','voir') %}<a class="kpi-card kpi-link" href="{{ url_for('members') }}"><div class="kpi-icon blue">👥</div><div><small>Membres actifs</small><strong>{{ active_members }}</strong><span>sur {{ total_members }} membre(s)</span><i style="--progress:{{ ((active_members / total_members * 100) if total_members else 0)|round }}%"></i></div></a>{% endif %}
+    {% if module_allowed('adhesions','voir') %}<a class="kpi-card kpi-link" href="{{ url_for('applications') }}"><div class="kpi-icon yellow">🪪</div><div><small>Adhésions en attente</small><strong>{{ pending|length }}</strong><span>Dossiers à examiner</span><i style="--progress:{{ [pending|length * 10, 100]|min }}%"></i></div></a>{% endif %}
+    {% if module_allowed('cotisations','voir') %}<a class="kpi-card kpi-link" href="{{ url_for('payments') }}"><div class="kpi-icon green">💰</div><div><small>Cotisations du mois</small><strong>{{ contribution_total|round(2) }}</strong><span>{{ contribution_currency }} · {{ payment_pending_count }} à vérifier</span><i style="--progress:{{ [payment_pending_count * 12, 100]|min }}%"></i></div></a>{% endif %}
+    {% if module_allowed('activites','voir') %}<a class="kpi-card kpi-link" href="{{ url_for('manage_activities') }}"><div class="kpi-icon violet">📅</div><div><small>Activités enregistrées</small><strong>{{ activity_count }}</strong><span>{{ activities|length }} affichée(s) récemment</span><i style="--progress:{{ [activity_count * 4, 100]|min }}%"></i></div></a>{% endif %}
+    {% if module_allowed('services','voir') %}<a class="kpi-card kpi-link" href="{{ url_for('foundation_services_page') }}"><div class="kpi-icon cyan">🏛️</div><div><small>Services de la Fondation</small><strong>{{ service_count }}</strong><span>Services disponibles</span><i style="--progress:{{ [service_count * 10, 100]|min }}%"></i></div></a>{% endif %}
+    {% if module_allowed('patients','voir') %}<a class="kpi-card kpi-link" href="{{ url_for('patients_page') }}"><div class="kpi-icon red">🏥</div><div><small>Patients enregistrés</small><strong>{{ patient_count }}</strong><span>Suivi sanitaire</span><i style="--progress:{{ [patient_count, 100]|min }}%"></i></div></a>{% endif %}
   </div>
 </section>
 
-<section class="admin-action-grid">
-  <a class="admin-shortcut primary" href="{{ url_for('new_member') }}"><span>➕</span><strong>Ajouter membre localement</strong><small>Enregistrement rapide au bureau</small></a>
-  <a class="admin-shortcut" href="{{ url_for('applications') }}"><span>🪪</span><strong>Demandes d'adhésion</strong><small>Accepter ou rejeter</small></a>
-  <a class="admin-shortcut" href="{{ url_for('members') }}"><span>👥</span><strong>Liste des membres</strong><small>Filtrer, imprimer, exporter</small></a>
-  <a class="admin-shortcut" href="{{ url_for('manage_activities') }}"><span>📰</span><strong>Activités & publications</strong><small>Publier après validation nationale</small></a>
-  <a class="admin-shortcut" href="{{ url_for('anniversaries_page') }}"><span>🎂</span><strong>Anniversaires d’adhésion</strong><small>Rappels automatiques annuels</small></a>
-  <a class="admin-shortcut" href="{{ url_for('support_tickets_page') }}"><span>🛟</span><strong>Tickets de support</strong><small>Problèmes signalés et suivi</small></a>
-  <a class="admin-shortcut" href="{{ url_for('projects_page') }}"><span>🚀</span><strong>Projets</strong><small>Suivi des programmes</small></a>
-  <a class="admin-shortcut" href="{{ url_for('documents_page') }}"><span>📁</span><strong>Documents</strong><small>Statuts, rapports et pièces</small></a>
-  {% if session.role in ['super_admin','president','secretary','national_secretary'] %}<a class="admin-shortcut" href="{{ url_for('year_closure') }}"><span>📦</span><strong>Clôture d’exercice</strong><small>Fermer l’année sans effacer</small></a><a class="admin-shortcut" href="{{ url_for('production_center_admin') }}"><span>🛡️</span><strong>Production & sécurité</strong><small>Sauvegarde, audit, migrations</small></a>{% endif %}{% if session.role == 'super_admin' %}<a class="admin-shortcut" href="{{ url_for('settings_page') }}"><span>⚙️</span><strong>Paramètres</strong><small>Réservé à l’administrateur général informaticien</small></a>{% endif %}
-</section>
+<section class="communication-hub" aria-labelledby="communication-title">
+  <div class="dashboard-section-head">
+    <div><span class="eyebrow">Information et coordination</span><h2 id="communication-title">Centre de communication</h2></div>
+    <span class="communication-counter">{{ communication_count }} élément(s) récent(s)</span>
+  </div>
+  <div class="dashboard-panels dashboard-panels-v63">
+    <article class="panel-card notification-panel">
+      <div class="panel-head"><h3>🔔 Notifications importantes</h3><a href="{{ url_for('notifications') }}">Tout voir</a></div>
+      {% for n in recent_notifications %}
+        <div class="dash-list"><span>🔔</span><div><strong>{{ n.message[:72] }}{% if n.message|length > 72 %}…{% endif %}</strong><small>{{ n.province or n.target_scope or 'National' }} — {{ n.created_at }}</small></div><b class="dot"></b></div>
+      {% else %}<div class="empty-communication">✓ Aucune nouvelle notification.</div>{% endfor %}
+    </article>
 
-<section class="dashboard-panels two-columns">
-  <article class="panel-card">
-    <div class="panel-head"><h2>Demandes récentes</h2><a href="{{ url_for('applications') }}">Ouvrir</a></div>
-    {% for a in pending %}
-      <div class="dash-list"><span>🧾</span><div><strong>{{ a.last_name }} {{ a.first_name }}</strong><small>{{ a.province }} — {{ a.created_at }}</small></div></div>
-    {% else %}<p>Aucune demande en attente.</p>{% endfor %}
-  </article>
+    <article class="panel-card">
+      <div class="panel-head"><h3>📣 Publications et activités</h3><a href="{{ url_for('manage_activities') }}">Gérer</a></div>
+      {% for a in activities[:5] %}
+        <div class="dash-list"><span>📌</span><div><strong>{{ a.title }}</strong><small>{{ a.province or 'National' }} — {{ (a.published_at or '')[:10] }} — {{ a.status or 'approved' }}</small></div></div>
+      {% else %}<div class="empty-communication">Aucune publication récente.</div>{% endfor %}
+    </article>
 
-  <article class="panel-card anniversary-card">
-    <div class="panel-head"><h2>Rappels d'anniversaire d'adhésion</h2><a href="{{ url_for('anniversaries_page') }}">Voir</a></div>
-    {% for item in anniversaries %}
-      <div class="dash-list"><span>🎉</span><div><strong>{{ item.member.last_name }} {{ item.member.first_name }}</strong><small>{{ item.next_date }} — {{ item.days }} jour(s) — {{ item.years }} an(s)</small></div></div>
-    {% else %}<p>Aucun anniversaire d'adhésion dans les 30 prochains jours.</p>{% endfor %}
-  </article>
-</section>
-
-<section class="dashboard-panels two-columns">
-  <article class="panel-card">
-    <div class="panel-head"><h2>Tickets de support récents</h2><a href="{{ url_for('support_tickets_page') }}">Ouvrir</a></div>
-    {% for t in support_tickets %}
-      <div class="dash-list"><span>🛟</span><div><strong>{{ t.tracking_code or ('SUP-' ~ t.id) }} — {{ t.title }}</strong><small>{{ t.province or 'National' }} — {{ t.status }} — {{ t.created_at }}</small></div></div>
-    {% else %}<p>Aucun ticket ouvert.</p>{% endfor %}
-  </article>
-  <article class="panel-card">
-    <div class="panel-head"><h2>Stabilité de l’application</h2><a href="{{ url_for('stability_center') }}">Voir</a></div>
-    <div class="dash-list"><span>✅</span><div><strong>Migrations automatiques</strong><small>Les nouvelles tables sont vérifiées au lancement.</small></div></div>
-    <div class="dash-list"><span>📱</span><div><strong>Mode mobile / PWA</strong><small>Icône écran d'accueil, boutons larges, aide flottante.</small></div></div>
-    <div class="dash-list"><span>🔐</span><div><strong>Droits respectés</strong><small>Les provinces restent limitées à leurs données.</small></div></div>
-  </article>
+    <article class="panel-card">
+      <div class="panel-head"><h3>🛟 Messages et assistance</h3><a href="{{ url_for('support_tickets_page') }}">Ouvrir</a></div>
+      {% for ticket in support_tickets[:5] %}
+        <div class="dash-list"><span>💬</span><div><strong>{{ ticket.tracking_code or ('SUP-' ~ ticket.id) }} — {{ ticket.title }}</strong><small>{{ ticket.province or 'National' }} — {{ ticket.status }} — {{ ticket.created_at }}</small></div></div>
+      {% else %}<div class="empty-communication">Aucun message de support en attente.</div>{% endfor %}
+    </article>
+  </div>
 </section>
 {% endblock %}

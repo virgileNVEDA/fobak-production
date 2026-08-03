@@ -5,12 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ title or settings.structure_name }}</title>
   <meta name="theme-color" content="#0b3a66">
+  <meta name="csrf-token" content="{{ csrf_token() }}">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="{{ settings.mobile_app_name or 'ASBL Manager' }}">
   <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
   <link rel="icon" href="{{ url_for('static', filename=settings.favicon_path) }}">
   <link rel="apple-touch-icon" href="{{ url_for('static', filename=settings.favicon_path) }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=61">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=63">
 </head>
 <body class="{{ 'has-watermark' if settings.logo_path else '' }} {{ 'admin-layout' if current_user else 'public-layout' }} {{ 'health-module' if request.path.startswith('/health') else '' }}"
       data-voice-enabled="1" data-current-path="{{ request.path }}"
@@ -59,6 +60,87 @@
       <small id="side-menu-search-empty" class="side-menu-search-empty" hidden>Aucune rubrique trouvée.</small>
 
       <nav class="side-menu">
+        <div class="v63-side-navigation">
+          <a href="{{ url_for('dashboard') }}" class="{{ 'active' if request.endpoint in ['dashboard','admin_dashboard','member_dashboard'] else '' }}"><span>🏠</span> Tableau de bord <b>›</b></a>
+          {% if session.role != 'member' %}
+          <details class="side-menu-group" {{ 'open' if request.endpoint in ['members','new_member','applications','payments','treasury_page','manage_activities','projects_page','documents_page','manage_statutes','anniversaries_page'] else '' }}>
+            <summary><span>👥</span> Gestion associative <b>⌄</b></summary>
+            <div class="side-submenu">
+              {% if module_allowed('membres','voir') %}<a href="{{ url_for('members') }}"><span>👥</span> Membres et cartes</a>{% endif %}
+              {% if module_allowed('adhesions','voir') %}<a href="{{ url_for('applications') }}"><span>🪪</span> Demandes d’adhésion</a>{% endif %}
+              {% if module_allowed('cotisations','voir') %}<a href="{{ url_for('payments') }}"><span>💰</span> Cotisations</a>{% endif %}
+              {% if module_allowed('tresorerie','voir') %}<a href="{{ url_for('treasury_page') }}"><span>🏦</span> Trésorerie</a>{% endif %}
+              {% if module_allowed('activites','voir') %}<a href="{{ url_for('manage_activities') }}"><span>📅</span> Activités</a>{% endif %}
+              {% if module_allowed('projets','voir') %}<a href="{{ url_for('projects_page') }}"><span>🚀</span> Projets</a>{% endif %}
+              {% if module_allowed('documents','voir') %}<a href="{{ url_for('documents_page') }}"><span>📁</span> Documents</a>{% endif %}
+              {% if module_allowed('statuts','voir') %}<a href="{{ url_for('manage_statutes') }}"><span>📘</span> Statuts et règlement</a>{% endif %}
+              {% if module_allowed('anniversaires','voir') %}<a href="{{ url_for('anniversaries_page') }}"><span>🎂</span> Anniversaires</a>{% endif %}
+            </div>
+          </details>
+
+          <details class="side-menu-group" {{ 'open' if request.endpoint in ['notifications','alerts_page','support_tickets_page','support_ticket_detail'] else '' }}>
+            <summary><span>📣</span> Communication <b>⌄</b></summary>
+            <div class="side-submenu">
+              {% if module_allowed('notifications','voir') %}<a href="{{ url_for('notifications') }}"><span>🔔</span> Notifications {% if unread_notification_count %}<small class="menu-badge">{{ unread_notification_count }}</small>{% endif %}</a>{% endif %}
+              {% if module_allowed('alertes','voir') %}<a href="{{ url_for('alerts_page') }}"><span>🚨</span> Alertes importantes</a>{% endif %}
+              {% if module_allowed('support','voir') %}<a href="{{ url_for('support_tickets_page') }}"><span>🛟</span> Messages et support</a>{% endif %}
+              <a href="{{ url_for('report_problem') }}"><span>✉️</span> Signaler un problème</a>
+            </div>
+          </details>
+
+          {% if module_allowed('services','voir') %}
+          <details class="side-menu-group service-menu-v63" {{ 'open' if request.endpoint in ['foundation_services_page','foundation_service_detail','health_dashboard','health_centers_page','health_roles_page','health_staff_page','patients_page','consultations_page','medical_forms_page','health_operations_page','health_data_quality_page','health_cards_page','health_card_print','health_reports_page','health_report_print'] else '' }}>
+            <summary><span>🏛️</span> Services de la Fondation <b>⌄</b></summary>
+            <div class="side-submenu">
+              <a href="{{ url_for('foundation_services_page') }}"><span>🧩</span> Services disponibles</a>
+              {% if module_allowed('services','ajouter') %}<a href="{{ url_for('foundation_services_page') }}#nouveau-service"><span>➕</span> Ajouter un service</a>{% endif %}
+              {% if module_allowed('centres_sante','voir') %}
+              <details class="side-menu-subgroup" {{ 'open' if request.path.startswith('/health') else '' }}>
+                <summary><span>🏥</span> Centre de santé <b>⌄</b></summary>
+                <div class="side-submenu health-submenu">
+                  <a href="{{ url_for('health_dashboard') }}">Tableau de bord sanitaire</a>
+                  <a href="{{ url_for('health_centers_page') }}">Centres de santé</a>
+                  {% if module_allowed('roles_services','voir') %}<a href="{{ url_for('health_roles_page') }}">Rôles sanitaires</a>{% endif %}
+                  {% if module_allowed('personnel_sante','voir') %}<a href="{{ url_for('health_staff_page') }}">Personnel sanitaire</a>{% endif %}
+                  {% if module_allowed('patients','voir') %}<a href="{{ url_for('patients_page') }}">Patients</a>{% endif %}
+                  {% if module_allowed('consultations','voir') %}<a href="{{ url_for('consultations_page') }}">Consultations</a>{% endif %}
+                  {% if module_allowed('modeles_fiches','voir') %}<a href="{{ url_for('medical_forms_page') }}">Fiches médicales</a>{% endif %}
+                  <a href="{{ url_for('health_operations_page') }}">Opérations sanitaires</a>
+                  {% if module_allowed('cartes_sanitaires','voir') %}<a href="{{ url_for('health_cards_page') }}">Cartes sanitaires</a>{% endif %}
+                  {% if module_allowed('rapports_sante','voir') %}<a href="{{ url_for('health_reports_page') }}">Rapports sanitaires</a>{% endif %}
+                  {% if module_allowed('qualite_donnees','voir') %}<a href="{{ url_for('health_data_quality_page') }}">Qualité des données</a>{% endif %}
+                </div>
+              </details>
+              {% endif %}
+            </div>
+          </details>
+          {% endif %}
+
+          {% if session.role in ['super_admin','president','secretary','national_secretary'] %}
+          <details class="side-menu-group" {{ 'open' if request.endpoint in ['users_page','roles_permissions_page','settings_page','production_center_admin','synchronization_center','recycle_bin','audit_center','diagnostic_center','setup_wizard','year_closure'] else '' }}>
+            <summary><span>🛡️</span> Administration <b>⌄</b></summary>
+            <div class="side-submenu">
+              {% if module_allowed('utilisateurs','voir') %}<a href="{{ url_for('users_page') }}">Utilisateurs</a>{% endif %}
+              {% if session.role == 'super_admin' %}<a href="{{ url_for('roles_permissions_page') }}">Rôles et autorisations</a>{% endif %}
+              <a href="{{ url_for('production_center_admin') }}">Sauvegarde et sécurité</a>
+              <a href="{{ url_for('synchronization_center') }}">Synchronisation</a>
+              <a href="{{ url_for('recycle_bin') }}">Corbeille</a>
+              <a href="{{ url_for('audit_center') }}">Journal d’audit</a>
+              <a href="{{ url_for('diagnostic_center') }}">Diagnostic</a>
+              <a href="{{ url_for('year_closure') }}">Clôture d’exercice</a>
+              {% if session.role == 'super_admin' %}<a href="{{ url_for('settings_page') }}">Paramètres généraux</a>{% endif %}
+            </div>
+          </details>
+          {% endif %}
+          {% else %}
+          <a href="{{ url_for('member_dashboard') }}"><span>🪪</span> Ma carte et mon espace <b>›</b></a>
+          <a href="{{ url_for('security_settings') }}"><span>🔐</span> PIN et biométrie <b>›</b></a>
+          {% endif %}
+          <a href="{{ url_for('my_profile') }}"><span>👤</span> Mon profil <b>›</b></a>
+          <a href="{{ url_for('intelligent_help') }}"><span>🤖</span> Aide intelligente <b>›</b></a>
+          <a href="{{ url_for('index') }}"><span>🌐</span> Site public <b>›</b></a>
+        </div>
+        <div class="legacy-side-navigation" aria-hidden="true">
         <a href="{{ url_for('dashboard') }}" class="{{ 'active' if request.endpoint in ['dashboard','admin_dashboard','member_dashboard'] else '' }}"><span>🏠</span> {{ _("Tableau de bord") }} <b>›</b></a>
         {% if session.role != 'member' %}
         <a href="{{ url_for('members') }}" class="{{ 'active' if request.endpoint in ['members','new_member','print_members'] else '' }}"><span>👥</span> {{ _("Membres") }} <b>›</b></a>
@@ -106,6 +188,7 @@
         <a href="{{ url_for('intelligent_help') }}"><span>🤖</span> Aide intelligente <b>›</b></a>
         <a href="{{ url_for('quick_guide') }}"><span>📘</span> Guide rapide <b>›</b></a>
         <a href="{{ url_for('index') }}"><span>🌐</span> Site public <b>›</b></a>
+        </div>
       </nav>
 
       <div class="side-user">
@@ -272,6 +355,6 @@
       flag: {{ url_for('static', filename=rdc_flag_rel)|tojson }}
     };
   </script>
-  <script src="{{ url_for('static', filename='js/app.js') }}?v=61"></script>
+  <script src="{{ url_for('static', filename='js/app.js') }}?v=63"></script>
 </body>
 </html>

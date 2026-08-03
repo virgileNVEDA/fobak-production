@@ -601,8 +601,10 @@ document.addEventListener('DOMContentLoaded',()=>{
     panels.forEach(panel=>{const active=panel.id===tab.dataset.authTarget;panel.hidden=!active;panel.classList.toggle('is-active',active)});
     document.getElementById(tab.dataset.authTarget)?.querySelector('input')?.focus();
   }));
-  document.getElementById('register-passkey')?.addEventListener('click',async()=>{const s=document.getElementById('passkey-status');try{let o=await fetch('/api/passkeys/register/options',{method:'POST'}).then(r=>r.json());if(o.ok===false)throw Error(o.error);let c=await navigator.credentials.create({publicKey:prep(o)});let v=await fetch('/api/passkeys/register/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(credJSON(c))}).then(r=>r.json());if(!v.ok)throw Error(v.error||'Échec');s.textContent='Appareil enregistré.';setTimeout(()=>location.reload(),600)}catch(e){s.textContent=e.message}});
-  document.getElementById('passkey-login')?.addEventListener('click',async()=>{const s=document.getElementById('passkey-login-status'),i=document.getElementById('passkey-identifier')?.value?.trim();if(!i){s.textContent='Saisissez votre e-mail ou téléphone.';return}try{s.textContent='Vérification de cet appareil…';let o=await fetch('/api/passkeys/login/options',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({identifier:i})}).then(r=>r.json());if(o.ok===false)throw Error(o.error);let c=await navigator.credentials.get({publicKey:prep(o)});let v=await fetch('/api/passkeys/login/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(credJSON(c))}).then(r=>r.json());if(!v.ok)throw Error(v.error||'Échec');location.href=v.redirect}catch(e){s.textContent=e.message||'Vérification impossible.'}});
+  const csrf=document.querySelector('meta[name="csrf-token"]')?.content||'';
+  const jsonHeaders={'Content-Type':'application/json','X-CSRF-Token':csrf};
+  document.getElementById('register-passkey')?.addEventListener('click',async()=>{const s=document.getElementById('passkey-status');try{let o=await fetch('/api/passkeys/register/options',{method:'POST',headers:{'X-CSRF-Token':csrf}}).then(r=>r.json());if(o.ok===false)throw Error(o.error);let c=await navigator.credentials.create({publicKey:prep(o)});let v=await fetch('/api/passkeys/register/verify',{method:'POST',headers:jsonHeaders,body:JSON.stringify(credJSON(c))}).then(r=>r.json());if(!v.ok)throw Error(v.error||'Échec');s.textContent='Appareil enregistré.';setTimeout(()=>location.reload(),600)}catch(e){s.textContent=e.message}});
+  document.getElementById('passkey-login')?.addEventListener('click',async()=>{const s=document.getElementById('passkey-login-status'),i=document.getElementById('passkey-identifier')?.value?.trim();if(!i){s.textContent='Saisissez votre e-mail ou téléphone.';return}try{s.textContent='Vérification de cet appareil…';let o=await fetch('/api/passkeys/login/options',{method:'POST',headers:jsonHeaders,body:JSON.stringify({identifier:i})}).then(r=>r.json());if(o.ok===false)throw Error(o.error);let c=await navigator.credentials.get({publicKey:prep(o)});let v=await fetch('/api/passkeys/login/verify',{method:'POST',headers:jsonHeaders,body:JSON.stringify(credJSON(c))}).then(r=>r.json());if(!v.ok)throw Error(v.error||'Échec');location.href=v.redirect}catch(e){s.textContent=e.message||'Vérification impossible.'}});
 });
 
 
@@ -750,4 +752,13 @@ document.addEventListener('DOMContentLoaded', function () {
   window.addEventListener('resize', function () {
     if (!desktop()) body.classList.remove('sidebar-collapsed');
   }, { passive: true });
+});
+
+// FOBAK V63 — un seul grand groupe du menu reste ouvert à la fois.
+document.addEventListener('DOMContentLoaded', function () {
+  const groups = [...document.querySelectorAll('.v63-side-navigation > details.side-menu-group')];
+  groups.forEach(group => group.addEventListener('toggle', () => {
+    if (!group.open) return;
+    groups.forEach(other => { if (other !== group) other.open = false; });
+  }));
 });
