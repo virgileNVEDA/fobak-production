@@ -65,9 +65,9 @@ UPLOAD_ROOT = os.environ.get("UPLOAD_ROOT", os.path.join(STATIC_DIR, "uploads"))
 RDC_FLAG_REL = "img/drapeau_rdc.jpg"
 RDC_FLAG_ABS = os.path.join(STATIC_DIR, RDC_FLAG_REL)
 ALLOWED_IMAGE_EXT = {"png", "jpg", "jpeg", "webp", "pdf", "doc", "docx", "xls", "xlsx"}
-APP_VERSION = "64.0.0"
-APP_RELEASE_NAME = "FOBAK Manager Pro — Carte officielle lisible et classement des cadres V64"
-CARD_TEMPLATE_VERSION = "portrait-v64-lisible"
+APP_VERSION = "65.0.0"
+APP_RELEASE_NAME = "FOBAK Manager Pro — Carte PVC grand texte et fiche d'adhésion professionnelle V65"
+CARD_TEMPLATE_VERSION = "portrait-v65-grand-texte"
 
 # Numérotation protocolaire nationale. Le numéro de cadre reste distinct du
 # code unique de la carte afin de conserver la traçabilité des anciens membres.
@@ -2564,16 +2564,16 @@ def generate_member_card_assets(member):
     cards_dir = os.path.join(UPLOAD_ROOT, "cards", code)
     os.makedirs(cards_dir, exist_ok=True)
     width, height = 638, 1011
-    blue, blue2 = (5, 67, 113), (8, 111, 159)
-    cyan, gold = (38, 184, 224), (249, 207, 45)
-    dark, muted = (12, 45, 70), (62, 83, 101)
-    logo = _open_contained(_static_or_upload_path(settings.get("logo_path", "")), (300, 82))
+    blue, blue2 = (5, 66, 111), (7, 112, 159)
+    cyan, gold = (32, 178, 220), (250, 207, 39)
+    dark, muted, line = (10, 43, 68), (59, 78, 94), (205, 224, 235)
+    logo = _open_contained(_static_or_upload_path(settings.get("logo_path", "")), (345, 96))
     watermark = _open_contained(
         _static_or_upload_path(settings.get("logo_watermark_path") or settings.get("logo_path", "")),
-        (380, 300),
+        (390, 310),
     )
-    flag = _open_contained(RDC_FLAG_ABS, (68, 43), False)
-    photo = _contain_photo(_static_or_upload_path(member["photo_path"]), (186, 226)) if member["photo_path"] else None
+    flag = _open_contained(RDC_FLAG_ABS, (88, 55), False)
+    photo = _contain_photo(_static_or_upload_path(member["photo_path"]), (198, 248)) if member["photo_path"] else None
     status, _ = _card_status(member)
     full_name = f"{member['first_name'] or ''} {member['last_name'] or ''}".strip().upper()
     role = (
@@ -2587,100 +2587,106 @@ def generate_member_card_assets(member):
         if not watermark:
             return
         mark = watermark.copy()
-        alpha = mark.getchannel("A").point(lambda value: int(value * .15))
+        alpha = mark.getchannel("A").point(lambda value: int(value * .13))
         mark.putalpha(alpha)
-        image.paste(mark, ((width - mark.width) // 2, 505), mark)
+        image.paste(mark, ((width - mark.width) // 2, 500), mark)
 
     def base_card():
         image = Image.new("RGB", (width, height), "white")
         draw = ImageDraw.Draw(image)
-        for y in range(220):
-            ratio = y / 220
+        for y in range(225):
+            ratio = y / 225
             color = tuple(int(blue[index] * (1-ratio) + blue2[index] * ratio) for index in range(3))
             draw.line((9, 9+y, width-9, 9+y), fill=color)
         draw.rounded_rectangle((7, 7, width-7, height-7), radius=30, outline=blue, width=5)
-        draw.line((12, 220, width-12, 220), fill=cyan, width=12)
-        draw.line((12, 233, width-12, 233), fill=gold, width=5)
-        draw.polygon([(10, 880), (165, 845), (325, 879), (486, 842), (628, 870), (628, 1000), (10, 1000)], fill=blue)
-        draw.line([(10, 861), (165, 826), (325, 860), (486, 823), (628, 851)], fill=cyan, width=12)
-        draw.line([(10, 874), (165, 839), (325, 873), (486, 836), (628, 864)], fill=gold, width=4)
-        if flag:
-            image.paste(flag.convert("RGB"), (548, 22))
+        draw.line((12, 225, width-12, 225), fill=cyan, width=12)
+        draw.line((12, 238, width-12, 238), fill=gold, width=5)
+        draw.polygon([(10, 902), (165, 872), (325, 900), (486, 869), (628, 894), (628, 1000), (10, 1000)], fill=blue)
+        draw.line([(10, 884), (165, 854), (325, 882), (486, 851), (628, 876)], fill=cyan, width=12)
+        draw.line([(10, 897), (165, 867), (325, 895), (486, 864), (628, 889)], fill=gold, width=4)
         return image, draw
 
+    def card_header(image, draw, title):
+        if logo:
+            image.paste(logo, (22, 24), logo)
+        else:
+            draw.text((190, 72), "FOBAK", font=_card_font(38, True), anchor="mm", fill="white")
+        if flag:
+            image.paste(flag.convert("RGB"), (526, 20))
+        draw.text((570, 86), "RÉPUBLIQUE", font=_card_font(15, True), anchor="mm", fill="white")
+        draw.text((570, 106), "DÉMOCRATIQUE", font=_card_font(15, True), anchor="mm", fill="white")
+        draw.text((570, 126), "DU CONGO", font=_card_font(15, True), anchor="mm", fill="white")
+        draw.text((width//2, 151), settings.get("structure_name", "FONDATION BAKITANI ASBL"), font=_card_font(22, True), anchor="mm", fill="white")
+        draw.text((width//2, 191), title, font=_card_font(21, True), anchor="mm", fill=gold)
+
     front, draw = base_card()
-    draw.text((width//2, 27), "RÉPUBLIQUE DÉMOCRATIQUE DU CONGO", font=_card_font(18, True), anchor="ma", fill="white")
-    if logo:
-        front.paste(logo, ((width-logo.width)//2, 54), logo)
-    else:
-        draw.text((width//2, 92), "FOBAK", font=_card_font(34, True), anchor="mm", fill="white")
-    draw.text((width//2, 151), settings.get("structure_name", "FONDATION BAKITANI ASBL"), font=_card_font(20, True), anchor="mm", fill="white")
-    draw.text((width//2, 186), "CARTE OFFICIELLE DE MEMBRE", font=_card_font(18, True), anchor="mm", fill=gold)
+    card_header(front, draw, "CARTE OFFICIELLE DE MEMBRE")
     place_watermark(front)
-    draw.rounded_rectangle((27, 256, 225, 494), radius=18, fill=(238, 247, 252), outline=cyan, width=6)
+    draw.rounded_rectangle((23, 263, 233, 523), radius=18, fill=(238, 247, 252), outline=cyan, width=6)
     if photo:
-        front.paste(photo, (33, 262))
+        front.paste(photo, (29, 269))
     else:
-        draw.text((126, 375), "PHOTO", font=_card_font(22, True), anchor="mm", fill=(105, 122, 136))
-    name_font = _card_font(27, True)
-    draw.text((246, 275), _fit_text(draw, full_name, name_font, 350, 42), font=name_font, fill=dark)
-    draw.text((246, 320), _fit_text(draw, role or "Membre", _card_font(20, True), 350, 44), font=_card_font(20, True), fill=blue2)
+        draw.text((128, 392), "PHOTO", font=_card_font(24, True), anchor="mm", fill=(105, 122, 136))
+    name_font = _card_font(30, True)
+    draw.text((258, 278), _fit_text(draw, full_name, name_font, 352, 40), font=name_font, fill=dark)
+    draw.text((258, 330), _fit_text(draw, role or "Membre", _card_font(24, True), 352, 40), font=_card_font(24, True), fill=blue2)
     if executive_number:
-        draw.rounded_rectangle((246, 357, 435, 397), radius=18, fill=blue)
-        draw.text((340, 377), f"HAUT CADRE N° {str(executive_number).zfill(3)}", font=_card_font(16, True), anchor="mm", fill="white")
-    draw.text((246, 421), "N° CARTE", font=_card_font(17, True), fill=muted)
-    draw.text((246, 452), _fit_text(draw, code, _card_font(17, True), 350, 45), font=_card_font(17, True), fill=dark)
+        draw.rounded_rectangle((258, 370, 492, 416), radius=20, fill=blue)
+        draw.text((375, 393), f"HAUT CADRE N° {str(executive_number).zfill(3)}", font=_card_font(19, True), anchor="mm", fill="white")
+    draw.text((258, 449), "N° CARTE", font=_card_font(20, True), fill=muted)
+    draw.text((258, 481), _fit_text(draw, code, _card_font(19, True), 352, 42), font=_card_font(19, True), fill=dark)
     fields = [
-        ("DATE DE NAISSANCE", (member["birth_date"] or "")[:10]),
-        ("TÉLÉPHONE", member["phone"]),
-        ("E-MAIL", member["email"]),
-        ("PROVINCE", member["province"]),
-        ("DATE D’ADHÉSION", (member["joined_at"] or "")[:10]),
-        ("DATE D’EXPIRATION", (member["expires_at"] or "")[:10]),
+        ("NAISSANCE", (member["birth_date"] or "")[:10], 22),
+        ("TÉLÉPHONE", member["phone"], 22),
+        ("E-MAIL", member["email"], 20),
+        ("PROVINCE", member["province"], 22),
+        ("ADHÉSION", (member["joined_at"] or "")[:10], 22),
+        ("EXPIRATION", (member["expires_at"] or "")[:10], 22),
     ]
-    y = 535
-    for label, value in fields:
-        draw.text((52, y), label, font=_card_font(19, True), fill=blue)
-        draw.text((270, y), ": " + _fit_text(draw, value, _card_font(19, True), 315, 48), font=_card_font(19, True), fill=dark)
-        y += 50
+    y = 553
+    for label, value, value_size in fields:
+        draw.line((38, y+38, 600, y+38), fill=line, width=2)
+        draw.text((45, y), label, font=_card_font(22, True), fill=blue)
+        value_font = _card_font(value_size, True)
+        draw.text((238, y), ": " + _fit_text(draw, value, value_font, 350, 48), font=value_font, fill=dark)
+        y += 53
     badge_color = (15, 126, 73) if status == "ACTIVE" else (185, 42, 51)
-    draw.rounded_rectangle((205, 838, 433, 878), radius=18, fill=badge_color)
-    draw.text((319, 858), status, font=_card_font(17, True), anchor="mm", fill="white")
-    draw.text((width//2, 957), "FOBAK — UNIS POUR SERVIR", font=_card_font(19, True), anchor="mm", fill="white")
+    draw.rounded_rectangle((210, 868, 428, 910), radius=19, fill=badge_color)
+    draw.text((319, 889), status, font=_card_font(20, True), anchor="mm", fill="white")
+    draw.text((width//2, 963), "FOBAK - UNIS POUR SERVIR", font=_card_font(21, True), anchor="mm", fill="white")
 
     back, draw = base_card()
-    draw.text((width//2, 33), "RÉPUBLIQUE DÉMOCRATIQUE DU CONGO", font=_card_font(18, True), anchor="ma", fill="white")
-    if logo:
-        back.paste(logo, ((width-logo.width)//2, 58), logo)
-    draw.text((width//2, 158), "CONDITIONS ET VALIDITÉ", font=_card_font(21, True), anchor="mm", fill=gold)
+    card_header(back, draw, "CONDITIONS ET VALIDITÉ")
     place_watermark(back)
-    draw.text((width//2, 279), "CARTE PERSONNELLE ET INCESSIBLE", font=_card_font(22, True), anchor="mm", fill=blue)
-    draw.text((width//2, 320), "Cette carte atteste de la qualité de membre FOBAK ASBL.", font=_card_font(17, True), anchor="mm", fill=dark)
-    draw.text((width//2, 352), "Toute utilisation abusive doit être signalée à la Fondation.", font=_card_font(16), anchor="mm", fill=muted)
-    draw.text((61, 405), "N° CARTE", font=_card_font(18, True), fill=blue)
-    draw.text((224, 405), ": " + _fit_text(draw, code, _card_font(18, True), 350, 45), font=_card_font(18, True), fill=dark)
-    draw.text((61, 447), "ADHÉSION", font=_card_font(18, True), fill=blue)
-    draw.text((224, 447), ": " + (member["joined_at"] or "")[:10], font=_card_font(18, True), fill=dark)
-    draw.text((61, 489), "EXPIRATION", font=_card_font(18, True), fill=blue)
-    draw.text((224, 489), ": " + (member["expires_at"] or "")[:10], font=_card_font(18, True), fill=dark)
-    qr_image = qrcode.make(verification_url(code)).convert("RGB").resize((218, 218), Image.Resampling.NEAREST)
-    draw.rounded_rectangle((42, 548, 284, 790), radius=18, fill="white", outline=blue, width=4)
-    back.paste(qr_image, (54, 560))
-    draw.text((391, 568), "VÉRIFICATION", font=_card_font(19, True), anchor="mm", fill=blue)
-    draw.text((391, 607), "Scannez le QR code", font=_card_font(17, True), anchor="mm", fill=dark)
-    draw.text((391, 637), "pour confirmer l’identité", font=_card_font(16), anchor="mm", fill=muted)
-    draw.text((391, 665), "et la validité de la carte.", font=_card_font(16), anchor="mm", fill=muted)
+    draw.text((width//2, 280), "CARTE PERSONNELLE ET INCESSIBLE", font=_card_font(25, True), anchor="mm", fill=blue)
+    draw.text((width//2, 321), "Cette carte atteste de la qualité", font=_card_font(20, True), anchor="mm", fill=dark)
+    draw.text((width//2, 351), "de membre FOBAK ASBL.", font=_card_font(20, True), anchor="mm", fill=dark)
+    draw.text((width//2, 384), "Toute utilisation abusive doit être signalée à la Fondation.", font=_card_font(17), anchor="mm", fill=muted)
+    back_rows = [("N° CARTE", code), ("ADHÉSION", (member["joined_at"] or "")[:10]), ("EXPIRATION", (member["expires_at"] or "")[:10])]
+    y = 425
+    for label, value in back_rows:
+        draw.text((48, y), label, font=_card_font(21, True), fill=blue)
+        draw.text((220, y), ": " + _fit_text(draw, value, _card_font(20, True), 370, 45), font=_card_font(20, True), fill=dark)
+        y += 48
+    qr_image = qrcode.make(verification_url(code)).convert("RGB").resize((242, 242), Image.Resampling.NEAREST)
+    draw.rounded_rectangle((35, 550, 301, 816), radius=18, fill="white", outline=blue, width=4)
+    back.paste(qr_image, (47, 562))
+    draw.text((447, 575), "VÉRIFICATION", font=_card_font(22, True), anchor="mm", fill=blue)
+    draw.text((447, 621), "Scannez le QR code", font=_card_font(20, True), anchor="mm", fill=dark)
+    draw.text((447, 658), "pour confirmer", font=_card_font(19), anchor="mm", fill=muted)
+    draw.text((447, 690), "l'identité et la validité", font=_card_font(19), anchor="mm", fill=muted)
+    draw.text((447, 722), "de cette carte.", font=_card_font(19), anchor="mm", fill=muted)
     signature = _open_contained(_static_or_upload_path(settings.get("president_signature_path", "")), (150, 55))
     if signature:
-        back.paste(signature, (316, 695), signature)
-    draw.line((310, 762, 482, 762), fill=(91, 107, 120), width=2)
-    draw.text((396, 785), "Signature autorisée", font=_card_font(14, True), anchor="mm", fill=muted)
+        back.paste(signature, (372, 745), signature)
+    draw.line((360, 806, 535, 806), fill=(91, 107, 120), width=2)
+    draw.text((447, 828), "Signature autorisée", font=_card_font(16, True), anchor="mm", fill=muted)
     notice = settings.get("card_notice", "Les autorités sont priées d'apporter assistance au porteur en cas de nécessité.")
-    draw.rounded_rectangle((43, 804, 595, 878), radius=14, fill=(235, 247, 252), outline=(189, 222, 238), width=2)
-    notice_lines = wrap_text(notice, 68)[:2]
+    draw.rounded_rectangle((35, 838, 603, 921), radius=14, fill=(235, 247, 252), outline=(189, 222, 238), width=2)
+    notice_lines = wrap_text(notice, 52)[:3]
     for index, line in enumerate(notice_lines):
-        draw.text((319, 827 + index*23), line, font=_card_font(13, True), anchor="mm", fill=dark)
-    draw.text((width//2, 957), _fit_text(draw, settings.get("contact_phones", ""), _card_font(16, True), 530, 80), font=_card_font(16, True), anchor="mm", fill="white")
+        draw.text((319, 858 + index*22), line, font=_card_font(14, True), anchor="mm", fill=dark)
+    draw.text((width//2, 963), _fit_text(draw, settings.get("contact_phones", ""), _card_font(18, True), 530, 80), font=_card_font(18, True), anchor="mm", fill="white")
 
     paths = {}
     for side, image in (("recto", front), ("verso", back)):
@@ -2691,7 +2697,12 @@ def generate_member_card_assets(member):
         _save_flat_psd(image, psd)
         paths[side + "_psd"] = psd
         svg = os.path.join(cards_dir, side + ".svg")
-        Path(svg).write_text(_portrait_card_svg(member, side, settings), encoding="utf-8")
+        embedded_png = base64.b64encode(Path(png).read_bytes()).decode("ascii")
+        Path(svg).write_text(
+            '<svg xmlns="http://www.w3.org/2000/svg" width="638" height="1011" viewBox="0 0 638 1011">'
+            f'<image href="data:image/png;base64,{embedded_png}" width="638" height="1011"/>'
+            '</svg>', encoding="utf-8"
+        )
         paths[side + "_svg"] = svg
     pdf = os.path.join(cards_dir, "carte_recto_verso.pdf")
     document = canvas.Canvas(pdf, pagesize=(54*mm, 85.6*mm))
@@ -2705,7 +2716,7 @@ def generate_member_card_assets(member):
         for key, path in paths.items():
             if key != "pdf":
                 archive.write(path, os.path.basename(path))
-        archive.writestr("LISEZ_MOI.txt", "Modèle FOBAK portrait V64 lisible. Recto et verso séparés, format PVC vertical 54 x 85,6 mm.\n")
+        archive.writestr("LISEZ_MOI.txt", "Modèle FOBAK portrait V65 grand texte. Recto et verso séparés, format PVC vertical 54 x 85,6 mm.\n")
     paths["zip"] = zip_path
     Path(os.path.join(cards_dir, ".card_template_version")).write_text(CARD_TEMPLATE_VERSION, encoding="utf-8")
     return paths
@@ -2714,14 +2725,31 @@ def generate_member_card_assets(member):
 def generate_member_card_pdf(member):
     return generate_member_card_assets(member)["pdf"]
 
+def draw_contained_pdf_image(c, image_path, x, y, width, height):
+    """Place une image entière dans son cadre PDF, sans recadrage ni déformation."""
+    if not image_path or not os.path.exists(image_path):
+        return False
+    try:
+        with Image.open(image_path) as source:
+            image = ImageOps.exif_transpose(source).convert("RGBA")
+            buffer = BytesIO()
+            image.save(buffer, format="PNG")
+            buffer.seek(0)
+            ratio = min(width / image.width, height / image.height)
+            rendered_w, rendered_h = image.width * ratio, image.height * ratio
+            c.drawImage(
+                ImageReader(buffer), x + (width-rendered_w)/2, y + (height-rendered_h)/2,
+                rendered_w, rendered_h, preserveAspectRatio=False, mask='auto'
+            )
+        return True
+    except Exception:
+        return False
+
+
 def draw_logo_or_placeholder(c, rel_path, x, y, size, label="LOGO"):
-    abs_path = os.path.join(BASE_DIR, "static", rel_path) if rel_path else ""
-    if rel_path and os.path.exists(abs_path):
-        try:
-            c.drawImage(ImageReader(abs_path), x, y, size, size, preserveAspectRatio=True, anchor='c', mask='auto')
-            return
-        except Exception:
-            pass
+    abs_path = _static_or_upload_path(rel_path) if rel_path else ""
+    if draw_contained_pdf_image(c, abs_path, x, y, size, size):
+        return
     c.setStrokeColor(colors.HexColor("#777777"))
     c.roundRect(x, y, size, size, 2*mm, fill=0, stroke=1)
     c.setFillColor(colors.HexColor("#555555"))
@@ -2732,13 +2760,9 @@ def draw_logo_or_placeholder(c, rel_path, x, y, size, label="LOGO"):
 
 
 def draw_logo_rect(c, rel_path, x, y, width, height, label="LOGO"):
-    abs_path = os.path.join(BASE_DIR, "static", rel_path) if rel_path else ""
-    if rel_path and os.path.exists(abs_path):
-        try:
-            c.drawImage(ImageReader(abs_path), x, y, width, height, preserveAspectRatio=True, anchor='c', mask='auto')
-            return
-        except Exception:
-            pass
+    abs_path = _static_or_upload_path(rel_path) if rel_path else ""
+    if draw_contained_pdf_image(c, abs_path, x, y, width, height):
+        return
     c.setStrokeColor(colors.HexColor("#777777"))
     c.roundRect(x, y, width, height, 2*mm, fill=0, stroke=1)
     c.setFillColor(colors.HexColor("#555555"))
@@ -2971,6 +2995,207 @@ def generate_adhesion_form_pdf(member=None, blank=False):
 
     c.showPage()
     c.save()
+    return pdf_path
+
+
+def generate_adhesion_form_pdf(member=None, blank=False):
+    """Fiche A4 V65 sur deux pages, avec photo/logo persistants et zones protégées."""
+    settings = get_settings()
+    cards_dir = os.path.join(UPLOAD_ROOT, "cards")
+    os.makedirs(cards_dir, exist_ok=True)
+    pdf_path = os.path.join(
+        cards_dir,
+        "fiche_adhesion_vierge.pdf" if blank or not member else f"fiche_adhesion_{member['code']}.pdf",
+    )
+    document = canvas.Canvas(pdf_path, pagesize=A4)
+    page_w, page_h = A4
+    margin_x = 18 * mm
+    content_left, content_right, center_x = margin_x, page_w-margin_x, page_w/2
+    blue_pdf = colors.HexColor("#06466F")
+    cyan_pdf = colors.HexColor("#1AAFD7")
+    gold_pdf = colors.HexColor("#F3C72B")
+    page_number = 1
+
+    def val(key):
+        if not member:
+            return ""
+        try:
+            return member[key] or ""
+        except Exception:
+            return ""
+
+    adhesion_number = val("adhesion_number") or (create_adhesion_number(member["id"], val("joined_at")) if member else "")
+    watermark_path = _static_or_upload_path(settings.get("logo_watermark_path") or settings.get("logo_path", ""))
+
+    def page_background():
+        document.setFillColor(colors.white)
+        document.rect(0, 0, page_w, page_h, fill=1, stroke=0)
+        if watermark_path and os.path.exists(watermark_path):
+            document.saveState()
+            try:
+                document.setFillAlpha(0.055)
+                draw_contained_pdf_image(document, watermark_path, center_x-48*mm, page_h/2-48*mm, 96*mm, 96*mm)
+            finally:
+                document.restoreState()
+
+    def footer():
+        phones = settings.get("contact_phones", "+243 81 45 70 392 ; +243 81 44 00 233")
+        address = settings.get("headquarters", "96, Av. Yauma, Quartier SAIO, Commune de Kasa-Vubu, Kinshasa - RDC")
+        document.setFillColor(gold_pdf)
+        document.rect(0, 27*mm, page_w, 1.7*mm, fill=1, stroke=0)
+        document.setFillColor(blue_pdf)
+        document.rect(0, 0, page_w, 27*mm, fill=1, stroke=0)
+        document.setFillColor(colors.white)
+        document.setFont("Helvetica-Bold", 9.5)
+        document.drawCentredString(center_x, 18*mm, f"Contacts : {phones}"[:115])
+        document.setFont("Helvetica", 8.5)
+        document.drawCentredString(center_x, 11*mm, address[:125])
+        document.setFont("Helvetica-Bold", 8)
+        document.drawRightString(page_w-10*mm, 5*mm, f"Page {page_number}")
+
+    def header(first_page=True):
+        logo_rel = settings.get("logo_print_path") or settings.get("logo_path", "")
+        draw_logo_rect(document, logo_rel, content_left, page_h-35*mm, 42*mm, 19*mm, "LOGO FOBAK")
+        draw_rdc_flag(document, page_w-48*mm, page_h-30*mm, 30*mm, 17*mm)
+        document.setFillColor(blue_pdf)
+        document.setFont("Helvetica-Bold", 7.2)
+        document.drawCentredString(page_w-33*mm, page_h-33*mm, "RÉPUBLIQUE DÉMOCRATIQUE")
+        document.drawCentredString(page_w-33*mm, page_h-37*mm, "DU CONGO")
+        document.setFont("Helvetica-Bold", 14)
+        document.drawCentredString(center_x, page_h-22*mm, settings.get("structure_name", "FONDATION BAKITANI ASBL").upper()[:48])
+        document.setFont("Helvetica-Bold", 11)
+        document.drawCentredString(center_x, page_h-31*mm, settings.get("secretariat_label", "Bureau National"))
+        if first_page:
+            px, py, pw, ph = page_w-48*mm, page_h-78*mm, 30*mm, 36*mm
+            document.setFillColor(colors.HexColor("#F3FAFD"))
+            document.setStrokeColor(cyan_pdf)
+            document.setLineWidth(1.4)
+            document.roundRect(px, py, pw, ph, 3*mm, fill=1, stroke=1)
+            photo_path = _static_or_upload_path(val("photo_path")) if val("photo_path") else ""
+            if not draw_contained_pdf_image(document, photo_path, px+1.5*mm, py+1.5*mm, pw-3*mm, ph-3*mm):
+                document.setFillColor(colors.HexColor("#607989"))
+                document.setFont("Helvetica-Bold", 9)
+                document.drawCentredString(px+pw/2, py+ph/2, "PHOTO")
+        document.setFillColor(blue_pdf)
+        document.setFont("Helvetica-Bold", 16)
+        title_y = page_h-(62 if first_page else 48)*mm
+        title = f"FICHE D'ADHÉSION N° {adhesion_number or '____/____'}" if first_page else "FICHE D'ADHÉSION - SUITE"
+        document.drawCentredString(center_x, title_y, title)
+        document.setStrokeColor(gold_pdf)
+        document.setLineWidth(2)
+        document.line(center_x-55*mm, title_y-4*mm, center_x+55*mm, title_y-4*mm)
+
+    def section(number, label, y):
+        document.setFillColor(blue_pdf)
+        document.setFont("Helvetica-Bold", 12)
+        document.drawString(content_left, y, f"{number}.  {label}")
+        document.setStrokeColor(cyan_pdf)
+        document.setLineWidth(1.2)
+        document.line(content_left, y-2, content_right, y-2)
+        return y-10*mm
+
+    def field(label, value, y, label_width=58*mm):
+        document.setFillColor(colors.HexColor("#263746"))
+        document.setFont("Helvetica-Bold", 10.2)
+        document.drawString(content_left+4*mm, y, label)
+        value_x = content_left+label_width
+        document.setStrokeColor(colors.HexColor("#AEBCC7"))
+        document.setLineWidth(.6)
+        document.line(value_x, y-2, content_right, y-2)
+        if value:
+            document.setFillColor(colors.HexColor("#0C2D45"))
+            document.setFont("Helvetica", 10.2)
+            document.drawString(value_x+2*mm, y, str(value)[:68])
+        return y-8*mm
+
+    # Page 1
+    page_background(); header(True); footer()
+    y = section("I", "IDENTITÉ DU MEMBRE", page_h-84*mm)
+    birth = f"{val('birth_place')} - {val('birth_date')}".strip(" -")
+    identity = [
+        ("Nom et postnom", val("last_name")), ("Prénom", val("first_name")),
+        ("Lieu et date de naissance", birth), ("État civil", val("marital_status")),
+        ("Nationalité", val("nationality")), ("Province", val("province")),
+        ("Territoire / Commune", " / ".join(v for v in [val("territory"), val("commune")] if v)),
+        ("Adresse physique", val("physical_address") or val("localite")),
+        ("Téléphone", val("phone")), ("E-mail", val("email")),
+    ]
+    for label, value in identity:
+        y = field(label, value, y)
+    y = section("II", "ÉTUDES ET PARCOURS", y-2*mm)
+    selected = checked_studies(val("studies_done") or val("education"))
+    for index, label in enumerate(STUDY_CHECKBOXES):
+        col, row = index % 2, index // 2
+        box_x, box_y = content_left+col*82*mm, y-row*9*mm
+        draw_checkbox(document, box_x, box_y-2*mm, checked=(label in selected))
+        document.setFillColor(colors.HexColor("#263746"))
+        document.setFont("Helvetica", 10)
+        document.drawString(box_x+8*mm, box_y, label)
+    y -= 30*mm
+    y = field("Profession / Service", val("profession"), y)
+    y = field("Niveau d'étude", val("education"), y)
+    field("Expérience professionnelle", val("experience"), y)
+    document.showPage()
+    page_number += 1
+
+    # Page 2 et pages intermédiaires éventuelles
+    page_background(); header(False); footer()
+    y = page_h-70*mm
+    custom_values = custom_values_dict(member) if member else {}
+    custom_fields = get_custom_fields(active_only=True)
+    current_section = None
+    if custom_fields:
+        y = section("III", "INFORMATIONS COMPLÉMENTAIRES", y)
+        for custom_field in custom_fields:
+            if y < 145*mm:
+                document.showPage(); page_number += 1
+                page_background(); header(False); footer()
+                y, current_section = page_h-70*mm, None
+            custom_section = custom_field['section'] or 'Autres informations'
+            if custom_section != current_section:
+                document.setFillColor(colors.HexColor("#496579"))
+                document.setFont("Helvetica-Bold", 10)
+                document.drawString(content_left+2*mm, y, custom_section.upper())
+                y -= 7*mm
+                current_section = custom_section
+            y = field(custom_field['label'], custom_values.get(str(custom_field['id']), ''), y)
+        y -= 4*mm
+    if y < 145*mm:
+        document.showPage(); page_number += 1
+        page_background(); header(False); footer()
+        y = page_h-70*mm
+    y = section("IV" if custom_fields else "III", "DÉCLARATION DE L'ADHÉRENT", y)
+    member_type = custom_values.get("member_type", "") if member else ""
+    document.setFillColor(colors.HexColor("#263746"))
+    document.setFont("Helvetica-Bold", 10.5)
+    document.drawString(content_left+3*mm, y, "Qualité de membre :")
+    document.setFont("Helvetica", 10.5)
+    document.drawString(content_left+42*mm, y, member_type or "Fondateur / Effectif / Honneur / Sympathisant")
+    y -= 11*mm
+    declaration = (
+        "Par la présente, j'adhère librement à la FONDATION BAKITANI (FOBAK) et je m'engage à respecter "
+        "ses statuts, son règlement intérieur ainsi que les décisions de ses instances dirigeantes."
+    )
+    document.setFont("Helvetica", 10.5)
+    for line_text in wrap_text(declaration, 100):
+        document.drawString(content_left+3*mm, y, line_text)
+        y -= 6*mm
+    y -= 7*mm
+    document.drawRightString(content_right, y, f"Fait à __________________________, le {today() if member else '____/____/______'}")
+
+    signature_y = 82*mm
+    document.setFillColor(blue_pdf)
+    document.setFont("Helvetica-Bold", 10.5)
+    document.drawCentredString(content_left+42*mm, signature_y, "Visa du Bureau National")
+    document.drawCentredString(content_right-42*mm, signature_y, "Signature de l'adhérent")
+    document.setStrokeColor(colors.HexColor("#758896"))
+    document.line(content_left+10*mm, 51*mm, content_left+74*mm, 51*mm)
+    document.line(content_right-74*mm, 51*mm, content_right-10*mm, 51*mm)
+    stamp_path = _static_or_upload_path(settings.get("official_stamp_path", ""))
+    if member and (settings.get("stamp_application_mode", "validated") == "registered" or val("status") in ("active", "accepted", "validated", "")):
+        draw_contained_pdf_image(document, stamp_path, content_left+22*mm, 54*mm, 40*mm, 24*mm)
+    document.showPage()
+    document.save()
     return pdf_path
 
 
