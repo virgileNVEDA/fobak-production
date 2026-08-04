@@ -1,1 +1,18 @@
-{% extends 'base.html' %}{% block content %}<section class="dashboard-welcome"><div><span class="eyebrow">Sécurité</span><h1>PIN et biométrie</h1><p>Configurez une connexion rapide et sécurisée.</p></div><div class="dashboard-seal">🔐</div></section><div class="security-grid"><section class="card"><h2>Code PIN</h2><p class="muted">4 ou 6 chiffres. Cinq erreurs verrouillent le PIN pendant 15 minutes.</p><form method="post" class="form-grid"><input type="hidden" name="action" value="set_pin"><label>Mot de passe actuel<input type="password" name="current_password" required></label><label>Nouveau PIN<input type="password" name="pin" inputmode="numeric" pattern="[0-9]{4}|[0-9]{6}" maxlength="6" required></label><label>Confirmer<input type="password" name="pin_confirm" inputmode="numeric" pattern="[0-9]{4}|[0-9]{6}" maxlength="6" required></label><button class="btn primary">Enregistrer le PIN</button></form>{% if security_user.pin_hash %}<form method="post"><input type="hidden" name="action" value="remove_pin"><input type="password" name="current_password" placeholder="Mot de passe actuel" required><button class="btn danger">Supprimer le PIN</button></form>{% endif %}</section><section class="card"><h2>Empreinte, visage ou Windows Hello</h2><p class="muted">La méthode dépend de l’appareil. Le mot de passe reste disponible en secours.</p><button id="register-passkey" class="btn primary" type="button" {% if not webauthn_available %}disabled{% endif %}>Ajouter cet appareil</button><div id="passkey-status" class="camera-status"></div>{% for c in credentials %}<div class="passkey-item"><div><strong>{{ c.label }}</strong><small>{{ c.created_at }}</small></div><form method="post" action="{{ url_for('delete_passkey',credential_id=c.id) }}"><button class="btn danger">Supprimer</button></form></div>{% else %}<p class="muted">Aucun appareil enregistré.</p>{% endfor %}</section></div>{% endblock %}
+{% extends 'base.html' %}{% block content %}
+<section class="dashboard-welcome">
+  <div><span class="eyebrow">Sécurité du compte</span><h1>Mot de passe et connexions</h1><p>Contrôlez l’accès à votre compte et les appareils actuellement connectés.</p></div>
+  <div class="dashboard-seal">🔐</div>
+</section>
+<div class="security-grid">
+  <section class="card">
+    <h2>Mot de passe</h2>
+    <p class="muted">Utilisez un mot de passe personnel robuste et ne le communiquez jamais.</p>
+    <a class="btn primary" href="{{ url_for('change_password') }}">Modifier mon mot de passe</a>
+  </section>
+  <section class="card">
+    <h2>Connexions en cours</h2>
+    <p class="muted">Consultez les appareils connectés et fermez toute session que vous ne reconnaissez pas.</p>
+    <a class="btn primary" href="{{ url_for('active_sessions_page') }}">Voir les connexions</a>
+  </section>
+</div>
+{% endblock %}

@@ -136,7 +136,7 @@
           {% endif %}
           {% else %}
           <a href="{{ url_for('member_dashboard') }}"><span>🪪</span> Ma carte et mon espace <b>›</b></a>
-          <a href="{{ url_for('security_settings') }}"><span>🔐</span> PIN et biométrie <b>›</b></a>
+          <a href="{{ url_for('security_settings') }}"><span>🔐</span> Sécurité du compte <b>›</b></a>
           {% endif %}
           <a href="{{ url_for('my_profile') }}"><span>👤</span> Mon profil <b>›</b></a>
           <a href="{{ url_for('intelligent_help') }}"><span>🤖</span> Aide intelligente <b>›</b></a>
@@ -174,7 +174,7 @@
         {% endif %}
         {% else %}
         <a href="{{ url_for('member_dashboard') }}"><span>🪪</span> Ma carte / mon espace <b>›</b></a>
-        <a href="{{ url_for('member_dashboard') }}"><span>🧾</span> Mon profil <b>›</b></a><a href="{{ url_for('security_settings') }}"><span>🔐</span> PIN / biométrie <b>›</b></a>
+        <a href="{{ url_for('member_dashboard') }}"><span>🧾</span> Mon profil <b>›</b></a><a href="{{ url_for('security_settings') }}"><span>🔐</span> Sécurité du compte <b>›</b></a>
         {% endif %}
 
         {% if session.role != 'member' and module_allowed('services','voir') %}

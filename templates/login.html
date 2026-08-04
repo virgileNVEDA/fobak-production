@@ -5,52 +5,26 @@
     <div class="login-brand-mark">{% if settings.logo_dark_path %}<img src="{{ url_for('static', filename=settings.logo_dark_path) }}" alt="Logo FOBAK">{% else %}FOBAK{% endif %}</div>
     <span class="eyebrow">Espace sécurisé</span>
     <h1>{{ settings.structure_name }}</h1>
-    <p>Accédez à votre espace avec la méthode de connexion que vous avez déjà configurée.</p>
+    <p>Accédez à votre espace personnel avec votre e-mail ou votre téléphone et votre mot de passe.</p>
     <div class="login-points">
-      <span>✓ Mot de passe comme accès principal et secours</span>
-      <span>✓ PIN personnel de 4 ou 6 chiffres</span>
-      <span>✓ Empreinte, visage ou Windows Hello selon l’appareil</span>
+      <span>✓ Connexion protégée par mot de passe</span>
+      <span>✓ Verrouillage automatique après plusieurs erreurs</span>
+      <span>✓ Sessions actives visibles et révocables</span>
     </div>
   </div>
 
   <article class="login-panel">
     <a class="login-back" href="{{ url_for('index') }}">← Retour à l’accueil</a>
-    <div class="login-heading"><span class="login-lock">🔐</span><div><h2>Connexion</h2><p>Choisissez une méthode sécurisée.</p></div></div>
-
-    <div class="auth-tabs" role="tablist" aria-label="Méthodes de connexion">
-      <button type="button" class="auth-tab is-active" data-auth-target="password-panel" role="tab" aria-selected="true"><span>🔑</span> Mot de passe</button>
-      <button type="button" class="auth-tab" data-auth-target="pin-panel" role="tab" aria-selected="false"><span>🔢</span> Code PIN</button>
-      <button type="button" class="auth-tab" data-auth-target="passkey-panel" role="tab" aria-selected="false"><span>👆</span> Empreinte / visage</button>
-    </div>
-
-    <div class="auth-panels">
-      <section id="password-panel" class="auth-panel is-active" role="tabpanel">
-        <form method="post" class="form login-form auth-method-form">
-          <label><span>E-mail ou téléphone</span><div class="input-with-icon"><b>👤</b><input name="identifier" autocomplete="username" required placeholder="Ex. membre@email.com ou +243…"></div></label>
-          <label><span>Mot de passe</span><div class="input-with-icon"><b>🔒</b><input type="password" name="password" autocomplete="current-password" required placeholder="Votre mot de passe"></div></label>
-          <button class="btn primary login-submit" type="submit">Se connecter</button>
-        </form>
-      </section>
-
-      <section id="pin-panel" class="auth-panel" role="tabpanel" hidden>
-        <div class="auth-method-note"><strong>Connexion rapide par PIN</strong><span>Le PIN doit avoir été créé auparavant dans votre espace Sécurité.</span></div>
-        <form method="post" action="{{ url_for('login_pin') }}" class="form login-form auth-method-form">
-          <label><span>E-mail ou téléphone</span><div class="input-with-icon"><b>👤</b><input name="identifier" autocomplete="username" required placeholder="Votre e-mail ou téléphone"></div></label>
-          <label><span>Code PIN</span><div class="input-with-icon"><b>●●</b><input type="password" name="pin" inputmode="numeric" pattern="[0-9]{4}|[0-9]{6}" minlength="4" maxlength="6" required placeholder="4 ou 6 chiffres"></div></label>
-          <button class="btn primary login-submit" type="submit">Connexion par PIN</button>
-        </form>
-      </section>
-
-      <section id="passkey-panel" class="auth-panel" role="tabpanel" hidden>
-        <div class="auth-method-note"><strong>Empreinte, visage ou Windows Hello</strong><span>L’appareil doit avoir été enregistré auparavant dans votre espace Sécurité.</span></div>
-        <div class="form login-form auth-method-form">
-          <label><span>E-mail ou téléphone</span><div class="input-with-icon"><b>👤</b><input id="passkey-identifier" autocomplete="username" placeholder="Votre e-mail ou téléphone"></div></label>
-          <button type="button" class="btn primary login-submit" id="passkey-login">Continuer avec cet appareil</button>
-        </div>
-        <div id="passkey-login-status" class="auth-status" role="status"></div>
-      </section>
-    </div>
-
+    <div class="login-heading"><span class="login-lock">🔐</span><div><h2>Connexion</h2><p>Entrez vos identifiants pour continuer.</p></div></div>
+    <form method="post" class="form login-form auth-method-form">
+      <label><span>E-mail ou téléphone</span><div class="input-with-icon"><b>👤</b><input id="login-identifier" name="identifier" autocomplete="username" required autofocus placeholder="Ex. membre@email.com ou +243…"></div></label>
+      <label><span>Mot de passe</span><div class="input-with-icon"><b>🔒</b><input type="password" name="password" autocomplete="current-password" required placeholder="Votre mot de passe"></div></label>
+      <label class="remember-identifier" for="remember-identifier">
+        <input id="remember-identifier" type="checkbox">
+        <span><strong>Mémoriser mon identifiant</strong><small>Votre e-mail ou téléphone sera conservé uniquement sur cet appareil. Le mot de passe ne sera jamais mémorisé par FOBAK.</small></span>
+      </label>
+      <button class="btn primary login-submit" type="submit">Se connecter</button>
+    </form>
     <div class="login-links"><a href="{{ url_for('reset_password') }}">Mot de passe oublié ?</a><a href="{{ url_for('become_member') }}">Demander une adhésion</a></div>
     <small class="login-security">Après plusieurs tentatives incorrectes, l’accès est temporairement verrouillé pour protéger le compte.</small>
   </article>

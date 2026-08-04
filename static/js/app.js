@@ -645,24 +645,38 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 
-// V44 : fermeture après 10 minutes et passkeys
+// Fermeture automatique après 10 minutes d'inactivité.
 (()=>{if(!document.querySelector('.logout-btn'))return;let t;const r=()=>{clearTimeout(t);t=setTimeout(()=>location.href='/logout',600000)};['click','keydown','mousemove','touchstart','scroll'].forEach(e=>addEventListener(e,r,{passive:true}));r()})();
-const b64ToBuf=v=>Uint8Array.from(atob(v.replace(/-/g,'+').replace(/_/g,'/').padEnd(Math.ceil(v.length/4)*4,'=')),c=>c.charCodeAt(0));
-const bufToB64=v=>btoa(String.fromCharCode(...new Uint8Array(v))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
-const prep=o=>{o.challenge=b64ToBuf(o.challenge);if(o.user?.id)o.user.id=b64ToBuf(o.user.id);for(const k of ['excludeCredentials','allowCredentials'])if(o[k])o[k]=o[k].map(c=>({...c,id:b64ToBuf(c.id)}));return o};
-const credJSON=c=>({id:c.id,rawId:bufToB64(c.rawId),type:c.type,authenticatorAttachment:c.authenticatorAttachment,clientExtensionResults:c.getClientExtensionResults(),response:{clientDataJSON:bufToB64(c.response.clientDataJSON),attestationObject:c.response.attestationObject?bufToB64(c.response.attestationObject):undefined,authenticatorData:c.response.authenticatorData?bufToB64(c.response.authenticatorData):undefined,signature:c.response.signature?bufToB64(c.response.signature):undefined,userHandle:c.response.userHandle?bufToB64(c.response.userHandle):undefined,transports:c.response.getTransports?c.response.getTransports():[]}});
-document.addEventListener('DOMContentLoaded',()=>{
-  const tabs=[...document.querySelectorAll('.auth-tab')];
-  const panels=[...document.querySelectorAll('.auth-panel')];
-  tabs.forEach(tab=>tab.addEventListener('click',()=>{
-    tabs.forEach(t=>{const active=t===tab;t.classList.toggle('is-active',active);t.setAttribute('aria-selected',active?'true':'false')});
-    panels.forEach(panel=>{const active=panel.id===tab.dataset.authTarget;panel.hidden=!active;panel.classList.toggle('is-active',active)});
-    document.getElementById(tab.dataset.authTarget)?.querySelector('input')?.focus();
-  }));
-  const csrf=document.querySelector('meta[name="csrf-token"]')?.content||'';
-  const jsonHeaders={'Content-Type':'application/json','X-CSRF-Token':csrf};
-  document.getElementById('register-passkey')?.addEventListener('click',async()=>{const s=document.getElementById('passkey-status');try{let o=await fetch('/api/passkeys/register/options',{method:'POST',headers:{'X-CSRF-Token':csrf}}).then(r=>r.json());if(o.ok===false)throw Error(o.error);let c=await navigator.credentials.create({publicKey:prep(o)});let v=await fetch('/api/passkeys/register/verify',{method:'POST',headers:jsonHeaders,body:JSON.stringify(credJSON(c))}).then(r=>r.json());if(!v.ok)throw Error(v.error||'Échec');s.textContent='Appareil enregistré.';setTimeout(()=>location.reload(),600)}catch(e){s.textContent=e.message}});
-  document.getElementById('passkey-login')?.addEventListener('click',async()=>{const s=document.getElementById('passkey-login-status'),i=document.getElementById('passkey-identifier')?.value?.trim();if(!i){s.textContent='Saisissez votre e-mail ou téléphone.';return}try{s.textContent='Vérification de cet appareil…';let o=await fetch('/api/passkeys/login/options',{method:'POST',headers:jsonHeaders,body:JSON.stringify({identifier:i})}).then(r=>r.json());if(o.ok===false)throw Error(o.error);let c=await navigator.credentials.get({publicKey:prep(o)});let v=await fetch('/api/passkeys/login/verify',{method:'POST',headers:jsonHeaders,body:JSON.stringify(credJSON(c))}).then(r=>r.json());if(!v.ok)throw Error(v.error||'Échec');location.href=v.redirect}catch(e){s.textContent=e.message||'Vérification impossible.'}});
+
+// V73 : mémorisation locale de l'identifiant uniquement (jamais du mot de passe).
+document.addEventListener('DOMContentLoaded', () => {
+  const identifier = document.getElementById('login-identifier');
+  const remember = document.getElementById('remember-identifier');
+  const form = identifier?.closest('form');
+  if (!identifier || !remember || !form) return;
+
+  const storageKey = 'fobak-remembered-identifier-v1';
+  try {
+    const savedIdentifier = localStorage.getItem(storageKey);
+    if (savedIdentifier) {
+      identifier.value = savedIdentifier;
+      remember.checked = true;
+    }
+  } catch (_) {}
+
+  remember.addEventListener('change', () => {
+    if (!remember.checked) {
+      try { localStorage.removeItem(storageKey); } catch (_) {}
+    }
+  });
+
+  form.addEventListener('submit', () => {
+    try {
+      const value = identifier.value.trim().slice(0, 254);
+      if (remember.checked && value) localStorage.setItem(storageKey, value);
+      else localStorage.removeItem(storageKey);
+    } catch (_) {}
+  });
 });
 
 

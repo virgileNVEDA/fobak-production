@@ -3,7 +3,6 @@ from pathlib import Path
 import sys
 import csv
 import json
-import base64
 import uuid
 import secrets
 import shutil
@@ -35,13 +34,6 @@ from reportlab.graphics import renderPDF
 from PIL import Image, ImageDraw, ImageFont, ImageEnhance, ImageFilter, ImageOps
 import qrcode
 
-try:
-    from webauthn import generate_registration_options, verify_registration_response, generate_authentication_options, verify_authentication_response, options_to_json, base64url_to_bytes
-    from webauthn.helpers.structs import PublicKeyCredentialDescriptor, AuthenticatorSelectionCriteria, AuthenticatorAttachment, ResidentKeyRequirement, UserVerificationRequirement
-    WEBAUTHN_AVAILABLE = True
-except Exception:
-    WEBAUTHN_AVAILABLE = False
-
 SOURCE_DIR = os.path.abspath(os.path.dirname(__file__))
 if getattr(sys, "frozen", False):
     # Quand l'application est transformée en .exe, la base de données et les uploads
@@ -66,9 +58,9 @@ UPLOAD_ROOT = os.environ.get("UPLOAD_ROOT", os.path.join(STATIC_DIR, "uploads"))
 RDC_FLAG_REL = "img/drapeau_rdc.jpg"
 RDC_FLAG_ABS = os.path.join(STATIC_DIR, RDC_FLAG_REL)
 ALLOWED_IMAGE_EXT = {"png", "jpg", "jpeg", "webp", "pdf", "doc", "docx", "xls", "xlsx"}
-APP_VERSION = "71.0.0"
-APP_RELEASE_NAME = "FOBAK Manager Pro — e-mail membre visible sur les cartes V71"
-CARD_TEMPLATE_VERSION = "paysage-v71-email-membre-visible"
+APP_VERSION = "73.0.0"
+APP_RELEASE_NAME = "FOBAK Manager Pro — mémorisation sécurisée de l’identifiant V73"
+CARD_TEMPLATE_VERSION = "paysage-v73-email-membre-visible"
 
 # Numérotation protocolaire nationale. Le numéro de cadre reste distinct du
 # code unique de la carte afin de conserver la traçabilité des anciens membres.
@@ -321,19 +313,6 @@ def init_db():
     );
     CREATE INDEX IF NOT EXISTS idx_active_sessions_user ON active_sessions(user_id);
     CREATE INDEX IF NOT EXISTS idx_active_sessions_active ON active_sessions(active,last_seen);
-    CREATE TABLE IF NOT EXISTS passkey_credentials (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL,
-        credential_id TEXT NOT NULL UNIQUE,
-        public_key TEXT NOT NULL,
-        sign_count INTEGER NOT NULL DEFAULT 0,
-        transports TEXT,
-        label TEXT,
-        created_at TEXT NOT NULL,
-        last_used_at TEXT,
-        active INTEGER DEFAULT 1
-    );
-    CREATE INDEX IF NOT EXISTS idx_passkey_user ON passkey_credentials(user_id,active);
     CREATE TABLE IF NOT EXISTS member_applications (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         first_name TEXT NOT NULL,
@@ -526,12 +505,6 @@ def init_db():
     ensure_column("audit_logs", "user_agent", "TEXT")
     ensure_column("audit_logs", "route", "TEXT")
     ensure_column("audit_logs", "status", "TEXT DEFAULT 'success'")
-    ensure_column("users", "pin_hash", "TEXT")
-    ensure_column("users", "pin_length", "INTEGER")
-    ensure_column("users", "pin_failed_count", "INTEGER DEFAULT 0")
-    ensure_column("users", "pin_locked_until", "TEXT")
-    ensure_column("users", "passkey_enabled", "INTEGER DEFAULT 0")
-
     cur.executescript("""
     CREATE TABLE IF NOT EXISTS support_tickets (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1517,7 +1490,7 @@ MODULE_GUIDES = {
     "notifications": ("Communication", "Consultez les notifications, alertes et messages destinés à votre rôle ou à votre province.", "Lire un message", "Marquer comme traité"),
     "support": ("Aide et support", "Décrivez votre besoin avec quelques mots : la recherche tolère les accents, mots incomplets et petites fautes.", "Rechercher une réponse", "Créer un ticket"),
     "users": ("Utilisateurs et connexions", "Gérez les comptes, rôles et droits, puis contrôlez les appareils actuellement connectés.", "Filtrer les utilisateurs", "Voir les connexions"),
-    "security": ("Sécurité", "Protégez l’accès avec mot de passe, PIN ou biométrie et contrôlez les sessions ouvertes.", "Vérifier les accès", "Renforcer la protection"),
+    "security": ("Sécurité", "Protégez l’accès avec un mot de passe robuste et contrôlez les sessions ouvertes.", "Vérifier les connexions", "Modifier le mot de passe"),
     "settings": ("Paramètres généraux", "Configurez les informations officielles, logos, contacts, signatures, documents et options de l’application.", "Modifier un réglage", "Vérifier son application"),
     "reports": ("Rapports", "Filtrez les données utiles, contrôlez le périmètre et générez un rapport imprimable ou exportable.", "Choisir la période", "Exporter le résultat"),
     "profile": ("Mon profil", "Consultez vos informations, votre photo et les documents associés à votre compte.", "Vérifier mes données", "Mettre à jour mon profil"),
@@ -3784,14 +3757,6 @@ def start_user_session(user, method="password"):
     notify_national_login(user)
 
 
-def webauthn_rp_id():
-    return os.environ.get("WEBAUTHN_RP_ID", (request.host or "app.fondationbakitani.org").split(":")[0])
-
-
-def webauthn_origin():
-    return os.environ.get("WEBAUTHN_ORIGIN", request.host_url.rstrip("/"))
-
-
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
@@ -3861,130 +3826,10 @@ def logout():
     return redirect(url_for("index"))
 
 
-@app.route("/security", methods=["GET", "POST"])
+@app.route("/security")
 @login_required
 def security_settings():
-    user = current_user()
-    con = db()
-    if request.method == "POST":
-        action = request.form.get("action", "set_pin")
-        if action == "set_pin":
-            pin = request.form.get("pin", "").strip()
-            confirm = request.form.get("pin_confirm", "").strip()
-            if not check_password_hash(user["password_hash"], request.form.get("current_password", "")):
-                flash("Mot de passe actuel incorrect.", "danger")
-            elif not pin.isdigit() or len(pin) not in (4, 6):
-                flash("Le code PIN doit contenir exactement 4 ou 6 chiffres.", "danger")
-            elif pin != confirm:
-                flash("La confirmation du PIN ne correspond pas.", "danger")
-            else:
-                con.execute("UPDATE users SET pin_hash=?, pin_length=?, pin_failed_count=0, pin_locked_until=NULL WHERE id=?", (generate_password_hash(pin), len(pin), user["id"]))
-                con.commit(); flash("Code PIN enregistré.", "success")
-        elif action == "remove_pin":
-            if check_password_hash(user["password_hash"], request.form.get("current_password", "")):
-                con.execute("UPDATE users SET pin_hash=NULL, pin_length=NULL, pin_failed_count=0, pin_locked_until=NULL WHERE id=?", (user["id"],))
-                con.commit(); flash("Code PIN supprimé.", "success")
-            else:
-                flash("Mot de passe actuel incorrect.", "danger")
-    credentials = con.execute("SELECT * FROM passkey_credentials WHERE user_id=? AND active=1 ORDER BY created_at DESC", (user["id"],)).fetchall()
-    refreshed = con.execute("SELECT * FROM users WHERE id=?", (user["id"],)).fetchone()
-    con.close()
-    return render_template("security_settings.html", security_user=refreshed, credentials=credentials, webauthn_available=WEBAUTHN_AVAILABLE)
-
-
-@app.post("/login/pin")
-def login_pin():
-    ident = request.form.get("identifier", "").strip()
-    pin = request.form.get("pin", "").strip()
-    con = db()
-    user = con.execute("SELECT * FROM users WHERE active=1 AND deleted_at IS NULL AND (email=? OR phone=?)", (ident, ident)).fetchone()
-    if not user or not user["pin_hash"]:
-        con.close(); flash("Aucun code PIN n’est configuré pour ce compte.", "danger"); return redirect(url_for("login"))
-    if user["pin_locked_until"] and user["pin_locked_until"] > now():
-        con.close(); flash("PIN temporairement verrouillé. Utilisez le mot de passe.", "danger"); return redirect(url_for("login"))
-    if pin.isdigit() and check_password_hash(user["pin_hash"], pin):
-        con.execute("UPDATE users SET pin_failed_count=0, pin_locked_until=NULL WHERE id=?", (user["id"],)); con.commit(); con.close()
-        start_user_session(user, "code PIN")
-        return redirect(url_for("dashboard"))
-    attempts = int(user["pin_failed_count"] or 0) + 1
-    locked_until = None
-    if attempts >= 5:
-        attempts = 0
-        locked_until = (datetime.now() + timedelta(minutes=15)).strftime("%Y-%m-%d %H:%M:%S")
-    con.execute("UPDATE users SET pin_failed_count=?, pin_locked_until=? WHERE id=?", (attempts, locked_until, user["id"]))
-    con.commit(); con.close(); flash("Code PIN incorrect.", "danger"); return redirect(url_for("login"))
-
-
-@app.post("/api/passkeys/register/options")
-@login_required
-def passkey_register_options():
-    if not WEBAUTHN_AVAILABLE:
-        return jsonify({"ok": False, "error": "WebAuthn indisponible"}), 503
-    user = current_user()
-    con = db(); rows = con.execute("SELECT credential_id FROM passkey_credentials WHERE user_id=? AND active=1", (user["id"],)).fetchall(); con.close()
-    options = generate_registration_options(
-        rp_id=webauthn_rp_id(), rp_name="Fondation Bakitani",
-        user_id=str(user["id"]).encode(), user_name=user["email"] or user["phone"] or str(user["id"]),
-        user_display_name=user["email"] or user["phone"] or f"Utilisateur {user['id']}",
-        exclude_credentials=[PublicKeyCredentialDescriptor(id=base64url_to_bytes(r["credential_id"])) for r in rows],
-        authenticator_selection=AuthenticatorSelectionCriteria(authenticator_attachment=AuthenticatorAttachment.PLATFORM, resident_key=ResidentKeyRequirement.PREFERRED, user_verification=UserVerificationRequirement.REQUIRED),
-    )
-    payload = json.loads(options_to_json(options))
-    session["webauthn_registration_challenge"] = payload["challenge"]
-    return jsonify(payload)
-
-
-@app.post("/api/passkeys/register/verify")
-@login_required
-def passkey_register_verify():
-    challenge = session.pop("webauthn_registration_challenge", None)
-    if not WEBAUTHN_AVAILABLE or not challenge:
-        return jsonify({"ok": False, "error": "Challenge expiré"}), 400
-    credential = request.get_json(force=True)
-    verification = verify_registration_response(credential=credential, expected_challenge=base64url_to_bytes(challenge), expected_rp_id=webauthn_rp_id(), expected_origin=webauthn_origin(), require_user_verification=True)
-    public_key = base64.urlsafe_b64encode(verification.credential_public_key).decode().rstrip("=")
-    con = db()
-    con.execute("INSERT OR REPLACE INTO passkey_credentials(user_id,credential_id,public_key,sign_count,transports,label,created_at,active) VALUES(?,?,?,?,?,?,?,1)", (session["user_id"], credential["id"], public_key, verification.sign_count, json.dumps(credential.get("response", {}).get("transports", [])), "Empreinte / visage", now()))
-    con.execute("UPDATE users SET passkey_enabled=1 WHERE id=?", (session["user_id"],))
-    con.commit(); con.close()
-    return jsonify({"ok": True})
-
-
-@app.post("/api/passkeys/login/options")
-def passkey_login_options():
-    if not WEBAUTHN_AVAILABLE:
-        return jsonify({"ok": False, "error": "WebAuthn indisponible"}), 503
-    ident = (request.get_json(silent=True) or {}).get("identifier", "").strip()
-    con = db(); user = con.execute("SELECT * FROM users WHERE active=1 AND deleted_at IS NULL AND (email=? OR phone=?)", (ident, ident)).fetchone()
-    if not user:
-        con.close(); return jsonify({"ok": False, "error": "Compte introuvable"}), 404
-    rows = con.execute("SELECT credential_id FROM passkey_credentials WHERE user_id=? AND active=1", (user["id"],)).fetchall(); con.close()
-    if not rows:
-        return jsonify({"ok": False, "error": "Aucune biométrie enregistrée"}), 404
-    options = generate_authentication_options(rp_id=webauthn_rp_id(), allow_credentials=[PublicKeyCredentialDescriptor(id=base64url_to_bytes(r["credential_id"])) for r in rows], user_verification=UserVerificationRequirement.REQUIRED)
-    payload = json.loads(options_to_json(options)); session["webauthn_auth_challenge"] = payload["challenge"]; session["webauthn_auth_user_id"] = user["id"]
-    return jsonify(payload)
-
-
-@app.post("/api/passkeys/login/verify")
-def passkey_login_verify():
-    challenge = session.pop("webauthn_auth_challenge", None); user_id = session.pop("webauthn_auth_user_id", None)
-    credential = request.get_json(force=True); cid = credential.get("id")
-    if not WEBAUTHN_AVAILABLE or not challenge or not user_id or not cid:
-        return jsonify({"ok": False, "error": "Challenge expiré"}), 400
-    con = db(); row = con.execute("SELECT * FROM passkey_credentials WHERE user_id=? AND credential_id=? AND active=1", (user_id, cid)).fetchone(); user = con.execute("SELECT * FROM users WHERE id=? AND active=1", (user_id,)).fetchone()
-    if not row or not user:
-        con.close(); return jsonify({"ok": False, "error": "Clé inconnue"}), 404
-    verification = verify_authentication_response(credential=credential, expected_challenge=base64url_to_bytes(challenge), expected_rp_id=webauthn_rp_id(), expected_origin=webauthn_origin(), credential_public_key=base64url_to_bytes(row["public_key"]), credential_current_sign_count=row["sign_count"], require_user_verification=True)
-    con.execute("UPDATE passkey_credentials SET sign_count=?, last_used_at=? WHERE id=?", (verification.new_sign_count, now(), row["id"])); con.commit(); con.close()
-    start_user_session(user, "empreinte / visage")
-    return jsonify({"ok": True, "redirect": url_for("dashboard")})
-
-
-@app.post("/security/passkeys/<int:credential_id>/delete")
-@login_required
-def delete_passkey(credential_id):
-    user = current_user(); con = db(); con.execute("UPDATE passkey_credentials SET active=0 WHERE id=? AND user_id=?", (credential_id, user["id"])); con.commit(); con.close(); flash("Méthode biométrique supprimée.", "success"); return redirect(url_for("security_settings"))
+    return render_template("security_settings.html")
 
 
 @app.route("/reset-password", methods=["GET", "POST"])
@@ -4218,7 +4063,7 @@ def intelligent_help():
             answer = "Pour imprimer une carte : ouvrez la liste des membres, cliquez sur Carte + QR. Le QR code permet de vérifier publiquement la validité du membre."
         elif relates_to("contribution paiement cotisation argent recu"):
             answer = "Pour gérer les cotisations : ouvrez Cotisations, choisissez le membre, le type, le montant et le mode de paiement. Vous pouvez filtrer, imprimer et exporter selon vos droits."
-        elif relates_to("mot de passe connexion login session pin biometrie"):
+        elif relates_to("mot de passe connexion login session securite"):
             answer = "Pour changer le mot de passe : cliquez sur Mon profil ou l’icône cadenas en haut. Les nouveaux comptes doivent changer le mot de passe initial."
         elif relates_to("langue lingala anglais portugais espagnol traduction"):
             answer = "Pour changer la langue : utilisez le sélecteur de langue en haut ou dans le footer. Les libellés principaux de l’application changent immédiatement."
