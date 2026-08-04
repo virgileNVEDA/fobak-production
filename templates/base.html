@@ -225,11 +225,13 @@
         <form class="global-search-form advanced-search-form" action="{{ url_for('global_search') }}" method="get"><div class="advanced-search-field"><input name="q" type="search" autocomplete="off" placeholder="{{ settings.get('global_search_placeholder', 'Recherche rapide...') }}" aria-label="Recherche avancée"><div class="advanced-search-results" hidden></div></div><button type="submit" title="Lancer la recherche">🔎</button></form>
         <select class="language-select" onchange="if(this.value) location.href=this.value">{% for code,label in lang_options.items() %}<option value="{{ url_for('set_language', code=code) }}" {{ 'selected' if code==lang_code else '' }}>{{ label }}</option>{% endfor %}</select>
         <div class="top-actions">
-          <a href="{{ url_for('notifications') }}" title="Notifications">🔔{% if unread_notification_count %}<sup>{{ unread_notification_count }}</sup>{% endif %}</a>
-          <a href="{{ url_for('report_problem') }}" title="Signaler un problème">🛟</a>
-          <a href="{{ url_for('change_password') }}" title="Changer mot de passe">🔐</a>
-          <a href="{{ url_for('index') }}" title="Accueil public">🌐</a>
+          <button id="topbar-search-expand" class="topbar-action-button topbar-search-expand" type="button" title="Afficher la recherche" aria-label="Afficher la recherche">🔎</button>
+          <a class="top-action-notifications" href="{{ url_for('notifications') }}" title="Notifications">🔔{% if unread_notification_count %}<sup>{{ unread_notification_count }}</sup>{% endif %}</a>
+          <a class="top-action-support" href="{{ url_for('report_problem') }}" title="Signaler un problème">🛟</a>
+          <a class="top-action-security" href="{{ url_for('change_password') }}" title="Changer mot de passe">🔐</a>
+          <a class="top-action-public" href="{{ url_for('index') }}" title="Accueil public">🌐</a>
           <div class="top-date"><span id="today-label">Aujourd’hui</span><strong id="clock-label">--:--</strong></div>
+          <button id="topbar-compact-toggle" class="topbar-action-button topbar-compact-toggle" type="button" title="Réduire la barre supérieure" aria-label="Réduire la barre supérieure" aria-expanded="true"><span class="topbar-toggle-icon">⌃</span><span class="topbar-toggle-label">Réduire</span></button>
         </div>
       </header>
 

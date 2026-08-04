@@ -7,15 +7,19 @@
     <p><strong>Demandeur :</strong> {{ ticket.full_name }} — {{ ticket.phone }} — {{ ticket.email }}</p>
     <p><strong>Province :</strong> {{ ticket.province or '-' }} / {{ ticket.localite or '-' }}</p>
     <p><strong>Catégorie :</strong> {{ ticket.category }} — <strong>Priorité :</strong> {{ ticket.priority }}</p>
-    <p><strong>Statut :</strong> {{ ticket.status }}</p>
-    <div class="legal-text"><p>{{ ticket.message }}</p></div>
+    <p><strong>Statut :</strong> <span class="badge {{ ticket.status }}">{{ ticket.status }}</span></p>
+    <div class="ticket-message-shell {{ 'is-suspicious' if suspicious else '' }}">
+      {% if suspicious %}<div class="spam-warning">🛡️ Message suspect détecté automatiquement. Aucun lien n’est rendu cliquable.</div>{% endif %}
+      <p id="ticket-message-main" class="ticket-message-content {{ 'is-collapsed' if ticket.message|length > 360 else '' }}">{{ ticket.message }}</p>
+      {% if ticket.message|length > 360 %}<button class="btn small ticket-message-toggle" type="button" data-expand-target="ticket-message-main" aria-expanded="false">Afficher le message complet</button>{% endif %}
+    </div>
     {% if ticket.attachment_path %}<a class="btn" href="{{ url_for('static', filename=ticket.attachment_path) }}" target="_blank">Voir la pièce jointe</a>{% endif %}
   </article>
   <article class="card mobile-card">
     <h2>Traiter le ticket</h2>
     <form method="post" class="form mobile-form">
       <label>Statut
-        <select name="status"><option value="new" {% if ticket.status=='new' %}selected{% endif %}>Nouveau</option><option value="in_progress" {% if ticket.status=='in_progress' %}selected{% endif %}>En cours</option><option value="resolved" {% if ticket.status=='resolved' %}selected{% endif %}>Résolu</option><option value="closed" {% if ticket.status=='closed' %}selected{% endif %}>Fermé</option></select>
+        <select name="status"><option value="new" {% if ticket.status=='new' %}selected{% endif %}>Nouveau</option><option value="in_progress" {% if ticket.status=='in_progress' %}selected{% endif %}>En cours</option><option value="resolved" {% if ticket.status=='resolved' %}selected{% endif %}>Résolu</option><option value="closed" {% if ticket.status=='closed' %}selected{% endif %}>Fermé</option><option value="spam" {% if ticket.status=='spam' %}selected{% endif %}>Indésirable</option><option value="archived" {% if ticket.status=='archived' %}selected{% endif %}>Archivé</option></select>
       </label>
       <label>Priorité
         <select name="priority"><option value="low" {% if ticket.priority=='low' %}selected{% endif %}>Faible</option><option value="normal" {% if ticket.priority=='normal' %}selected{% endif %}>Normale</option><option value="high" {% if ticket.priority=='high' %}selected{% endif %}>Urgente</option></select>
@@ -28,10 +32,15 @@
       </label>
       <button class="btn primary wide-mobile">Enregistrer le traitement</button>
     </form>
+    <div class="ticket-quick-actions">
+      <form method="post"><input type="hidden" name="status" value="spam"><input type="hidden" name="priority" value="low"><button class="btn small" type="submit">🛡️ Marquer indésirable</button></form>
+      <form method="post"><input type="hidden" name="status" value="archived"><input type="hidden" name="priority" value="{{ ticket.priority or 'normal' }}"><button class="btn small" type="submit">🗄️ Archiver</button></form>
+      {% if session.role in ['super_admin','president','secretary','national_secretary'] %}<form method="post" action="{{ url_for('delete_support_ticket', ticket_id=ticket.id) }}" onsubmit="return confirm('Supprimer définitivement ce ticket ?')"><button class="btn small danger" type="submit">🗑️ Supprimer</button></form>{% endif %}
+    </div>
   </article>
 </section>
 <section class="card mobile-card">
   <h2>Historique du ticket</h2>
-  {% for m in messages %}<div class="list-item"><strong>{{ m.author_name or 'Administration' }}</strong><span>{{ m.message }} — {{ m.created_at }}</span></div>{% else %}<p>Aucune réponse pour l'instant.</p>{% endfor %}
+  {% for m in messages %}<div class="list-item ticket-history-item"><strong>{{ m.author_name or 'Administration' }}</strong><span class="ticket-history-message">{{ m.message }}</span><small>{{ m.created_at }}</small></div>{% else %}<p>Aucune réponse pour l'instant.</p>{% endfor %}
 </section>
 {% endblock %}

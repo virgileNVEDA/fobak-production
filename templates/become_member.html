@@ -116,7 +116,11 @@
     <label class="full">Qualité de membre
       <select name="member_type" required><option value="">Choisir</option><option>Membre fondateur</option><option>Membre effectif</option><option>Membre d’honneur</option><option>Membre sympathisant</option></select>
     </label>
-    <p class="full declaration">Je déclare que les renseignements fournis ci-dessus sont exacts et je m’engage à respecter les idéaux et les Statuts de la structure.</p>
+    <p class="full declaration">Je déclare que les renseignements fournis ci-dessus sont exacts et je m’engage à respecter les idéaux, les Statuts et le Règlement intérieur de la Fondation.</p>
+    <label class="full legal-consent">
+      <input type="checkbox" name="statutes_accepted" value="yes" required>
+      <span>Je confirme avoir lu et accepté les <a href="{{ url_for('public_statutes') }}" target="_blank" rel="noopener">Statuts et le Règlement intérieur de la Fondation Bakitani</a>. Cette acceptation est obligatoire pour transmettre ma demande.<small>Document de référence : {{ statutes_reference.title }} — {{ statutes_reference.version }}</small></span>
+    </label>
     <label class="full">Motivation / autres informations
       <textarea name="motivation" rows="4"></textarea>
     </label>
@@ -124,6 +128,7 @@
       <div>Président National<br><strong>{{ settings.president_name }}</strong></div>
       <div>Secrétaire Général<br><strong>{{ settings.secretary_name }}</strong></div>
     </div>
+    {% include '_human_verification.html' %}
     <button class="btn primary full" type="submit">Envoyer la demande d’adhésion</button>
   </form>
 </section>

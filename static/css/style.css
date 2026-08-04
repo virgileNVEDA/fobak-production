@@ -2370,6 +2370,71 @@ body.admin-layout .top-actions{
 .member-edit-photo small{color:#5d7182}
 @media(max-width:680px){.member-edit-photo{grid-template-columns:1fr}.member-edit-photo img{grid-row:auto;margin:auto}}
 
+/* FOBAK V75 — en-tête actif mais discret, sans recouvrir le contenu */
+body.admin-layout .workspace-topbar{
+  transition:min-height .22s ease,padding .22s ease,grid-template-columns .22s ease,box-shadow .22s ease!important;
+}
+body.admin-layout .topbar-action-button{
+  flex:0 0 auto;width:42px;height:42px;display:grid;place-items:center;border:1px solid rgba(255,255,255,.28);
+  border-radius:50%;background:rgba(255,255,255,.12);color:#fff;cursor:pointer;box-shadow:0 5px 14px rgba(0,0,0,.13);
+}
+body.admin-layout .topbar-action-button:hover,body.admin-layout .topbar-action-button:focus-visible{background:#fff;color:#073e6a;outline:3px solid rgba(255,210,30,.42)}
+body.admin-layout .topbar-toggle-label{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+body.admin-layout:not(.topbar-compact) .topbar-search-expand{display:none!important}
+body.admin-layout .workspace-content{padding-top:calc(var(--fobak-topbar-height) + 18px)!important}
+
+body.admin-layout.topbar-compact .workspace-topbar{
+  min-height:68px!important;height:auto!important;padding:8px 12px!important;
+  grid-template-columns:auto minmax(170px,1fr) auto!important;
+  grid-template-areas:"history welcome actions"!important;gap:8px 12px!important;overflow:visible!important;
+}
+body.admin-layout.topbar-compact .workspace-welcome small,
+body.admin-layout.topbar-compact .global-search-form,
+body.admin-layout.topbar-compact .language-select,
+body.admin-layout.topbar-compact .top-date{display:none!important}
+body.admin-layout.topbar-compact .workspace-welcome strong{font-size:16px!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
+body.admin-layout.topbar-compact .history-btn{width:40px!important;height:40px!important;padding:0!important;justify-content:center!important}
+body.admin-layout.topbar-compact .history-btn span{display:none!important}
+body.admin-layout.topbar-compact .top-actions{display:flex!important;width:auto!important;gap:6px!important;justify-content:flex-end!important}
+body.admin-layout.topbar-compact .top-actions>a,
+body.admin-layout.topbar-compact .topbar-action-button{width:40px!important;height:40px!important;min-height:40px!important}
+
+.badge.spam{background:#ffe7e8;color:#9f1821}.badge.archived{background:#edf1f5;color:#536276}
+.ticket-message-shell{padding:16px 18px;border:1px solid #d9e6f0;border-radius:18px;background:#f8fbff;overflow:hidden}
+.ticket-message-shell.is-suspicious{border-color:#f2a4aa;background:#fff8f8}.spam-warning{margin:-16px -18px 14px;padding:11px 16px;background:#ffe7e8;color:#8f1720;font-weight:850}
+.ticket-message-content{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.65}.ticket-message-content.is-collapsed{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:6;overflow:hidden;max-height:10em}
+.ticket-message-content.is-expanded{display:block;max-height:none}.ticket-message-toggle{margin-top:12px}.ticket-quick-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}.ticket-quick-actions form{margin:0}.btn.danger{background:#b4232d!important;color:#fff!important;border-color:#b4232d!important}
+.ticket-history-item{display:grid!important;grid-template-columns:minmax(130px,220px) minmax(0,1fr) auto!important;gap:12px!important}.ticket-history-message,.ticket-title-clamp{overflow-wrap:anywhere}.ticket-title-clamp{display:inline-block;max-width:360px}.ticket-suspicious-row{background:#fff8f8}
+
+@media screen and (max-width:1180px){
+  body.admin-layout.topbar-compact .top-action-support,
+  body.admin-layout.topbar-compact .top-action-security,
+  body.admin-layout.topbar-compact .top-action-public{display:none!important}
+}
+@media screen and (max-width:780px){
+  body.admin-layout.topbar-compact .workspace-topbar{
+    min-height:66px!important;padding:8px 8px 8px 70px!important;
+    grid-template-columns:minmax(0,1fr) auto!important;grid-template-areas:"welcome actions"!important;border-radius:0 0 14px 14px!important;
+  }
+  body.admin-layout.topbar-compact .history-controls{display:none!important}
+  body.admin-layout.topbar-compact .workspace-welcome{grid-area:welcome!important;align-self:center!important}
+  body.admin-layout.topbar-compact .top-actions{grid-area:actions!important;display:flex!important;min-width:max-content!important}
+  body.admin-layout.topbar-compact .top-actions>a,body.admin-layout.topbar-compact .topbar-action-button{width:42px!important;height:42px!important}
+  body.admin-layout .workspace-content{padding-top:calc(var(--fobak-topbar-height) + 14px)!important}
+  .ticket-history-item{grid-template-columns:1fr!important}.ticket-history-item small{color:#6b7c8c}
+}
+@media screen and (orientation:landscape) and (max-height:620px){
+  body.admin-layout.topbar-compact .workspace-topbar{min-height:58px!important;padding-top:6px!important;padding-bottom:6px!important}
+  body.admin-layout.topbar-compact .top-actions>a,body.admin-layout.topbar-compact .topbar-action-button{width:38px!important;height:38px!important;min-height:38px!important}
+  body.admin-layout.topbar-compact .workspace-welcome strong{font-size:15px!important}
+}
+
+/* FOBAK V76 — protection visible et accessible des formulaires publics */
+.human-verification{position:relative;margin:10px 0 4px;padding:17px 18px;border:2px solid #9bcce5;border-radius:17px;background:linear-gradient(135deg,#edf9ff,#fffdf2);overflow:hidden}
+.human-verification legend{padding:0 9px;color:#073e6a;font-size:1rem;font-weight:900}.human-verification p{margin:0 0 12px;color:#4f6476}.human-verification .human-question{display:grid;grid-template-columns:minmax(190px,1fr) minmax(120px,220px);align-items:center;gap:14px;color:#143d5e;font-weight:850}.human-verification .human-question input{margin:0;background:#fff}.human-verification>small{display:block;margin-top:8px;color:#617588}.bot-trap{position:absolute!important;left:-10000px!important;top:auto!important;width:1px!important;height:1px!important;overflow:hidden!important;opacity:0!important;pointer-events:none!important}
+.legal-consent{display:flex!important;align-items:flex-start!important;gap:13px;padding:17px 18px;border:2px solid #f0c94c;border-radius:17px;background:#fffbea;color:#223b50;font-weight:750;line-height:1.5}.legal-consent>input{flex:0 0 22px;width:22px!important;height:22px!important;min-height:22px!important;margin-top:2px;accent-color:#0878b6}.legal-consent a{color:#075c95;font-weight:900;text-decoration:underline}.legal-consent small{display:block;margin-top:5px;color:#66798a;font-weight:600}
+@media(max-width:680px){.human-verification .human-question{grid-template-columns:1fr}.human-verification{padding:15px}.legal-consent{padding:15px}}
+
 /* V66 - aperçu des cartes avant téléchargement */
 .card-preview-toolbar{display:flex;align-items:center;justify-content:space-between;gap:20px;border-left:7px solid #19a9d4}
 .card-preview-toolbar strong,.card-preview-toolbar small{display:block}.card-preview-toolbar small{margin-top:6px;color:#617588}

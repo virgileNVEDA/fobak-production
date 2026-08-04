@@ -834,3 +834,87 @@ document.addEventListener('DOMContentLoaded', function () {
     groups.forEach(other => { if (other !== group) other.open = false; });
   }));
 });
+
+// FOBAK V75 — barre supérieure compacte, mémorisée et adaptative.
+document.addEventListener('DOMContentLoaded', function () {
+  const body = document.body;
+  const topbar = document.querySelector('.workspace-topbar');
+  const toggle = document.getElementById('topbar-compact-toggle');
+  const searchButton = document.getElementById('topbar-search-expand');
+  const searchInput = topbar?.querySelector('.global-search-form input[name="q"]');
+  if (!topbar || !toggle || !body.classList.contains('admin-layout')) return;
+
+  const storageKey = 'fobak_topbar_preference_v75';
+  const compactByScreen = () => window.innerWidth <= 1180 ||
+    (window.matchMedia('(orientation: landscape)').matches && window.innerHeight <= 620);
+  let preference = null;
+  try { preference = localStorage.getItem(storageKey); } catch (_) {}
+  let compact = preference ? preference === 'compact' : compactByScreen();
+  let lastScrollY = window.scrollY;
+
+  function syncButton() {
+    const label = toggle.querySelector('.topbar-toggle-label');
+    const icon = toggle.querySelector('.topbar-toggle-icon');
+    const title = compact ? 'Développer la barre supérieure' : 'Réduire la barre supérieure';
+    toggle.setAttribute('aria-expanded', compact ? 'false' : 'true');
+    toggle.setAttribute('aria-label', title);
+    toggle.title = title;
+    if (label) label.textContent = compact ? 'Afficher' : 'Réduire';
+    if (icon) icon.textContent = compact ? '⌄' : '⌃';
+  }
+
+  function applyCompact(value, savePreference = false) {
+    const nextCompact = Boolean(value);
+    const alreadyApplied = compact === nextCompact && topbar.classList.contains('is-compact') === nextCompact;
+    compact = nextCompact;
+    if (alreadyApplied && !savePreference) return;
+    body.classList.toggle('topbar-compact', compact);
+    topbar.classList.toggle('is-compact', compact);
+    syncButton();
+    if (savePreference) {
+      preference = compact ? 'compact' : 'expanded';
+      try { localStorage.setItem(storageKey, preference); } catch (_) {}
+    }
+    requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
+  }
+
+  toggle.addEventListener('click', () => applyCompact(!compact, true));
+  searchButton?.addEventListener('click', () => {
+    if (compact) applyCompact(false, false);
+    requestAnimationFrame(() => searchInput?.focus());
+  });
+
+  let ticking = false;
+  window.addEventListener('scroll', () => {
+    if (ticking) return;
+    ticking = true;
+    requestAnimationFrame(() => {
+      const current = window.scrollY;
+      if (current > 90 && current > lastScrollY + 8) applyCompact(true, false);
+      if (current < lastScrollY - 14 || current < 24) {
+        applyCompact(preference ? preference === 'compact' : compactByScreen(), false);
+      }
+      lastScrollY = current;
+      ticking = false;
+    });
+  }, { passive: true });
+
+  window.addEventListener('resize', () => {
+    if (!preference) applyCompact(compactByScreen(), false);
+  }, { passive: true });
+  applyCompact(compact, false);
+});
+
+// FOBAK V75 — les messages longs restent lisibles sans envahir l'écran.
+document.addEventListener('DOMContentLoaded', function () {
+  document.querySelectorAll('[data-expand-target]').forEach(button => {
+    button.addEventListener('click', function () {
+      const target = document.getElementById(button.dataset.expandTarget);
+      if (!target) return;
+      const expanded = target.classList.toggle('is-expanded');
+      target.classList.toggle('is-collapsed', !expanded);
+      button.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+      button.textContent = expanded ? 'Réduire le message' : 'Afficher le message complet';
+    });
+  });
+});

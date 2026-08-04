@@ -59,8 +59,8 @@ UPLOAD_ROOT = os.environ.get("UPLOAD_ROOT", os.path.join(STATIC_DIR, "uploads"))
 RDC_FLAG_REL = "img/drapeau_rdc.jpg"
 RDC_FLAG_ABS = os.path.join(STATIC_DIR, RDC_FLAG_REL)
 ALLOWED_IMAGE_EXT = {"png", "jpg", "jpeg", "webp", "pdf", "doc", "docx", "xls", "xlsx"}
-APP_VERSION = "74.0.0"
-APP_RELEASE_NAME = "FOBAK Manager Pro — génération de documents stabilisée V74"
+APP_VERSION = "76.0.0"
+APP_RELEASE_NAME = "FOBAK Manager Pro — formulaires publics sécurisés V76"
 CARD_TEMPLATE_VERSION = "paysage-v74-generation-stabilisee"
 
 # Numérotation protocolaire nationale. Le numéro de cadre reste distinct du
@@ -141,6 +141,83 @@ def verify_csrf_token():
 @app.context_processor
 def inject_csrf_helper():
     return {"csrf_token": csrf_token}
+
+
+PUBLIC_CHALLENGE_TTL_SECONDS = 30 * 60
+PUBLIC_CHALLENGE_MIN_SECONDS = 1
+PUBLIC_FORM_MAX_ATTEMPTS = 10
+PUBLIC_FORM_ATTEMPT_WINDOW = 10 * 60
+
+
+def issue_human_challenge(form_name):
+    """Crée une vérification humaine locale, sans service externe ni clé API."""
+    safe_name = re.sub(r"[^a-z0-9_-]", "", (form_name or "public").lower()) or "public"
+    left = secrets.randbelow(8) + 2
+    right = secrets.randbelow(8) + 2
+    token = secrets.token_urlsafe(24)
+    challenge_key = f"_human_challenges_{safe_name}"
+    now_ts = int(datetime.now().timestamp())
+    challenges = session.get(challenge_key, {})
+    challenges = {
+        key: value for key, value in challenges.items()
+        if now_ts - int(value.get("issued_at") or 0) <= PUBLIC_CHALLENGE_TTL_SECONDS
+    }
+    challenges[token] = {
+        "token": token,
+        "answer": left + right,
+        "issued_at": now_ts,
+    }
+    # Cinq onglets simultanés maximum afin de garder un cookie de session léger.
+    session[challenge_key] = dict(list(challenges.items())[-5:])
+    session.modified = True
+    return {"token": token, "question": f"Combien font {left} + {right} ?"}
+
+
+def verify_human_challenge(form_name):
+    """Vérifie le CAPTCHA local, le champ-piège, le délai et les tentatives."""
+    safe_name = re.sub(r"[^a-z0-9_-]", "", (form_name or "public").lower()) or "public"
+    now_ts = int(datetime.now().timestamp())
+    attempts_key = f"_public_attempts_{safe_name}"
+    attempts = [int(value) for value in session.get(attempts_key, []) if now_ts - int(value) < PUBLIC_FORM_ATTEMPT_WINDOW]
+    if len(attempts) >= PUBLIC_FORM_MAX_ATTEMPTS:
+        session[attempts_key] = attempts
+        return False, "Trop de tentatives rapprochées. Patientez quelques minutes avant de recommencer."
+    attempts.append(now_ts)
+    session[attempts_key] = attempts
+
+    challenge_key = f"_human_challenges_{safe_name}"
+    supplied_token = request.form.get("human_challenge_token", "")
+    challenges = session.get(challenge_key, {})
+    challenge = challenges.pop(supplied_token, None) if supplied_token else None
+    session[challenge_key] = challenges
+    session.modified = True
+    # Champ volontairement invisible : un robot qui remplit tous les champs se trahit.
+    if request.form.get("company_website", "").strip():
+        return False, "La vérification humaine a échoué. Rechargez le formulaire puis recommencez."
+    if not challenge:
+        return False, "La vérification humaine a expiré. Rechargez le formulaire puis recommencez."
+    if not supplied_token or not secrets.compare_digest(str(challenge.get("token", "")), supplied_token):
+        return False, "La vérification humaine est invalide. Rechargez le formulaire puis recommencez."
+    elapsed = now_ts - int(challenge.get("issued_at") or 0)
+    if elapsed < PUBLIC_CHALLENGE_MIN_SECONDS or elapsed > PUBLIC_CHALLENGE_TTL_SECONDS:
+        return False, "La vérification humaine a expiré. Rechargez le formulaire puis recommencez."
+    try:
+        supplied_answer = int(request.form.get("human_challenge_answer", "").strip())
+    except (TypeError, ValueError):
+        supplied_answer = -1
+    if supplied_answer != int(challenge.get("answer") or -2):
+        return False, "La réponse de vérification est incorrecte. Rechargez le formulaire puis réessayez."
+    return True, ""
+
+
+def active_statutes_reference():
+    """Fige la version des statuts acceptée au moment d'une demande."""
+    con = db()
+    row = con.execute("SELECT id,title,version_label FROM official_documents WHERE document_type='statuts' AND active=1 AND deleted_at IS NULL AND public=1 ORDER BY id DESC LIMIT 1").fetchone()
+    con.close()
+    if not row:
+        return {"id": None, "title": "Statuts et règlement intérieur FOBAK", "version": "Version publique en vigueur"}
+    return {"id": row["id"], "title": row["title"], "version": row["version_label"] or "Version en vigueur"}
 
 ROLE_LABELS = {
     "super_admin": "Super administrateur",
@@ -336,6 +413,12 @@ def init_db():
         experience TEXT,
         motivation TEXT,
         photo_path TEXT,
+        statutes_accepted INTEGER NOT NULL DEFAULT 0,
+        statutes_accepted_at TEXT,
+        statutes_document_id INTEGER,
+        statutes_version TEXT,
+        acceptance_ip TEXT,
+        acceptance_user_agent TEXT,
         status TEXT NOT NULL DEFAULT 'pending',
         created_at TEXT NOT NULL,
         reviewed_at TEXT,
@@ -474,6 +557,15 @@ def init_db():
         ensure_column(table, "studies_done", "TEXT")
         ensure_column(table, "physical_address", "TEXT")
         ensure_column(table, "custom_fields", "TEXT")
+    for column, definition in {
+        "statutes_accepted": "INTEGER NOT NULL DEFAULT 0",
+        "statutes_accepted_at": "TEXT",
+        "statutes_document_id": "INTEGER",
+        "statutes_version": "TEXT",
+        "acceptance_ip": "TEXT",
+        "acceptance_user_agent": "TEXT",
+    }.items():
+        ensure_column("member_applications", column, definition)
     ensure_column("members", "adhesion_number", "TEXT")
     ensure_column("members", "status", "TEXT DEFAULT 'active'")
     ensure_column("members", "updated_at", "TEXT")
@@ -2073,7 +2165,7 @@ def production_health_status():
     tables = [r["name"] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").fetchall()]
     migrations = con.execute("SELECT * FROM db_migrations ORDER BY applied_at DESC, id DESC LIMIT 8").fetchall()
     audit_count = con.execute("SELECT COUNT(*) AS n FROM audit_logs").fetchone()["n"]
-    ticket_open = con.execute("SELECT COUNT(*) AS n FROM support_tickets WHERE status NOT IN ('closed','résolu','resolu')").fetchone()["n"]
+    ticket_open = con.execute("SELECT COUNT(*) AS n FROM support_tickets WHERE status NOT IN ('closed','résolu','resolu','spam','archived')").fetchone()["n"]
     users_force = con.execute("SELECT COUNT(*) AS n FROM users WHERE deleted_at IS NULL AND COALESCE(force_password_change,0)=1").fetchone()["n"]
     con.close()
     backup_dir = backup_storage_dir()
@@ -2362,6 +2454,19 @@ def create_internal_notification(title, message, link="", user_id=None, role=Non
 
 def ticket_code(ticket_id):
     return f"SUP-{datetime.now().year}-{ticket_id:05d}"
+
+
+def support_content_is_suspicious(*values):
+    """Détecte prudemment les sollicitations commerciales automatisées."""
+    text = normalize_search_text(" ".join(str(value or "") for value in values))
+    marketing_signals = (
+        "boost your website", "google rankings", "target keywords",
+        "full proposal", "seo plan", "backlinks", "search engine optimization",
+        "increase your traffic", "digital marketing", "guest post",
+    )
+    signal_count = sum(1 for signal in marketing_signals if signal in text)
+    url_count = len(re.findall(r"(?:https?://|www\.)", text, flags=re.IGNORECASE))
+    return signal_count >= 2 or (signal_count >= 1 and url_count >= 2)
 
 
 def demo_numbers():
@@ -3683,6 +3788,11 @@ def report_problem():
         member = con.execute("SELECT * FROM members WHERE user_id=? AND deleted_at IS NULL", (user["id"],)).fetchone()
         con.close()
     if request.method == "POST":
+        if not user:
+            human_ok, human_error = verify_human_challenge("support")
+            if not human_ok:
+                flash(human_error, "danger")
+                return redirect(url_for("report_problem"))
         attachment_path = save_upload(request.files.get("attachment"), "support")
         full_name = request.form.get("full_name", "").strip() or (f"{member['last_name']} {member['first_name']}" if member else "")
         email = request.form.get("email", "").strip() or (user["email"] if user else "")
@@ -3694,18 +3804,23 @@ def report_problem():
         if not title or not message:
             flash("Le titre et la description du problème sont obligatoires.", "danger")
             return redirect(url_for("report_problem"))
+        suspicious = support_content_is_suspicious(title, message, email)
+        initial_status = "spam" if suspicious else "new"
+        initial_priority = "low" if suspicious else request.form.get("priority", "normal")
         con = db()
         cur = con.cursor()
         cur.execute("""INSERT INTO support_tickets(user_id,member_id,full_name,email,phone,province,localite,category,title,message,attachment_path,status,priority,created_at,updated_at)
-                       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (user["id"] if user else None, member["id"] if member else None, full_name, email, phone, province, localite, request.form.get("category", "Général"), title, message, attachment_path, "new", request.form.get("priority", "normal"), now(), now()))
+                       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (user["id"] if user else None, member["id"] if member else None, full_name, email, phone, province, localite, request.form.get("category", "Général"), title, message, attachment_path, initial_status, initial_priority, now(), now()))
         tid = cur.lastrowid
         code = ticket_code(tid)
         cur.execute("UPDATE support_tickets SET tracking_code=? WHERE id=?", (code, tid))
         con.commit(); con.close()
-        create_internal_notification("Nouveau ticket support", f"{code} — {title}", url_for("support_ticket_detail", ticket_id=tid), role="all" if not province else None, province=province or None)
+        if not suspicious:
+            create_internal_notification("Nouveau ticket support", f"{code} — {title}", url_for("support_ticket_detail", ticket_id=tid), role="all" if not province else None, province=province or None)
         flash(f"Votre problème a été signalé. Numéro de ticket : {code}", "success")
         return redirect(url_for("report_problem"))
-    return render_template("report_problem.html", member=member)
+    human_check = None if user else issue_human_challenge("support")
+    return render_template("report_problem.html", member=member, human_check=human_check)
 
 
 @app.route("/telecharger-client-windows")
@@ -3837,6 +3952,10 @@ def security_settings():
 @app.route("/reset-password", methods=["GET", "POST"])
 def reset_password():
     if request.method == "POST":
+        human_ok, human_error = verify_human_challenge("password_reset")
+        if not human_ok:
+            flash(human_error, "danger")
+            return redirect(url_for("reset_password"))
         email = request.form.get("email", "").strip()
         phone = request.form.get("phone", "").strip()
         con = db()
@@ -3851,24 +3970,49 @@ def reset_password():
         # de connexion n'est révélée publiquement.
         flash("Si les informations correspondent à un compte, la demande a été transmise à l’administration. Un mot de passe temporaire vous sera communiqué après validation.", "success")
         return redirect(url_for("login"))
-    return render_template("reset_password.html")
+    return render_template("reset_password.html", human_check=issue_human_challenge("password_reset"))
 
 
 @app.route("/devenir-membre", methods=["GET", "POST"])
 def become_member():
     if request.method == "POST":
-        photo_path = save_data_url_image(request.form.get("photo_capture", ""), "photos") or save_upload(request.files.get("photo"), "photos")
+        human_ok, human_error = verify_human_challenge("adhesion")
+        if not human_ok:
+            flash(human_error, "danger")
+            return redirect(url_for("become_member"))
+        if request.form.get("statutes_accepted") != "yes":
+            flash("Vous devez confirmer avoir lu et accepté les Statuts et le Règlement intérieur avant d’envoyer la demande.", "danger")
+            return redirect(url_for("become_member"))
+        first_name = request.form.get("first_name", "").strip()
+        last_name = request.form.get("last_name", "").strip()
+        email = request.form.get("email", "").strip().lower()
+        raw_phone = request.form.get("phone", "").strip()
+        if not first_name or not last_name or not email or not raw_phone:
+            flash("Le nom, le prénom, l’e-mail et le téléphone sont obligatoires.", "danger")
+            return redirect(url_for("become_member"))
+        if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email):
+            flash("Veuillez saisir une adresse e-mail valide.", "danger")
+            return redirect(url_for("become_member"))
         phone_prefix = request.form.get("phone_country_code", "+243")
-        phone_value = normalized_phone(phone_prefix, request.form.get("phone", ""))
+        phone_value = normalized_phone(phone_prefix, raw_phone)
         studies_done = ", ".join(request.form.getlist("studies_done"))
         custom_fields = collect_custom_field_values()
+        statutes_reference = active_statutes_reference()
         con = db()
-        con.execute('''INSERT INTO member_applications(first_name,last_name,gender,email,phone,nationality,province,territory,commune,localite,physical_address,birth_date,birth_place,marital_status,profession,education,studies_done,experience,motivation,photo_path,custom_fields,status,created_at)
-                       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''', (
-            request.form.get("first_name", "").strip(),
-            request.form.get("last_name", "").strip(),
+        duplicate = con.execute("""SELECT id FROM member_applications
+                                  WHERE status='pending' AND (lower(email)=? OR phone=?) LIMIT 1""", (email, phone_value)).fetchone()
+        existing_user = con.execute("SELECT id FROM users WHERE deleted_at IS NULL AND (lower(email)=? OR phone=?) LIMIT 1", (email, phone_value)).fetchone()
+        if duplicate or existing_user:
+            con.close()
+            flash("Une demande ou un compte utilise déjà cet e-mail ou ce numéro de téléphone. Contactez l’administration si vous avez besoin d’aide.", "warning")
+            return redirect(url_for("become_member"))
+        photo_path = save_data_url_image(request.form.get("photo_capture", ""), "photos") or save_upload(request.files.get("photo"), "photos")
+        con.execute('''INSERT INTO member_applications(first_name,last_name,gender,email,phone,nationality,province,territory,commune,localite,physical_address,birth_date,birth_place,marital_status,profession,education,studies_done,experience,motivation,photo_path,custom_fields,statutes_accepted,statutes_accepted_at,statutes_document_id,statutes_version,acceptance_ip,acceptance_user_agent,status,created_at)
+                       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''', (
+            first_name,
+            last_name,
             request.form.get("gender", ""),
-            request.form.get("email", "").strip(),
+            email,
             phone_value,
             request.form.get("nationality", "Congolaise"),
             request.form.get("province", ""),
@@ -3886,6 +4030,12 @@ def become_member():
             request.form.get("motivation", ""),
             photo_path,
             custom_fields,
+            1,
+            now(),
+            statutes_reference["id"],
+            f"{statutes_reference['title']} — {statutes_reference['version']}",
+            request.remote_addr or "",
+            (request.user_agent.string or "")[:500],
             "pending",
             now()
         ))
@@ -3893,7 +4043,7 @@ def become_member():
         con.close()
         flash("Votre demande d'adhésion est envoyée. L'administration peut l'accepter ou la rejeter.", "success")
         return redirect(url_for("login"))
-    return render_template("become_member.html")
+    return render_template("become_member.html", human_check=issue_human_challenge("adhesion"), statutes_reference=active_statutes_reference())
 
 
 
@@ -4122,7 +4272,7 @@ def admin_dashboard():
     contribution_total = sum(float(t["total"] or 0) for t in month_totals)
     contribution_currency = month_totals[0]["currency"] if month_totals else "CDF"
     recent_notifications = con.execute("SELECT * FROM notifications ORDER BY created_at DESC LIMIT 4").fetchall() if user["role"] in NATIONAL_ROLES else con.execute("SELECT * FROM notifications WHERE province=? OR target_scope='members' ORDER BY created_at DESC LIMIT 4", (user["province"],)).fetchall()
-    ticket_where, ticket_params = support_scope_sql(user, "WHERE status!='closed'")
+    ticket_where, ticket_params = support_scope_sql(user, "WHERE status NOT IN ('closed','spam','archived')")
     support_tickets = con.execute(f"SELECT * FROM support_tickets {ticket_where} ORDER BY created_at DESC LIMIT 5", ticket_params).fetchall()
     service_count = con.execute("SELECT COUNT(*) AS n FROM foundation_services WHERE COALESCE(active,1)=1").fetchone()["n"]
     if user["role"] in NATIONAL_ROLES:
@@ -4168,6 +4318,10 @@ def accept_application(app_id):
     a = con.execute("SELECT * FROM member_applications WHERE id=? AND status='pending'", (app_id,)).fetchone()
     if not a:
         con.close(); flash("Demande introuvable ou déjà traitée.", "warning"); return redirect(url_for("applications"))
+    if not a["statutes_accepted"]:
+        con.close()
+        flash("Cette demande ne contient aucune preuve d’acceptation des Statuts et du Règlement intérieur. Demandez au candidat de renouveler sa demande en ligne.", "danger")
+        return redirect(url_for("applications"))
     if reviewer["role"] in PROVINCIAL_ROLES and a["province"] != reviewer["province"]:
         con.close(); abort(403)
     if reviewer["role"] == "local_admin" and (a["province"] != reviewer["province"] or a["localite"] != reviewer["localite"]):
@@ -5378,7 +5532,8 @@ def support_tickets_page():
     con = db()
     rows = con.execute(f"SELECT * FROM support_tickets {where} ORDER BY created_at DESC", params).fetchall()
     con.close()
-    return render_template("support_tickets.html", rows=rows, filters=request.args)
+    suspicious_ids = {row["id"] for row in rows if support_content_is_suspicious(row["title"], row["message"], row["email"])}
+    return render_template("support_tickets.html", rows=rows, filters=request.args, suspicious_ids=suspicious_ids)
 
 
 @app.route("/admin/support/<int:ticket_id>", methods=["GET", "POST"])
@@ -5398,11 +5553,14 @@ def support_ticket_detail(ticket_id):
     if request.method == "POST":
         reply = request.form.get("reply", "").strip()
         new_status = request.form.get("status", ticket["status"] or "new")
+        allowed_statuses = {"new", "in_progress", "resolved", "closed", "spam", "archived"}
+        if new_status not in allowed_statuses:
+            new_status = ticket["status"] or "new"
         if reply:
             con.execute("INSERT INTO support_ticket_messages(ticket_id,user_id,author_name,message,created_at) VALUES(?,?,?,?,?)", (ticket_id, user["id"], user["email"] or ROLE_LABELS.get(user["role"], user["role"]), reply, now()))
-        closed_at = now() if new_status == "closed" else ticket["closed_at"]
+        closed_at = now() if new_status in {"closed", "spam", "archived"} else None
         con.execute("UPDATE support_tickets SET status=?, priority=?, assigned_to=?, updated_at=?, closed_at=? WHERE id=?", (new_status, request.form.get("priority", ticket["priority"] or "normal"), request.form.get("assigned_to") or user["id"], now(), closed_at, ticket_id))
-        if ticket["user_id"]:
+        if ticket["user_id"] and new_status not in {"spam", "archived"}:
             con.execute("INSERT INTO internal_notifications(user_id,title,message,link,created_at) VALUES(?,?,?,?,?)", (ticket["user_id"], "Réponse au ticket support", f"{ticket['tracking_code']} : {new_status}", url_for("report_problem"), now()))
         con.commit(); flash("Ticket mis à jour.", "success")
         log_action(user["id"], "Mise à jour ticket support", "support_ticket", ticket_id)
@@ -5410,7 +5568,25 @@ def support_ticket_detail(ticket_id):
     messages = con.execute("SELECT * FROM support_ticket_messages WHERE ticket_id=? ORDER BY created_at ASC", (ticket_id,)).fetchall()
     admins = con.execute("SELECT id,email,role,province FROM users WHERE active=1 AND deleted_at IS NULL AND role IN ('super_admin','president','secretary','national_secretary','provincial_president','provincial_admin','provincial_secretary','local_admin','registration_agent') ORDER BY role,email").fetchall()
     con.close()
-    return render_template("support_ticket_detail.html", ticket=ticket, messages=messages, admins=admins)
+    suspicious = support_content_is_suspicious(ticket["title"], ticket["message"], ticket["email"])
+    return render_template("support_ticket_detail.html", ticket=ticket, messages=messages, admins=admins, suspicious=suspicious)
+
+
+@app.post("/admin/support/<int:ticket_id>/delete")
+@login_required
+@role_required("super_admin", "president", "secretary", "national_secretary")
+def delete_support_ticket(ticket_id):
+    user = current_user()
+    con = db()
+    ticket = con.execute("SELECT id FROM support_tickets WHERE id=?", (ticket_id,)).fetchone()
+    if not ticket:
+        con.close(); abort(404)
+    con.execute("DELETE FROM support_ticket_messages WHERE ticket_id=?", (ticket_id,))
+    con.execute("DELETE FROM support_tickets WHERE id=?", (ticket_id,))
+    con.commit(); con.close()
+    log_action(user["id"], "Suppression ticket support", "support_ticket", ticket_id)
+    flash("Le ticket a été supprimé définitivement.", "warning")
+    return redirect(url_for("support_tickets_page"))
 
 
 @app.route("/admin/cloture-exercice", methods=["GET", "POST"])
@@ -5744,6 +5920,10 @@ def payment_receipt_print(payment_id, paper):
 def public_pay_contribution():
     settings=get_settings()
     if request.method=='POST':
+        human_ok, human_error = verify_human_challenge('public_payment')
+        if not human_ok:
+            flash(human_error, 'danger')
+            return redirect(url_for('public_pay_contribution'))
         code=request.form.get('member_code','').strip(); phone=request.form.get('phone','').strip()
         con=db(); member=con.execute("SELECT * FROM members WHERE deleted_at IS NULL AND code=? AND REPLACE(REPLACE(phone,' ',''),'+','')=REPLACE(REPLACE(?,' ',''),'+','')",(code,phone)).fetchone()
         if not member:
@@ -5757,7 +5937,7 @@ def public_pay_contribution():
         create_internal_notification('Cotisation en ligne à vérifier',f"{member['code']} — {amount} {request.form.get('currency','CDF')} — réf. {reference}",url_for('payments'),role='all' if not member['province'] else None,province=member['province'] or None)
         flash(f'Déclaration reçue sous le numéro PC-{pid:06d}. Elle sera validée après contrôle de la transaction.','success')
         return redirect(url_for('public_pay_contribution'))
-    return render_template('public_payment.html', settings=settings)
+    return render_template('public_payment.html', settings=settings, human_check=issue_human_challenge('public_payment'))
 
 
 @app.route('/admin/members/export.xlsx')
@@ -6164,7 +6344,7 @@ def alerts_page():
                 "SELECT * FROM activities WHERE COALESCE(status,'approved')='pending' AND province=? ORDER BY published_at DESC LIMIT 50",
                 (user['province'],),
             ).fetchall()
-        tickets_where, tickets_params = support_scope_sql(user, "WHERE status NOT IN ('closed','résolu','resolu')")
+        tickets_where, tickets_params = support_scope_sql(user, "WHERE status NOT IN ('closed','résolu','resolu','spam','archived')")
         tickets = con.execute(
             f'SELECT * FROM support_tickets {tickets_where} ORDER BY created_at DESC LIMIT 50',
             tickets_params,
@@ -6365,7 +6545,7 @@ BUSINESS_ENDPOINT_MODULES = {
     'delete_activity':'activites', 'projects_page':'projets', 'update_project':'projets', 'delete_project':'projets',
     'documents_page':'documents', 'update_document':'documents', 'delete_document':'documents',
     'notifications':'notifications', 'mark_all_notifications_read':'notifications', 'alerts_page':'alertes',
-    'support_tickets_page':'support', 'support_ticket_detail':'support', 'anniversaries_page':'anniversaires',
+    'support_tickets_page':'support', 'support_ticket_detail':'support', 'delete_support_ticket':'support', 'anniversaries_page':'anniversaires',
     'users_page':'utilisateurs', 'update_user':'utilisateurs', 'delete_user':'utilisateurs',
 }
 

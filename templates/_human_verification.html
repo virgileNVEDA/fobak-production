@@ -1,0 +1,14 @@
+{% if human_check %}
+<fieldset class="human-verification full">
+  <legend>🛡️ Vérification humaine</legend>
+  <p>Cette courte vérification protège la Fondation contre les envois automatiques.</p>
+  <label class="bot-trap" aria-hidden="true">Ne remplissez pas ce champ
+    <input name="company_website" tabindex="-1" autocomplete="off">
+  </label>
+  <input type="hidden" name="human_challenge_token" value="{{ human_check.token }}">
+  <label class="human-question">{{ human_check.question }}
+    <input type="number" name="human_challenge_answer" inputmode="numeric" min="0" max="30" required autocomplete="off" placeholder="Votre réponse">
+  </label>
+  <small>Si la question a expiré, rechargez simplement cette page.</small>
+</fieldset>
+{% endif %}
