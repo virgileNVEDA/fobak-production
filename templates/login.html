@@ -2,7 +2,7 @@
 <style>.enhanced-ticker{display:none!important}body.public-layout{padding-bottom:0!important}</style>
 <section class="login-experience login-security-redesign">
   <div class="login-visual">
-    <div class="login-brand-mark">{% if settings.logo_dark_path %}<img src="{{ url_for('static', filename=settings.logo_dark_path) }}" alt="Logo FOBAK">{% else %}FOBAK{% endif %}</div>
+    <div class="login-brand-mark official-emblem-mark"><img src="{{ url_for('static', filename=settings.get('emblem_path','img/fobak_embleme_officiel_v79.png')) }}" alt="Emblème officiel FOBAK"></div>
     <span class="eyebrow">Espace sécurisé</span>
     <h1>{{ settings.structure_name }}</h1>
     <p>Accédez à votre espace personnel avec votre e-mail ou votre téléphone et votre mot de passe.</p>

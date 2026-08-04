@@ -5,7 +5,8 @@
   <p class="muted">Cette fiche permet au Secrétariat ou à l’administration autorisée d’enregistrer un membre directement au bureau.</p>
   <form method="post" enctype="multipart/form-data" class="form grid two">
     <h3 class="full section-line">I. Identité</h3>
-    <label>Nom / Postnom <input name="last_name" required></label>
+    <label>Nom <input name="last_name" required></label>
+    <label>Postnom <input name="post_name"></label>
     <label>Prénom <input name="first_name" required></label>
     <label>Genre <select name="gender"><option value="M">M</option><option value="F">F</option><option value="Autre">Autre</option></select></label>
     <label>État-civil <select name="marital_status"><option value=""></option>{% for s in marital_status_options %}<option>{{ s }}</option>{% endfor %}</select></label>

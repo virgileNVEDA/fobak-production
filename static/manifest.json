@@ -9,7 +9,7 @@
   "background_color": "#ffffff",
   "theme_color": "#0b3a66",
   "icons": [
-    {"src":"/static/img/fobak_app_icon_v21.png","sizes":"512x512","type":"image/png","purpose":"any maskable"}
+    {"src":"/static/img/fobak_embleme_officiel_v79.png","sizes":"1254x1254","type":"image/png","purpose":"any maskable"}
   ],
   "shortcuts": [
     {"name":"Adhérer","short_name":"Adhésion","url":"/devenir-membre"},

@@ -5,7 +5,7 @@
 <section class="member-profile-hero">
   <div class="member-profile-identity">
     <div class="member-profile-photo">{% if member.photo_path %}<img src="{{ url_for('static', filename=member.photo_path) }}" alt="Photo de {{ member.first_name }} {{ member.last_name }}">{% else %}<span>{{ (member.first_name or 'M')[:1] }}{{ (member.last_name or '')[:1] }}</span>{% endif %}</div>
-    <div><span class="eyebrow">Dossier membre</span><h1>{{ member.last_name }} {{ member.first_name }}</h1><p>{{ member.role_label or member.profession or 'Membre de la Fondation' }}</p><div class="profile-badges"><span class="badge {{ member.status or 'active' }}">{{ member.status or 'active' }}</span><span class="badge">📍 {{ member.province }}</span>{% if member.executive_number %}<span class="badge executive">Haut cadre N° {{ member.executive_number }}</span>{% endif %}</div></div>
+    <div><span class="eyebrow">Dossier membre</span><h1>{{ member.last_name }} {{ member.post_name or '' }} {{ member.first_name }}</h1><p>{{ member.role_label or member.profession or 'Membre de la Fondation' }}</p><div class="profile-badges"><span class="badge {{ member.status or 'active' }}">{{ member.status or 'active' }}</span><span class="badge">📍 {{ member.province }}</span><span class="badge executive">Carte Nº {{ '%04d'|format(printed_card_number) }}</span></div></div>
   </div>
   <div class="member-profile-rank"><span>{{ rank_label }}</span><strong>{{ '%03d'|format(provincial_rank or 0) }}</strong><small>sur {{ provincial_total }} membre(s)</small></div>
 </section>
@@ -22,7 +22,7 @@
   <article class="card profile-info-card">
     <div class="section-title-row"><div><span class="eyebrow">Identité et coordonnées</span><h2>Informations du membre</h2></div></div>
     <dl class="member-info-list">
-      <div><dt>N° d’adhésion</dt><dd>{{ member.adhesion_number or '—' }}</dd></div><div><dt>N° de carte</dt><dd>{{ member.code }}</dd></div>
+      <div><dt>N° d’adhésion</dt><dd>{{ member.adhesion_number or '—' }}</dd></div><div><dt>N° de carte imprimé</dt><dd>{{ '%04d'|format(printed_card_number) }} · {{ printed_coordination }}</dd></div>
       <div><dt>Téléphone</dt><dd><a href="tel:{{ member.phone }}">{{ member.phone or '—' }}</a></dd></div><div><dt>E-mail</dt><dd>{% if member.email and '@asbl.local' not in member.email %}<a href="mailto:{{ member.email }}">{{ member.email }}</a>{% else %}Non renseigné{% endif %}</dd></div>
       <div><dt>Province</dt><dd>{{ member.province or '—' }}</dd></div><div><dt>Territoire / Commune</dt><dd>{{ member.territory or '—' }} / {{ member.commune or '—' }}</dd></div>
       <div><dt>Localité</dt><dd>{{ member.localite or '—' }}</dd></div><div><dt>Adresse</dt><dd>{{ member.physical_address or '—' }}</dd></div>

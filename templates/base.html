@@ -9,23 +9,23 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="{{ settings.mobile_app_name or 'ASBL Manager' }}">
   <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
-  <link rel="icon" href="{{ url_for('static', filename=settings.favicon_path) }}">
-  <link rel="apple-touch-icon" href="{{ url_for('static', filename=settings.favicon_path) }}">
+  <link rel="icon" href="{{ url_for('static', filename=settings.get('emblem_path','img/fobak_embleme_officiel_v79.png')) }}">
+  <link rel="apple-touch-icon" href="{{ url_for('static', filename=settings.get('emblem_path','img/fobak_embleme_officiel_v79.png')) }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ app_version }}">
 </head>
-<body class="{{ 'has-watermark' if settings.logo_path else '' }} {{ 'admin-layout' if current_user else 'public-layout' }} {{ 'health-module' if request.path.startswith('/health') else '' }}"
+<body class="has-watermark {{ 'admin-layout' if current_user else 'public-layout' }} {{ 'health-module' if request.path.startswith('/health') else '' }}"
       data-voice-enabled="1" data-current-path="{{ request.path }}"
       data-voice-first-name="{{ voice_first_name|e }}"
       data-voice-role="{{ voice_role|e }}"
       data-voice-welcome="{{ '1' if voice_welcome_pending else '0' }}"
       data-login-alert-id="{{ login_sound_alert.id if login_sound_alert else '' }}"
       data-login-alert-message="{{ login_sound_alert.message|e if login_sound_alert else '' }}"
-      {% if settings.logo_path %}style="--watermark-url:url('{{ url_for('static', filename=settings.logo_watermark_path) }}')"{% endif %}>
+      style="--watermark-url:url('{{ url_for('static', filename=settings.get('emblem_path','img/fobak_embleme_officiel_v79.png')) }}')">
   <div id="page-loader" class="page-loader">
     <div class="loader-card loader-professional">
       <div class="loader-logo-ring">
         <div class="loader-logo">
-          {% if settings.logo_dark_path %}<img src="{{ url_for('static', filename=settings.logo_dark_path) }}" alt="Logo FOBAK" onerror="this.onerror=null;this.src='{{ url_for('static', filename='img/fobak_logo_official_v25.png') }}'">{% else %}<span>FOBAK</span>{% endif %}
+          <img src="{{ url_for('static', filename=settings.get('emblem_path','img/fobak_embleme_officiel_v79.png')) }}" alt="Emblème FOBAK">
         </div>
       </div>
       <small>Chargement sécurisé</small>

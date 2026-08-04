@@ -17,8 +17,8 @@
       </form>
     {% endif %}
   </div>
-  <div class="dashboard-seal logo-seal">
-    {% if settings.logo_path %}<img src="{{ url_for('static', filename=settings.logo_path) }}" alt="Logo FOBAK" onerror="this.onerror=null;this.src='{{ url_for('static', filename='img/fobak_logo_official_v25.png') }}'">{% else %}FOBAK{% endif %}
+  <div class="dashboard-seal logo-seal official-emblem-seal">
+    <img src="{{ url_for('static', filename=settings.get('emblem_path','img/fobak_embleme_officiel_v79.png')) }}" alt="Emblème officiel FOBAK">
   </div>
 </section>
 
@@ -31,9 +31,6 @@
     {% if module_allowed('membres','voir') %}<a class="kpi-card kpi-link" href="{{ url_for('members') }}"><div class="kpi-icon blue">👥</div><div><small>Membres actifs</small><strong>{{ active_members }}</strong><span>sur {{ total_members }} membre(s)</span><i style="--progress:{{ ((active_members / total_members * 100) if total_members else 0)|round }}%"></i></div></a>{% endif %}
     {% if module_allowed('adhesions','voir') %}<a class="kpi-card kpi-link" href="{{ url_for('applications') }}"><div class="kpi-icon yellow">🪪</div><div><small>Adhésions en attente</small><strong>{{ pending|length }}</strong><span>Dossiers à examiner</span><i style="--progress:{{ [pending|length * 10, 100]|min }}%"></i></div></a>{% endif %}
     {% if module_allowed('cotisations','voir') %}<a class="kpi-card kpi-link" href="{{ url_for('payments') }}"><div class="kpi-icon green">💰</div><div><small>Cotisations du mois</small><strong>{{ contribution_total|round(2) }}</strong><span>{{ contribution_currency }} · {{ payment_pending_count }} à vérifier</span><i style="--progress:{{ [payment_pending_count * 12, 100]|min }}%"></i></div></a>{% endif %}
-    {% if module_allowed('activites','voir') %}<a class="kpi-card kpi-link" href="{{ url_for('manage_activities') }}"><div class="kpi-icon violet">📅</div><div><small>Activités enregistrées</small><strong>{{ activity_count }}</strong><span>{{ activities|length }} affichée(s) récemment</span><i style="--progress:{{ [activity_count * 4, 100]|min }}%"></i></div></a>{% endif %}
-    {% if module_allowed('services','voir') %}<a class="kpi-card kpi-link" href="{{ url_for('foundation_services_page') }}"><div class="kpi-icon cyan">🏛️</div><div><small>Services de la Fondation</small><strong>{{ service_count }}</strong><span>Services disponibles</span><i style="--progress:{{ [service_count * 10, 100]|min }}%"></i></div></a>{% endif %}
-    {% if module_allowed('patients','voir') %}<a class="kpi-card kpi-link" href="{{ url_for('patients_page') }}"><div class="kpi-icon red">🏥</div><div><small>Patients enregistrés</small><strong>{{ patient_count }}</strong><span>Suivi sanitaire</span><i style="--progress:{{ [patient_count, 100]|min }}%"></i></div></a>{% endif %}
   </div>
 </section>
 
@@ -48,13 +45,6 @@
       {% for n in recent_notifications %}
         <div class="dash-list"><span>🔔</span><div><strong>{{ n.message[:72] }}{% if n.message|length > 72 %}…{% endif %}</strong><small>{{ n.province or n.target_scope or 'National' }} — {{ n.created_at }}</small></div><b class="dot"></b></div>
       {% else %}<div class="empty-communication">✓ Aucune nouvelle notification.</div>{% endfor %}
-    </article>
-
-    <article class="panel-card">
-      <div class="panel-head"><h3>📣 Publications et activités</h3><a href="{{ url_for('manage_activities') }}">Gérer</a></div>
-      {% for a in activities[:5] %}
-        <div class="dash-list"><span>📌</span><div><strong>{{ a.title }}</strong><small>{{ a.province or 'National' }} — {{ (a.published_at or '')[:10] }} — {{ a.status or 'approved' }}</small></div></div>
-      {% else %}<div class="empty-communication">Aucune publication récente.</div>{% endfor %}
     </article>
 
     <article class="panel-card">

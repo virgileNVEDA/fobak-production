@@ -6,7 +6,8 @@
 <section class="card adhesion-paper">
   <form method="post" enctype="multipart/form-data" class="form grid two">
     <h3 class="full section-line">I. Identité</h3>
-    <label>Nom / Postnom <input name="last_name" value="{{ member.last_name or '' }}" required></label>
+    <label>Nom <input name="last_name" value="{{ member.last_name or '' }}" required></label>
+    <label>Postnom <input name="post_name" value="{{ member.post_name or '' }}"></label>
     <label>Prénom <input name="first_name" value="{{ member.first_name or '' }}" required></label>
     <label>Genre <select name="gender">{% for value in ['M','F','Autre'] %}<option value="{{ value }}" {{ 'selected' if member.gender==value else '' }}>{{ value }}</option>{% endfor %}</select></label>
     <label>État-civil <select name="marital_status"><option value=""></option>{% for value in marital_status_options %}<option {{ 'selected' if member.marital_status==value else '' }}>{{ value }}</option>{% endfor %}</select></label>
@@ -31,6 +32,7 @@
     <label>Niveau d'étude <input name="education" value="{{ member.education or '' }}"></label>
     <label>Expérience <input name="experience" value="{{ member.experience or '' }}"></label>
     <label>Qualité / Fonction affichée <input name="role_label" value="{{ member.role_label or 'Membre' }}"></label>
+    {% if can_manage_executive %}<label>Coordination de la carte<select name="card_coordination"><option value="auto" {{ 'selected' if (member.card_coordination or 'auto')=='auto' else '' }}>Automatique selon la fonction</option><option value="national" {{ 'selected' if member.card_coordination=='national' else '' }}>Coordination nationale</option><option value="provincial" {{ 'selected' if member.card_coordination=='provincial' else '' }}>Coordination provinciale</option></select></label>{% endif %}
 
     {% if can_manage_executive %}
     <h3 class="full section-line">III. Classement des hauts cadres</h3>

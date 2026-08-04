@@ -8,8 +8,8 @@
   </div>
   {% if document and document.file_path %}
   <div class="page-heading-actions">
-    <a class="btn primary" href="{{ url_for('static', filename=document.file_path) }}" target="_blank" rel="noopener">Ouvrir le PDF</a>
-    <a class="btn" href="{{ url_for('static', filename=document.file_path) }}" download>Télécharger</a>
+    <a class="btn primary" href="{{ url_for('official_document_file', document_id=document.id) }}" target="_blank" rel="noopener">Ouvrir le PDF</a>
+    <a class="btn" href="{{ url_for('official_document_file', document_id=document.id, download=1) }}">Télécharger</a>
     <button class="btn" type="button" onclick="window.print()">Imprimer la page</button>
   </div>
   {% endif %}
@@ -57,8 +57,8 @@
 
 {% if document and document.file_path %}
 <section class="card statute-viewer no-print">
-  <div class="panel-head"><h2>Aperçu du document officiel</h2><a href="{{ url_for('static', filename=document.file_path) }}" target="_blank" rel="noopener">Ouvrir dans un nouvel onglet</a></div>
-  <iframe src="{{ url_for('static', filename=document.file_path) }}#toolbar=1&navpanes=1" title="Statuts FOBAK"></iframe>
+  <div class="panel-head"><h2>Aperçu du document officiel</h2><a href="{{ url_for('official_document_file', document_id=document.id) }}" target="_blank" rel="noopener">Ouvrir dans un nouvel onglet</a></div>
+  <iframe src="{{ url_for('official_document_file', document_id=document.id) }}#toolbar=1&navpanes=1" title="Statuts FOBAK"></iframe>
 </section>
 {% endif %}
 
@@ -93,7 +93,7 @@
   <h2>Historique des versions</h2>
   <div class="table-wrap"><table><thead><tr><th>Version</th><th>Titre</th><th>Date</th><th>État</th><th>Actions</th></tr></thead><tbody>
   {% for v in versions %}<tr><td>{{ v.version_label or '-' }}</td><td>{{ v.title }}</td><td>{{ v.created_at }}</td><td>{{ 'Active' if v.active and not v.deleted_at else ('Retirée' if v.deleted_at else 'Archivée') }}</td><td>
-    {% if v.file_path %}<a class="btn small" href="{{ url_for('static', filename=v.file_path) }}" target="_blank">Ouvrir</a>{% endif %}
+    {% if v.file_path %}<a class="btn small" href="{{ url_for('official_document_file', document_id=v.id) }}" target="_blank">Ouvrir</a>{% endif %}
     {% if not v.active %}<form class="inline" method="post" action="{{ url_for('activate_statute_document', document_id=v.id) }}"><button class="btn small primary">Restaurer</button></form>{% endif %}
     {% if not v.deleted_at %}<form class="inline" method="post" action="{{ url_for('delete_statute_document', document_id=v.id) }}" onsubmit="return confirm('Retirer cette version ?')"><button class="btn small danger">Supprimer</button></form>{% endif %}
   </td></tr>{% else %}<tr><td colspan="5">Aucune version.</td></tr>{% endfor %}

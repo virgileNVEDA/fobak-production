@@ -2357,7 +2357,7 @@ body.admin-layout .top-actions{
 .kpi-link i:after{content:"";display:block;width:var(--progress,0%);height:100%;border-radius:inherit;background:linear-gradient(90deg,#0878b6,#26b8cc)}
 .kpi-icon.green{background:#def7e9;color:#087443}.kpi-icon.violet{background:#efe7ff;color:#6941c6}.kpi-icon.cyan{background:#dff8fb;color:#087f91}
 .communication-counter{display:inline-flex;padding:8px 12px;border-radius:999px;background:#e8f5fc;color:#0b5d8b;font-weight:800;font-size:.82rem}
-.dashboard-panels-v63{grid-template-columns:repeat(3,minmax(0,1fr));align-items:stretch}
+.dashboard-panels-v63{grid-template-columns:repeat(2,minmax(0,1fr));align-items:stretch}
 .dashboard-panels-v63 .panel-card{margin:0;min-width:0;border-top:4px solid #1598bd}
 .dashboard-panels-v63 .panel-head h3{margin:0;font-size:1.05rem;color:#0b3a66}
 .empty-communication{display:grid;place-items:center;min-height:112px;text-align:center;color:#6b7e8e;background:#f6f9fb;border-radius:14px;padding:16px}
@@ -2372,7 +2372,7 @@ body.admin-layout .top-actions{
 
 /* FOBAK V75 — en-tête actif mais discret, sans recouvrir le contenu */
 body.admin-layout .workspace-topbar{
-  transition:min-height .22s ease,padding .22s ease,grid-template-columns .22s ease,box-shadow .22s ease!important;
+  transition:none!important;
 }
 body.admin-layout .topbar-action-button{
   flex:0 0 auto;width:42px;height:42px;display:grid;place-items:center;border:1px solid rgba(255,255,255,.28);
@@ -2433,6 +2433,13 @@ body.admin-layout.topbar-compact .topbar-action-button{width:40px!important;heig
 .human-verification{position:relative;margin:10px 0 4px;padding:17px 18px;border:2px solid #9bcce5;border-radius:17px;background:linear-gradient(135deg,#edf9ff,#fffdf2);overflow:hidden}
 .human-verification legend{padding:0 9px;color:#073e6a;font-size:1rem;font-weight:900}.human-verification p{margin:0 0 12px;color:#4f6476}.human-verification .human-question{display:grid;grid-template-columns:minmax(190px,1fr) minmax(120px,220px);align-items:center;gap:14px;color:#143d5e;font-weight:850}.human-verification .human-question input{margin:0;background:#fff}.human-verification>small{display:block;margin-top:8px;color:#617588}.bot-trap{position:absolute!important;left:-10000px!important;top:auto!important;width:1px!important;height:1px!important;overflow:hidden!important;opacity:0!important;pointer-events:none!important}
 .legal-consent{display:flex!important;align-items:flex-start!important;gap:13px;padding:17px 18px;border:2px solid #f0c94c;border-radius:17px;background:#fffbea;color:#223b50;font-weight:750;line-height:1.5}.legal-consent>input{flex:0 0 22px;width:22px!important;height:22px!important;min-height:22px!important;margin-top:2px;accent-color:#0878b6}.legal-consent a{color:#075c95;font-weight:900;text-decoration:underline}.legal-consent small{display:block;margin-top:5px;color:#66798a;font-weight:600}
+
+/* FOBAK V79 — emblème rond officiel */
+.official-emblem-mark img{width:168px!important;height:168px!important;max-height:none!important;object-fit:contain!important;filter:drop-shadow(0 12px 22px rgba(0,0,0,.24))}
+.official-emblem-seal{width:124px!important;height:124px!important;min-width:124px!important;border-radius:50%!important;background:rgba(255,255,255,.96)!important;padding:5px!important}
+.official-emblem-seal img{width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:contain!important}
+.welcome-visual>img,.carousel-fallback-logo img{object-fit:contain!important}
+@media(max-width:700px){.official-emblem-mark img{width:132px!important;height:132px!important}.official-emblem-seal{width:104px!important;height:104px!important;min-width:104px!important}}
 @media(max-width:680px){.human-verification .human-question{grid-template-columns:1fr}.human-verification{padding:15px}.legal-consent{padding:15px}}
 
 /* V66 - aperçu des cartes avant téléchargement */

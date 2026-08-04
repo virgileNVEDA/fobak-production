@@ -15,7 +15,7 @@
     </div>
   </div>
   <div class="welcome-visual">
-    {% if settings.logo_path %}<img src="{{ url_for('static', filename=settings.logo_path) }}" alt="Logo FOBAK">{% endif %}
+    <img src="{{ url_for('static', filename=settings.get('emblem_path','img/fobak_embleme_officiel_v79.png')) }}" alt="Emblème officiel FOBAK">
     <div class="welcome-badge"><strong>FOBAK</strong><small>Fondation Bakitani</small></div>
   </div>
 </section>
@@ -71,7 +71,7 @@
       {% endfor %}
     {% else %}
       <div class="slide is-active carousel-fallback-slide">
-        <div class="carousel-fallback-logo">{% if settings.logo_path %}<img src="{{ url_for('static', filename=settings.logo_path) }}" alt="Logo FOBAK">{% endif %}</div>
+        <div class="carousel-fallback-logo"><img src="{{ url_for('static', filename=settings.get('emblem_path','img/fobak_embleme_officiel_v79.png')) }}" alt="Emblème officiel FOBAK"></div>
         <div class="slide-message"><strong>Bienvenue à la Fondation Bakitani</strong><span>Adhésion, activités, cotisations et suivi des membres sur une même plateforme.</span></div>
       </div>
     {% endif %}

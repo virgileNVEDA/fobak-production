@@ -835,7 +835,7 @@ document.addEventListener('DOMContentLoaded', function () {
   }));
 });
 
-// FOBAK V75 — barre supérieure compacte, mémorisée et adaptative.
+// FOBAK V78 — barre supérieure stable : aucun changement automatique au défilement.
 document.addEventListener('DOMContentLoaded', function () {
   const body = document.body;
   const topbar = document.querySelector('.workspace-topbar');
@@ -844,13 +844,12 @@ document.addEventListener('DOMContentLoaded', function () {
   const searchInput = topbar?.querySelector('.global-search-form input[name="q"]');
   if (!topbar || !toggle || !body.classList.contains('admin-layout')) return;
 
-  const storageKey = 'fobak_topbar_preference_v75';
+  const storageKey = 'fobak_topbar_preference_v78';
   const compactByScreen = () => window.innerWidth <= 1180 ||
     (window.matchMedia('(orientation: landscape)').matches && window.innerHeight <= 620);
   let preference = null;
   try { preference = localStorage.getItem(storageKey); } catch (_) {}
   let compact = preference ? preference === 'compact' : compactByScreen();
-  let lastScrollY = window.scrollY;
 
   function syncButton() {
     const label = toggle.querySelector('.topbar-toggle-label');
@@ -883,21 +882,6 @@ document.addEventListener('DOMContentLoaded', function () {
     if (compact) applyCompact(false, false);
     requestAnimationFrame(() => searchInput?.focus());
   });
-
-  let ticking = false;
-  window.addEventListener('scroll', () => {
-    if (ticking) return;
-    ticking = true;
-    requestAnimationFrame(() => {
-      const current = window.scrollY;
-      if (current > 90 && current > lastScrollY + 8) applyCompact(true, false);
-      if (current < lastScrollY - 14 || current < 24) {
-        applyCompact(preference ? preference === 'compact' : compactByScreen(), false);
-      }
-      lastScrollY = current;
-      ticking = false;
-    });
-  }, { passive: true });
 
   window.addEventListener('resize', () => {
     if (!preference) applyCompact(compactByScreen(), false);

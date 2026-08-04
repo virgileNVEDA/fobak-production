@@ -59,9 +59,9 @@ UPLOAD_ROOT = os.environ.get("UPLOAD_ROOT", os.path.join(STATIC_DIR, "uploads"))
 RDC_FLAG_REL = "img/drapeau_rdc.jpg"
 RDC_FLAG_ABS = os.path.join(STATIC_DIR, RDC_FLAG_REL)
 ALLOWED_IMAGE_EXT = {"png", "jpg", "jpeg", "webp", "pdf", "doc", "docx", "xls", "xlsx"}
-APP_VERSION = "77.0.0"
-APP_RELEASE_NAME = "FOBAK Manager Pro — répertoire provincial des membres V77"
-CARD_TEMPLATE_VERSION = "paysage-v74-generation-stabilisee"
+APP_VERSION = "79.0.0"
+APP_RELEASE_NAME = "FOBAK Manager Pro — emblème officiel intégré V79"
+CARD_TEMPLATE_VERSION = "paysage-v79-embleme-officiel"
 
 # Numérotation protocolaire nationale. Le numéro de cadre reste distinct du
 # code unique de la carte afin de conserver la traçabilité des anciens membres.
@@ -88,7 +88,14 @@ app = Flask(__name__, template_folder=TEMPLATE_DIR, static_folder=STATIC_DIR, st
 @app.route('/static/uploads/<path:filename>')
 def persistent_upload_file(filename):
     """Sert les fichiers persistants du volume Railway sous les anciennes URL /static/uploads/."""
-    return send_from_directory(UPLOAD_ROOT, filename, conditional=True)
+    persistent_path = os.path.abspath(os.path.join(UPLOAD_ROOT, filename))
+    bundled_root = os.path.abspath(os.path.join(BUNDLED_STATIC_DIR, "uploads"))
+    bundled_path = os.path.abspath(os.path.join(bundled_root, filename))
+    if persistent_path.startswith(os.path.abspath(UPLOAD_ROOT) + os.sep) and os.path.isfile(persistent_path):
+        return send_from_directory(UPLOAD_ROOT, filename, conditional=True)
+    if bundled_path.startswith(bundled_root + os.sep) and os.path.isfile(bundled_path):
+        return send_from_directory(bundled_root, filename, conditional=True)
+    abort(404)
 
 
 def _persistent_secret_key():
@@ -552,6 +559,7 @@ def init_db():
         return True
 
     for table in ["member_applications", "members"]:
+        ensure_column(table, "post_name", "TEXT")
         ensure_column(table, "birth_place", "TEXT")
         ensure_column(table, "marital_status", "TEXT")
         ensure_column(table, "studies_done", "TEXT")
@@ -583,6 +591,7 @@ def init_db():
     ensure_column("members", "created_by", "INTEGER")
     ensure_column("members", "is_administrative", "INTEGER DEFAULT 0")
     ensure_column("members", "role_label", "TEXT")
+    ensure_column("members", "card_coordination", "TEXT DEFAULT 'auto'")
     ensure_column("activities", "image_fit", "TEXT DEFAULT 'cover'")
     ensure_column("activities", "status", "TEXT DEFAULT 'approved'")
     ensure_column("activities", "province", "TEXT")
@@ -599,6 +608,19 @@ def init_db():
     ensure_column("audit_logs", "route", "TEXT")
     ensure_column("audit_logs", "status", "TEXT DEFAULT 'success'")
     cur.executescript("""
+    CREATE TABLE IF NOT EXISTS member_card_numbers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        member_id INTEGER NOT NULL UNIQUE,
+        scope_key TEXT NOT NULL,
+        scope_label TEXT NOT NULL,
+        sequence_number INTEGER NOT NULL,
+        position_name TEXT,
+        assigned_at TEXT NOT NULL,
+        updated_at TEXT,
+        UNIQUE(scope_key, sequence_number),
+        FOREIGN KEY(member_id) REFERENCES members(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_member_card_numbers_scope ON member_card_numbers(scope_key,sequence_number);
     CREATE TABLE IF NOT EXISTS support_tickets (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         tracking_code TEXT UNIQUE,
@@ -858,6 +880,7 @@ def init_db():
         secretary_name TEXT,
         secretary_function TEXT DEFAULT 'Secrétaire provincial',
         secretary_signature_path TEXT,
+        official_stamp_path TEXT,
         office_address TEXT,
         office_phones TEXT,
         updated_at TEXT,
@@ -881,6 +904,7 @@ def init_db():
         "entry_date": "TEXT", "created_by": "INTEGER", "created_at": "TEXT"
     }.items():
         ensure_column("treasury_entries", col, definition)
+    ensure_column("provincial_offices", "official_stamp_path", "TEXT")
 
     # ===== V35 : Services nationaux et Centre de santé =====
     cur.executescript("""
@@ -1302,6 +1326,7 @@ def init_db():
         "structure_header": "République Démocratique du Congo",
         "structure_foundation": "Association sans but lucratif",
         "structure_legal": "Organisation associative à vocation sociale et communautaire",
+        "emblem_path": "img/fobak_embleme_officiel_v79.png",
         "secretariat_label": "Bureau National",
         "headquarters": "96, Av. Yauma, Quartier SAIO, Commune de Kasa-Vubu, Kinshasa - RDC",
         "contact_phones": "+243 81 45 70 392 ; +243 81 44 00 233",
@@ -2972,19 +2997,89 @@ def _generate_member_card_preview_sheet_pdf_portrait_legacy(member):
     return preview_path
 
 
-# V68 : nouveau modèle paysage inspiré de la carte de référence fournie.
+# V78 : numérotation imprimée indépendante par coordination.
+PROVINCIAL_POSITION_NUMBERS = {
+    "president provincial": 1,
+    "vice president provincial": 2,
+    "secretaire provincial": 3,
+    "secretaire provincial adjoint": 4,
+    "tresorier provincial": 5,
+    "tresorier provincial adjoint": 6,
+    "coordonnateur provincial": 7,
+    "coordonnateur provincial adjoint": 8,
+    "rapporteur provincial": 9,
+    "rapporteur provincial adjoint": 10,
+}
+
+
+def _plain_text(value):
+    import unicodedata
+    return " ".join(unicodedata.normalize("NFKD", str(value or "")).encode("ascii", "ignore").decode("ascii").lower().split())
+
+
+def _member_card_scope(member):
+    province = str(member["province"] or "").strip() if "province" in member.keys() else ""
+    coordination = str(member["card_coordination"] or "auto").strip().lower() if "card_coordination" in member.keys() else "auto"
+    position = " ".join(str(member[key] or "") for key in ("executive_position", "role_label") if key in member.keys())
+    is_national = coordination == "national" or (coordination != "provincial" and "national" in _plain_text(position))
+    if is_national:
+        return "NATIONAL", "COORDINATION NATIONALE"
+    province_label = province.upper() if province else "NON RENSEIGNÉE"
+    return "PROVINCE:" + _plain_text(province or "inconnue").replace(" ", "-"), f"COORDINATION PROVINCIALE DE {province_label}"
+
+
+def _preferred_card_sequence(member, scope_key):
+    if scope_key == "NATIONAL":
+        executive = str(member["executive_number"] or "") if "executive_number" in member.keys() else ""
+        if executive.isdigit() and int(executive) > 0:
+            return int(executive)
+        position = str(member["executive_position"] or member["role_label"] or "") if "executive_position" in member.keys() else ""
+        for title, number in EXECUTIVE_POSITION_NUMBERS.items():
+            if _plain_text(title) == _plain_text(position):
+                return int(number)
+    else:
+        position = " ".join(str(member[key] or "") for key in ("executive_position", "role_label", "profession") if key in member.keys())
+        normalized = _plain_text(position)
+        for title, number in PROVINCIAL_POSITION_NUMBERS.items():
+            if title in normalized:
+                return number
+    return None
+
+
+def ensure_member_card_number(member):
+    """Attribue et conserve le numéro visible, séparément au national et dans chaque province."""
+    scope_key, scope_label = _member_card_scope(member)
+    preferred = _preferred_card_sequence(member, scope_key)
+    con = db()
+    current = con.execute("SELECT * FROM member_card_numbers WHERE member_id=?", (member["id"],)).fetchone()
+    if current and current["scope_key"] == scope_key:
+        if preferred and int(current["sequence_number"]) != preferred:
+            occupied = con.execute("SELECT member_id FROM member_card_numbers WHERE scope_key=? AND sequence_number=?", (scope_key, preferred)).fetchone()
+            if not occupied:
+                con.execute("UPDATE member_card_numbers SET sequence_number=?,scope_label=?,position_name=?,updated_at=? WHERE member_id=?", (preferred, scope_label, str(member["role_label"] or "") if "role_label" in member.keys() else "", now(), member["id"]))
+                con.commit(); con.close()
+                return preferred, scope_label
+        con.close()
+        return int(current["sequence_number"]), scope_label
+    if current:
+        con.execute("DELETE FROM member_card_numbers WHERE member_id=?", (member["id"],))
+    used = {int(row["sequence_number"]) for row in con.execute("SELECT sequence_number FROM member_card_numbers WHERE scope_key=?", (scope_key,)).fetchall()}
+    sequence = preferred if preferred and preferred not in used else 13
+    while sequence in used:
+        sequence += 1
+    con.execute(
+        "INSERT INTO member_card_numbers(member_id,scope_key,scope_label,sequence_number,position_name,assigned_at,updated_at) VALUES(?,?,?,?,?,?,?)",
+        (member["id"], scope_key, scope_label, sequence, str(member["role_label"] or "") if "role_label" in member.keys() else "", now(), now()),
+    )
+    con.commit(); con.close()
+    return sequence, scope_label
+
+
 def _member_document_numbers(member):
-    """Retourne les numéros visibles en respectant la hiérarchie des hauts cadres."""
-    executive_number = ""
-    if "executive_number" in member.keys() and member["executive_number"]:
-        executive_number = re.sub(r"\D", "", str(member["executive_number"]))[:3].zfill(3)
+    sequence, scope_label = ensure_member_card_number(member)
     joined = (member["joined_at"] or today())[:10]
-    year = joined[:4] if len(joined) >= 4 else today()[:4]
-    if executive_number:
-        return f"FOBAK-HC-{executive_number}-NAT", f"FOBAK/BN/{executive_number}/{year}"
-    card_number = member["code"] or create_member_code(member["id"], member["province"] or "NAT")
     adhesion_number = member["adhesion_number"] if "adhesion_number" in member.keys() and member["adhesion_number"] else create_adhesion_number(member["id"], joined)
-    return card_number, adhesion_number
+    return str(sequence).zfill(4), adhesion_number, scope_label
 
 
 def _official_contact_urls(settings):
@@ -3039,150 +3134,112 @@ def _add_member_email_link(document, member, x, y, card_w, card_h):
 
 
 def generate_member_card_assets(member):
-    """Génère la carte officielle FOBAK paysage, lisible et prête pour impression PVC."""
+    """Génère le modèle V78 paysage, exact PVC 85,6 × 54 mm."""
     settings = get_settings()
     internal_code = member["code"] or create_member_code(member["id"], member["province"] or "NAT")
-    card_number, adhesion_number = _member_document_numbers(member)
+    card_number, adhesion_number, coordination_label = _member_document_numbers(member)
     cards_dir = os.path.join(UPLOAD_ROOT, "cards", internal_code)
     os.makedirs(cards_dir, exist_ok=True)
     width, height = 1011, 638
-    navy, blue, cyan, gold = (4, 61, 105), (5, 91, 145), (33, 180, 218), (248, 199, 51)
-    dark, muted, pale, line = (10, 43, 70), (91, 111, 130), (242, 248, 252), (198, 219, 232)
-    logo = _open_contained(_static_or_upload_path(settings.get("logo_path", "")), (210, 92))
-    watermark = _open_contained(
-        _static_or_upload_path(settings.get("logo_watermark_path") or settings.get("logo_path", "")),
-        (430, 330),
-    )
-    flag = _open_contained(RDC_FLAG_ABS, (94, 59), False)
-    photo = _contain_photo(_static_or_upload_path(member["photo_path"]), (235, 285)) if member["photo_path"] else None
-    signature = _open_contained(_static_or_upload_path(settings.get("secretary_signature_path", "")), (190, 72))
-    stamp = _open_contained(_static_or_upload_path(settings.get("official_stamp_path", "")), (145, 92))
+    navy, blue, cyan, gold = (5, 61, 102), (6, 94, 147), (28, 177, 215), (247, 198, 48)
+    dark, muted, pale, line = (11, 40, 65), (79, 101, 120), (246, 250, 253), (184, 212, 228)
+    logo = _open_contained(_static_or_upload_path(settings.get("logo_path", "")), (205, 82))
+    emblem_path = settings.get("emblem_path") or "img/fobak_embleme_officiel_v79.png"
+    emblem = _open_contained(_static_or_upload_path(emblem_path), (420, 300))
+    watermark = emblem or _open_contained(_static_or_upload_path(settings.get("logo_watermark_path") or settings.get("logo_path", "")), (420, 300))
+    flag = _open_contained(RDC_FLAG_ABS, (100, 62), False)
+    photo = _contain_photo(_static_or_upload_path(member["photo_path"]), (218, 238)) if member["photo_path"] else None
     status, _ = _card_status(member)
-    full_name = f"{member['first_name'] or ''} {member['last_name'] or ''}".strip().upper()
-    role = (
-        member["executive_position"] if "executive_position" in member.keys() and member["executive_position"]
-        else member["role_label"] if "role_label" in member.keys() and member["role_label"]
-        else member["profession"] or "Membre"
-    )
-    executive_number = member["executive_number"] if "executive_number" in member.keys() and member["executive_number"] else ""
+    role = member["executive_position"] if "executive_position" in member.keys() and member["executive_position"] else (member["role_label"] or member["profession"] or "Membre")
+    post_name = member["post_name"] if "post_name" in member.keys() and member["post_name"] else "—"
 
-    def fitted_font(draw, text_value, start, minimum, max_width, bold=True):
+    office = None
+    if coordination_label != "COORDINATION NATIONALE" and member["province"]:
+        con = db(); office = con.execute("SELECT * FROM provincial_offices WHERE province=?", (member["province"],)).fetchone(); con.close()
+    secretary_name = (office["secretary_name"] if office and office["secretary_name"] else settings.get("secretary_name")) or "Secrétaire Général"
+    secretary_function = (office["secretary_function"] if office and office["secretary_function"] else settings.get("secretary_function")) or "Secrétaire Général"
+    signature_rel = office["secretary_signature_path"] if office and office["secretary_signature_path"] else settings.get("secretary_signature_path", "")
+    stamp_rel = office["official_stamp_path"] if office and "official_stamp_path" in office.keys() and office["official_stamp_path"] else settings.get("official_stamp_path", "")
+    signature = _open_contained(_static_or_upload_path(signature_rel), (102, 58))
+    stamp = _open_contained(_static_or_upload_path(stamp_rel), (84, 70))
+
+    def fitted_font(draw, value, start, minimum, max_width, bold=True):
         size = start
-        while size > minimum:
-            candidate = _card_font(size, bold)
-            if draw.textbbox((0, 0), str(text_value or ""), font=candidate)[2] <= max_width:
-                return candidate
+        while size > minimum and draw.textbbox((0, 0), str(value or "—"), font=_card_font(size, bold))[2] > max_width:
             size -= 1
-        return _card_font(minimum, bold)
+        return _card_font(size, bold)
 
-    def paste_watermark(image, center=(600, 345), opacity=.075):
-        if not watermark:
-            return
-        mark = watermark.copy()
-        mark.putalpha(mark.getchannel("A").point(lambda value: int(value * opacity)))
-        image.paste(mark, (int(center[0]-mark.width/2), int(center[1]-mark.height/2)), mark)
+    def add_watermark(image, center=(505, 355), opacity=.06):
+        if watermark:
+            mark = watermark.copy(); mark.putalpha(mark.getchannel("A").point(lambda value: int(value * opacity)))
+            image.paste(mark, (int(center[0]-mark.width/2), int(center[1]-mark.height/2)), mark)
 
-    def base_card(title):
+    def base_card():
         image = Image.new("RGB", (width, height), "white")
         draw = ImageDraw.Draw(image)
-        draw.rounded_rectangle((5, 5, width-5, height-5), radius=32, fill="white", outline=navy, width=5)
-        draw.rounded_rectangle((5, 5, width-5, 151), radius=32, fill=navy)
-        draw.rectangle((5, 110, width-5, 151), fill=navy)
-        draw.rectangle((5, 143, width-5, 153), fill=gold)
-        if logo:
-            image.paste(logo, (18, 18), logo)
-        else:
-            draw.text((120, 60), "FOBAK", font=_card_font(32, True), anchor="mm", fill="white")
-        if flag:
-            image.paste(flag.convert("RGB"), (891, 18))
-        draw.text((938, 88), "RÉPUBLIQUE", font=_card_font(13, True), anchor="mm", fill="white")
-        draw.text((938, 104), "DÉMOCRATIQUE", font=_card_font(13, True), anchor="mm", fill="white")
-        draw.text((938, 120), "DU CONGO", font=_card_font(13, True), anchor="mm", fill="white")
-        structure_name = settings.get("structure_name", "FONDATION BAKITANI ASBL").upper()
-        if "ASBL" not in structure_name:
-            structure_name += " ASBL"
-        draw.text((width//2, 37), structure_name, font=fitted_font(draw, structure_name, 32, 25, 610), anchor="mm", fill="white")
-        draw.text((width//2, 73), settings.get("secretariat_label", "BUREAU NATIONAL").upper(), font=_card_font(21, True), anchor="mm", fill=gold)
-        legal_line = settings.get("structure_legal", "Organisation associative à vocation sociale et communautaire")
-        draw.text((width//2, 105), _fit_text(draw, legal_line, _card_font(14), 610, 120), font=_card_font(14), anchor="mm", fill=(232, 244, 251))
-        draw.rounded_rectangle((245, 122, 766, 182), radius=20, fill=gold, outline="white", width=4)
-        draw.text((width//2, 152), title, font=fitted_font(draw, title, 35, 29, 490), anchor="mm", fill=navy)
+        draw.rounded_rectangle((5, 5, width-5, height-5), radius=28, fill="white", outline=navy, width=5)
+        draw.rounded_rectangle((5, 5, width-5, 166), radius=28, fill=navy)
+        draw.rectangle((5, 115, width-5, 166), fill=navy)
+        if logo: image.paste(logo, (24, 22), logo)
+        else: draw.text((125, 62), "FOBAK", font=_card_font(34, True), anchor="mm", fill="white")
+        if flag: image.paste(flag.convert("RGB"), (882, 24))
+        draw.text((width//2, 29), "RÉPUBLIQUE DÉMOCRATIQUE DU CONGO", font=_card_font(22, True), anchor="mm", fill="white")
+        draw.text((width//2, 68), "FONDATION BAKITANI", font=_card_font(28, True), anchor="mm", fill="white")
+        draw.text((width//2, 108), coordination_label, font=fitted_font(draw, coordination_label, 22, 17, 610), anchor="mm", fill=gold)
+        draw.line((225, 139, 785, 139), fill=(224, 240, 249), width=2)
+        draw.rectangle((5, 158, width-5, 166), fill=gold)
         return image, draw
 
-    def draw_contact_footer(draw, validity_text):
-        draw.rectangle((5, 544, width-5, height-5), fill=navy)
-        draw.rectangle((5, 544, width-5, 549), fill=gold)
-        first_line = f"{validity_text}  •  N° {card_number}  •  {status}"
-        draw.text((width//2, 566), _fit_text(draw, first_line, _card_font(17, True), 950, 150), font=_card_font(17, True), anchor="mm", fill="white")
-        second_line = f"☎ {settings.get('contact_phones', '')}   |   WhatsApp {settings.get('whatsapp', '+243 81 45 70 392')}   |   ✉ {settings.get('contact_email', 'fondationbakitani@gmail.com')}"
-        second_font = fitted_font(draw, second_line, 16, 13, 960)
-        draw.text((width//2, 592), second_line, font=second_font, anchor="mm", fill=(238, 247, 252))
-        third_line = f"Facebook : {settings.get('facebook_label', 'Fondation Bakitani')}   |   YouTube : {settings.get('youtube_label', 'Fondation Bakitani TV')}   |   Site : {settings.get('site_label', 'www.fondationbakitani.org')}"
-        third_font = fitted_font(draw, third_line, 16, 13, 960)
-        draw.text((width//2, 618), third_line, font=third_font, anchor="mm", fill=gold)
+    def draw_footer(draw, lead):
+        draw.rectangle((5, 550, width-5, height-5), fill=navy)
+        draw.rectangle((5, 550, width-5, 555), fill=gold)
+        draw.text((width//2, 570), _fit_text(draw, lead, _card_font(16, True), 960, 150), font=_card_font(16, True), anchor="mm", fill="white")
+        contact = f"☎ {settings.get('contact_phones','')}  |  WhatsApp {settings.get('whatsapp','+243 81 45 70 392')}  |  ✉ {settings.get('contact_email','fondationbakitani@gmail.com')}"
+        draw.text((width//2, 596), contact, font=fitted_font(draw, contact, 15, 12, 965), anchor="mm", fill=(235, 247, 253))
+        social = f"Facebook : {settings.get('facebook_label','Fondation Bakitani')}  |  YouTube : {settings.get('youtube_label','Fondation Bakitani TV')}  |  Site : {settings.get('site_label','www.fondationbakitani.org')}"
+        draw.text((width//2, 621), social, font=fitted_font(draw, social, 15, 12, 965), anchor="mm", fill=gold)
 
-    front, draw = base_card("CARTE DE MEMBRE")
-    paste_watermark(front, (625, 345), .065)
-    draw.rounded_rectangle((28, 194, 281, 510), radius=22, fill=pale, outline=cyan, width=5)
-    if photo:
-        front.paste(photo, (37, 204))
-    else:
-        draw.text((154, 346), "PHOTO", font=_card_font(28, True), anchor="mm", fill=muted)
-    draw.text((154, 524), "PHOTO OFFICIELLE", font=_card_font(14, True), anchor="mm", fill=muted)
-    draw.rounded_rectangle((305, 187, 978, 530), radius=24, fill=(255, 255, 255), outline=line, width=3)
-    draw.text((330, 207), full_name, font=fitted_font(draw, full_name, 41, 29, 610), fill=navy)
-    draw.text((330, 262), role, font=fitted_font(draw, role, 27, 21, 430), fill=blue)
-    badge_color = (16, 137, 78) if status == "ACTIVE" else (186, 48, 55)
-    draw.rounded_rectangle((806, 220, 950, 263), radius=18, fill=badge_color)
-    draw.text((878, 242), status, font=_card_font(20, True), anchor="mm", fill="white")
-    if executive_number:
-        draw.rounded_rectangle((330, 295, 568, 334), radius=16, fill=navy)
-        draw.text((449, 315), f"HAUT CADRE N° {str(executive_number).zfill(3)}", font=_card_font(20, True), anchor="mm", fill="white")
-    rows = [
-        ("N° CARTE", card_number),
-        ("N° ADHÉSION", adhesion_number),
-        ("TÉLÉPHONE", member["phone"]),
-        ("E-MAIL", member_card_email(member["email"])),
-        ("PROVINCE", member["province"]),
-        ("VALIDITÉ", f"{(member['joined_at'] or '')[:10]} au {(member['expires_at'] or '')[:10]}"),
+    front, draw = base_card(); add_watermark(front, (425, 360), .055)
+    draw.rounded_rectangle((32, 181, 725, 535), radius=20, fill=(255,255,255), outline=line, width=3)
+    draw.rounded_rectangle((40, 188, 238, 229), radius=15, fill=navy)
+    draw.text((139, 209), f"Nº : {card_number}", font=_card_font(23, True), anchor="mm", fill="white")
+    fields = [
+        ("NOM", member["last_name"]), ("POSTNOM", post_name), ("PRÉNOM", member["first_name"]),
+        ("FONCTION", role), ("ADRESSE", member["physical_address"] or member["province"] or "—"),
     ]
-    y = 337
-    for label, value in rows:
-        draw.text((330, y), label, font=_card_font(18, True), fill=muted)
-        value_font = fitted_font(draw, value, 20, 12, 255)
-        visible_value = _fit_text(draw, value, value_font, 255, 60)
-        draw.text((495, y), str(visible_value or "-"), font=value_font, fill=dark)
-        draw.line((330, y+25, 755, y+25), fill=line, width=2)
-        y += 31
-    qr_image = make_scannable_qr(short_verification_url(member["id"]), 184)
-    draw.rounded_rectangle((775, 292, 978, 530), radius=17, fill="white", outline=blue, width=4)
-    front.paste(qr_image, (784, 302))
-    draw.text((876, 518), "VÉRIFICATION OFFICIELLE", font=_card_font(9, True), anchor="mm", fill=navy)
-    draw_contact_footer(draw, f"Valide jusqu'au {(member['expires_at'] or '')[:10] or '—'}")
+    y = 252
+    for label, value in fields:
+        draw.text((52, y), label, font=_card_font(20, True), fill=blue)
+        value_font = fitted_font(draw, value, 24, 16, 315)
+        draw.text((218, y), _fit_text(draw, value or "—", value_font, 315, 70), font=value_font, fill=dark)
+        draw.line((52, y+29, 690, y+29), fill=line, width=2)
+        y += 54
+    qr = make_scannable_qr(short_verification_url(member["id"]), 164)
+    draw.rounded_rectangle((548, 359, 724, 535), radius=12, fill="white", outline=blue, width=3)
+    front.paste(qr, (554, 365))
+    draw.rounded_rectangle((755, 181, 980, 430), radius=19, fill=pale, outline=cyan, width=4)
+    if photo: front.paste(photo, (759, 187))
+    else: draw.text((868, 305), "PHOTO", font=_card_font(30, True), anchor="mm", fill=muted)
+    draw.text((868, 446), f"{member['first_name'] or ''} {member['last_name'] or ''} {post_name if post_name != '—' else ''}".strip(), font=fitted_font(draw, f"{member['first_name']} {member['last_name']}", 17, 13, 220), anchor="mm", fill=navy)
+    draw.text((868, 470), role, font=fitted_font(draw, role, 15, 12, 220), anchor="mm", fill=blue)
+    if signature: front.paste(signature, (760, 479), signature)
+    else: draw.text((810, 508), "SIGNATURE", font=_card_font(11, True), anchor="mm", fill=muted)
+    if stamp: front.paste(stamp, (879, 472), stamp)
+    else: draw.text((924, 508), "CACHET", font=_card_font(11, True), anchor="mm", fill=muted)
+    draw.text((868, 538), secretary_name, font=fitted_font(draw, secretary_name, 13, 10, 220), anchor="mm", fill=dark)
+    draw_footer(draw, f"Nº {card_number}  •  {status}  •  Valide jusqu’au {(member['expires_at'] or '')[:10] or '—'}")
 
-    back, draw = base_card("CARTE DE MEMBRE")
-    paste_watermark(back, (505, 357), .105)
-    notice = settings.get("card_notice", "Les autorités tant civiles, militaires que policières sont priées d'apporter leur assistance en cas de nécessité.")
-    draw.rounded_rectangle((58, 187, 953, 305), radius=23, fill=(255, 255, 255), outline=gold, width=3)
-    notice_lines = wrap_text(notice, 62)[:3]
-    for index, notice_line in enumerate(notice_lines):
-        draw.text((width//2, 214+index*28), notice_line, font=_card_font(20, index == 0), anchor="mm", fill=dark)
-    draw.text((270, 335), "SIGNATURE AUTORISÉE", font=_card_font(23, True), anchor="mm", fill=navy)
-    secretary_display_name = settings.get("secretary_name") or "Nom du Secrétaire Général"
-    draw.text((270, 371), secretary_display_name, font=fitted_font(draw, secretary_display_name, 23, 18, 385), anchor="mm", fill=dark)
-    draw.rounded_rectangle((67, 397, 473, 505), radius=15, fill=(255, 255, 255), outline=line, width=3)
-    if signature:
-        back.paste(signature, (175, 414), signature)
-    else:
-        draw.text((270, 451), "ESPACE SIGNATURE", font=_card_font(20, True), anchor="mm", fill=muted)
-    draw.text((740, 335), "CACHET OFFICIEL", font=_card_font(23, True), anchor="mm", fill=navy)
-    draw.text((740, 371), settings.get("secretary_function", "Secrétaire Général").upper(), font=_card_font(20, True), anchor="mm", fill=blue)
-    draw.rounded_rectangle((538, 397, 944, 505), radius=15, fill=(255, 255, 255), outline=line, width=3)
-    if stamp:
-        back.paste(stamp, (668, 405), stamp)
-    else:
-        draw.text((740, 451), "ESPACE CACHET", font=_card_font(20, True), anchor="mm", fill=muted)
-    draw_contact_footer(draw, f"Adhésion {adhesion_number}")
+    back, draw = base_card(); add_watermark(back, (505, 350), .10)
+    draw.rounded_rectangle((252, 181, 759, 240), radius=20, fill=gold, outline=navy, width=3)
+    draw.text((width//2, 211), "CARTE DE MEMBRE", font=_card_font(35, True), anchor="mm", fill=navy)
+    large_logo = _open_contained(_static_or_upload_path(emblem_path), (170, 170))
+    if large_logo: back.paste(large_logo, ((width-large_logo.width)//2, 236), large_logo)
+    notice = settings.get("card_notice", "Les autorités tant civiles, militaires que policières sont priées d’apporter leur assistance au porteur de la présente carte en cas de nécessité.")
+    draw.rounded_rectangle((73, 402, 938, 525), radius=20, fill=(255,255,255), outline=gold, width=3)
+    lines = wrap_text(notice, 72)[:3]
+    for index, text_line in enumerate(lines):
+        draw.text((width//2, 433 + index*31), text_line, font=_card_font(22, index == 0), anchor="mm", fill=dark)
+    draw_footer(draw, f"Document personnel et incessible  •  Nº {card_number}  •  {coordination_label}")
 
     paths = {}
     for side, image in (("recto", front), ("verso", back)):
@@ -3205,8 +3262,6 @@ def generate_member_card_assets(member):
     for side in ("recto", "verso"):
         document.drawImage(paths[side + "_png"], 0, 0, 85.6*mm, 54*mm, preserveAspectRatio=False, mask="auto")
         _add_card_contact_links(document, settings, 0, 0, 85.6*mm, 54*mm)
-        if side == "recto":
-            _add_member_email_link(document, member, 0, 0, 85.6*mm, 54*mm)
         document.showPage()
     document.save()
     paths["pdf"] = pdf_path
@@ -3215,7 +3270,7 @@ def generate_member_card_assets(member):
         for key, path in paths.items():
             if key != "pdf":
                 archive.write(path, os.path.basename(path))
-        archive.writestr("LISEZ_MOI.txt", "Modèle FOBAK paysage V71, format PVC-ID1 85,6 x 54 mm. L'adresse e-mail personnelle du membre apparaît au recto et devient cliquable dans le PDF. Les adresses techniques locales ne sont jamais imprimées.\n")
+        archive.writestr("LISEZ_MOI.txt", "Modèle officiel FOBAK paysage V78, format PVC-ID1 exact 85,6 x 54 mm. Numérotation indépendante par coordination, QR au recto, signature et cachet remplaçables.\n")
     paths["zip"] = zip_path
     Path(os.path.join(cards_dir, ".card_template_version")).write_text(CARD_TEMPLATE_VERSION, encoding="utf-8")
     return paths
@@ -3225,7 +3280,7 @@ def generate_member_card_preview_sheet_pdf(member):
     """Deux pages A4 paysage : une face très agrandie par page pour une lecture réelle."""
     assets = generate_member_card_assets(member)
     settings = get_settings()
-    card_number, _ = _member_document_numbers(member)
+    card_number, _, _ = _member_document_numbers(member)
     preview_path = os.path.join(os.path.dirname(assets["pdf"]), "apercu_a4_agrandi.pdf")
     document = canvas.Canvas(preview_path, pagesize=landscape(A4))
     page_w, page_h = landscape(A4)
@@ -3245,8 +3300,6 @@ def generate_member_card_preview_sheet_pdf(member):
         document.roundRect(x-2*mm, y-2*mm, card_w+4*mm, card_h+4*mm, 3*mm, fill=0, stroke=1)
         document.drawImage(assets[side+"_png"], x, y, card_w, card_h, preserveAspectRatio=False, mask="auto")
         _add_card_contact_links(document, settings, x, y, card_w, card_h)
-        if side == "recto":
-            _add_member_email_link(document, member, x, y, card_w, card_h)
         document.setFillColor(colors.HexColor("#526A7A")); document.setFont("Helvetica", 8.5)
         document.drawCentredString(page_w/2, 7*mm, "Le PDF final d'impression conserve le format physique PVC-ID1 exact : 85,6 x 54 mm.")
         document.showPage()
@@ -4032,6 +4085,7 @@ def become_member():
             return redirect(url_for("become_member"))
         first_name = request.form.get("first_name", "").strip()
         last_name = request.form.get("last_name", "").strip()
+        post_name = request.form.get("post_name", "").strip()
         email = request.form.get("email", "").strip().lower()
         raw_phone = request.form.get("phone", "").strip()
         if not first_name or not last_name or not email or not raw_phone:
@@ -4054,10 +4108,11 @@ def become_member():
             flash("Une demande ou un compte utilise déjà cet e-mail ou ce numéro de téléphone. Contactez l’administration si vous avez besoin d’aide.", "warning")
             return redirect(url_for("become_member"))
         photo_path = save_data_url_image(request.form.get("photo_capture", ""), "photos") or save_upload(request.files.get("photo"), "photos")
-        con.execute('''INSERT INTO member_applications(first_name,last_name,gender,email,phone,nationality,province,territory,commune,localite,physical_address,birth_date,birth_place,marital_status,profession,education,studies_done,experience,motivation,photo_path,custom_fields,statutes_accepted,statutes_accepted_at,statutes_document_id,statutes_version,acceptance_ip,acceptance_user_agent,status,created_at)
-                       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''', (
+        con.execute('''INSERT INTO member_applications(first_name,last_name,post_name,gender,email,phone,nationality,province,territory,commune,localite,physical_address,birth_date,birth_place,marital_status,profession,education,studies_done,experience,motivation,photo_path,custom_fields,statutes_accepted,statutes_accepted_at,statutes_document_id,statutes_version,acceptance_ip,acceptance_user_agent,status,created_at)
+                       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''', (
             first_name,
             last_name,
+            post_name,
             request.form.get("gender", ""),
             email,
             phone_value,
@@ -4383,9 +4438,9 @@ def accept_application(app_id):
     con.execute("UPDATE users SET force_password_change=1 WHERE id=?", (user_id,))
     joined = today()
     expires = (datetime.now() + timedelta(days=365)).strftime("%Y-%m-%d")
-    con.execute('''INSERT INTO members(user_id, code, first_name, last_name, gender, email, phone, nationality, province, territory, commune, localite, physical_address, birth_date, birth_place, marital_status, profession, education, studies_done, experience, photo_path, custom_fields, adhesion_number, joined_at, expires_at, approved_by, created_by)
-                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
-                (user_id, "TEMP", a["first_name"], a["last_name"], a["gender"], a["email"], a["phone"], a["nationality"], a["province"], a["territory"], a["commune"], a["localite"], a["physical_address"], a["birth_date"], a["birth_place"], a["marital_status"], a["profession"], a["education"], a["studies_done"], a["experience"], a["photo_path"], a["custom_fields"], "TEMP", joined, expires, reviewer["id"], reviewer["id"]))
+    con.execute('''INSERT INTO members(user_id, code, first_name, last_name, post_name, gender, email, phone, nationality, province, territory, commune, localite, physical_address, birth_date, birth_place, marital_status, profession, education, studies_done, experience, photo_path, custom_fields, adhesion_number, joined_at, expires_at, approved_by, created_by)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+                (user_id, "TEMP", a["first_name"], a["last_name"], a["post_name"], a["gender"], a["email"], a["phone"], a["nationality"], a["province"], a["territory"], a["commune"], a["localite"], a["physical_address"], a["birth_date"], a["birth_place"], a["marital_status"], a["profession"], a["education"], a["studies_done"], a["experience"], a["photo_path"], a["custom_fields"], "TEMP", joined, expires, reviewer["id"], reviewer["id"]))
     member_id = con.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
     code = create_member_code(member_id, a["province"])
     adhesion_number = create_adhesion_number(member_id, joined)
@@ -4462,10 +4517,11 @@ def members():
     ).fetchone()["total"]
     national_total = con.execute("SELECT COUNT(*) AS total FROM members WHERE deleted_at IS NULL").fetchone()["total"] if user["role"] in NATIONAL_ROLES else None
     con.close()
+    card_numbers = {row["id"]: ensure_member_card_number(row)[0] for row in rows}
     return render_template(
         "members.html", rows=rows, selected_province=province, province_counts=province_counts,
         scope_total=scope_total, active_total=active_total, national_total=national_total,
-        filtered_total=len(rows), can_print_cards=can_output_member_card(user), focus=request.args.get("focus", ""),
+        filtered_total=len(rows), can_print_cards=can_output_member_card(user), focus=request.args.get("focus", ""), card_numbers=card_numbers,
     )
 
 
@@ -4965,7 +5021,7 @@ def verify_member(code):
 
 @app.route("/v/<int:member_id>")
 def verify_member_short(member_id):
-    """Point public court utilisé par les QR des cartes V71."""
+    """Point public court utilisé par les QR des cartes V78."""
     con = db()
     member = con.execute("SELECT * FROM members WHERE id=? AND deleted_at IS NULL", (member_id,)).fetchone()
     con.close()
@@ -4989,6 +5045,7 @@ def new_member():
             abort(403)
         first_name = request.form.get("first_name", "").strip()
         last_name = request.form.get("last_name", "").strip()
+        post_name = request.form.get("post_name", "").strip()
         email = request.form.get("email", "").strip()
         phone_prefix = request.form.get("phone_country_code", "+243")
         phone = normalized_phone(phone_prefix, request.form.get("phone", ""))
@@ -5013,8 +5070,8 @@ def new_member():
             existing = con.execute("SELECT * FROM users WHERE email=? OR phone=?", (email, phone)).fetchone()
             user_id = existing["id"]
         con.execute("UPDATE users SET force_password_change=1 WHERE id=?", (user_id,))
-        sql = """INSERT INTO members(user_id, code, first_name, last_name, gender, email, phone, nationality, province, territory, commune, localite, physical_address, birth_date, birth_place, marital_status, profession, education, studies_done, experience, photo_path, custom_fields, adhesion_number, joined_at, expires_at, approved_by, created_by, status, updated_at, is_administrative, role_label) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"""
-        con.execute(sql, (user_id, "TEMP", first_name, last_name, request.form.get("gender", ""), email, phone, request.form.get("nationality", "Congolaise"), province, request.form.get("territory", ""), request.form.get("commune", ""), localite, request.form.get("physical_address", ""), request.form.get("birth_date", ""), request.form.get("birth_place", ""), request.form.get("marital_status", ""), request.form.get("profession", ""), request.form.get("education", ""), studies_done, request.form.get("experience", ""), photo_path, custom_fields, "TEMP", joined, expires, user["id"], user["id"], "active", now(), 0, "Membre"))
+        sql = """INSERT INTO members(user_id, code, first_name, last_name, post_name, gender, email, phone, nationality, province, territory, commune, localite, physical_address, birth_date, birth_place, marital_status, profession, education, studies_done, experience, photo_path, custom_fields, adhesion_number, joined_at, expires_at, approved_by, created_by, status, updated_at, is_administrative, role_label) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"""
+        con.execute(sql, (user_id, "TEMP", first_name, last_name, post_name, request.form.get("gender", ""), email, phone, request.form.get("nationality", "Congolaise"), province, request.form.get("territory", ""), request.form.get("commune", ""), localite, request.form.get("physical_address", ""), request.form.get("birth_date", ""), request.form.get("birth_place", ""), request.form.get("marital_status", ""), request.form.get("profession", ""), request.form.get("education", ""), studies_done, request.form.get("experience", ""), photo_path, custom_fields, "TEMP", joined, expires, user["id"], user["id"], "active", now(), 0, "Membre"))
         member_id = con.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
         code = create_member_code(member_id, province)
         adhesion_number = create_adhesion_number(member_id, joined)
@@ -5072,11 +5129,13 @@ def member_profile(member_id):
         (member_id,),
     ).fetchall()
     con.close()
+    printed_card_number, printed_coordination = ensure_member_card_number(member)
     return render_template(
         "member_profile.html", member=member, provincial_rank=provincial_rank,
         provincial_total=len(ranked_ids), payments=payments_rows, payment_total=payment_total,
         renewals=renewals, recent_actions=recent_actions, can_print_card=can_output_member_card(user),
         rank_label=("Rang local" if user["role"] == "local_admin" else "Rang dans la province"),
+        printed_card_number=printed_card_number, printed_coordination=printed_coordination,
     )
 
 
@@ -5146,6 +5205,7 @@ def edit_member(member_id):
 
     first_name = request.form.get("first_name", "").strip()
     last_name = request.form.get("last_name", "").strip()
+    post_name = request.form.get("post_name", "").strip()
     phone = request.form.get("phone", "").strip()
     email = request.form.get("email", "").strip()
     province = request.form.get("province", "").strip()
@@ -5199,9 +5259,9 @@ def edit_member(member_id):
 
     try:
         con.execute(
-            """UPDATE members SET first_name=?,last_name=?,gender=?,email=?,phone=?,nationality=?,province=?,territory=?,commune=?,localite=?,physical_address=?,birth_date=?,birth_place=?,marital_status=?,profession=?,education=?,experience=?,photo_path=?,joined_at=?,expires_at=?,role_label=?,executive_number=?,executive_position=?,is_administrative=?,updated_at=? WHERE id=?""",
+            """UPDATE members SET first_name=?,last_name=?,post_name=?,gender=?,email=?,phone=?,nationality=?,province=?,territory=?,commune=?,localite=?,physical_address=?,birth_date=?,birth_place=?,marital_status=?,profession=?,education=?,experience=?,photo_path=?,joined_at=?,expires_at=?,role_label=?,executive_number=?,executive_position=?,is_administrative=?,card_coordination=?,updated_at=? WHERE id=?""",
             (
-                first_name, last_name, request.form.get("gender", ""), email, phone,
+                first_name, last_name, post_name, request.form.get("gender", ""), email, phone,
                 request.form.get("nationality", "Congolaise"), province,
                 request.form.get("territory", ""), request.form.get("commune", ""), localite,
                 request.form.get("physical_address", ""), request.form.get("birth_date", ""),
@@ -5211,7 +5271,7 @@ def edit_member(member_id):
                 request.form.get("joined_at", "") or member["joined_at"],
                 request.form.get("expires_at", "") or member["expires_at"],
                 role_label, executive_number or None, executive_position or None,
-                1 if executive_position else member["is_administrative"], now(), member_id,
+                1 if executive_position else member["is_administrative"], request.form.get("card_coordination", "auto"), now(), member_id,
             ),
         )
         if member["user_id"]:
@@ -6476,12 +6536,14 @@ def provincial_office_settings():
     if request.method=='POST':
         president_sig=save_upload(request.files.get('president_signature'),'signatures')
         secretary_sig=save_upload(request.files.get('secretary_signature'),'signatures')
+        official_stamp=save_upload(request.files.get('official_stamp'),'signatures')
         old=con.execute('SELECT * FROM provincial_offices WHERE province=?',(province,)).fetchone()
         president_sig=president_sig or (old['president_signature_path'] if old else '')
         secretary_sig=secretary_sig or (old['secretary_signature_path'] if old else '')
-        con.execute("""INSERT INTO provincial_offices(province,president_name,president_function,president_signature_path,secretary_name,secretary_function,secretary_signature_path,office_address,office_phones,updated_at,updated_by)
-        VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(province) DO UPDATE SET president_name=excluded.president_name,president_function=excluded.president_function,president_signature_path=excluded.president_signature_path,secretary_name=excluded.secretary_name,secretary_function=excluded.secretary_function,secretary_signature_path=excluded.secretary_signature_path,office_address=excluded.office_address,office_phones=excluded.office_phones,updated_at=excluded.updated_at,updated_by=excluded.updated_by""",
-        (province,request.form.get('president_name',''),request.form.get('president_function','Président provincial'),president_sig,request.form.get('secretary_name',''),request.form.get('secretary_function','Secrétaire provincial'),secretary_sig,request.form.get('office_address',''),request.form.get('office_phones',''),now(),user['id']))
+        official_stamp=official_stamp or (old['official_stamp_path'] if old and 'official_stamp_path' in old.keys() else '')
+        con.execute("""INSERT INTO provincial_offices(province,president_name,president_function,president_signature_path,secretary_name,secretary_function,secretary_signature_path,official_stamp_path,office_address,office_phones,updated_at,updated_by)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(province) DO UPDATE SET president_name=excluded.president_name,president_function=excluded.president_function,president_signature_path=excluded.president_signature_path,secretary_name=excluded.secretary_name,secretary_function=excluded.secretary_function,secretary_signature_path=excluded.secretary_signature_path,official_stamp_path=excluded.official_stamp_path,office_address=excluded.office_address,office_phones=excluded.office_phones,updated_at=excluded.updated_at,updated_by=excluded.updated_by""",
+        (province,request.form.get('president_name',''),request.form.get('president_function','Président provincial'),president_sig,request.form.get('secretary_name',''),request.form.get('secretary_function','Secrétaire provincial'),secretary_sig,official_stamp,request.form.get('office_address',''),request.form.get('office_phones',''),now(),user['id']))
         con.commit(); flash('Informations du bureau provincial enregistrées.','success'); log_action(user['id'],'Mise à jour bureau provincial','province',None,province)
     office=con.execute('SELECT * FROM provincial_offices WHERE province=?',(province,)).fetchone(); con.close()
     return render_template('provincial_office.html',office=office,selected_province=province)
@@ -6563,6 +6625,26 @@ def public_statutes():
     return render_template("statutes.html", document=document, sections=sections, admin_mode=False)
 
 
+@app.route("/documents-officiels/<int:document_id>")
+def official_document_file(document_id):
+    """Sert un document officiel depuis le volume ou le paquet livré, sans lien 404."""
+    con = db()
+    document = con.execute("SELECT * FROM official_documents WHERE id=? AND deleted_at IS NULL", (document_id,)).fetchone()
+    con.close()
+    if not document or (not document["public"] and not session.get("user_id")):
+        abort(404)
+    candidates = [_static_or_upload_path(document["file_path"])] if document["file_path"] else []
+    if document["document_type"] == "statuts":
+        candidates.extend([
+            os.path.join(BUNDLED_STATIC_DIR, "uploads", "official_docs", "statut_bakitani_original.pdf"),
+            os.path.join(BUNDLED_STATIC_DIR, "uploads", "statuts", "statuts_reglement_fobak_compresse.pdf"),
+        ])
+    path = next((candidate for candidate in candidates if candidate and os.path.isfile(candidate)), None)
+    if not path:
+        abort(404)
+    return send_file(path, as_attachment=request.args.get("download") == "1", download_name=os.path.basename(path), max_age=0)
+
+
 @app.route("/admin/statuts", methods=["GET", "POST"])
 @login_required
 @role_required("super_admin", "president", "secretary", "national_secretary")
@@ -6642,11 +6724,14 @@ def settings_page():
             for key in keys:
                 con.execute("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, request.form.get(key, "")))
             logo_paths = save_logo_upload(request.files.get("logo"))
+            emblem_path = save_upload(request.files.get("emblem_logo"), "logos")
             psig = save_upload(request.files.get("president_signature"), "signatures")
             ssig = save_upload(request.files.get("secretary_signature"), "signatures")
             stamp = save_upload(request.files.get("official_stamp"), "signatures")
             for key, value in logo_paths.items():
                 con.execute("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, value))
+            if emblem_path:
+                con.execute("INSERT INTO settings(key,value) VALUES('emblem_path',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (emblem_path,))
             for key, value in [('president_signature_path',psig),('secretary_signature_path',ssig),('official_stamp_path',stamp)]:
                 if value:
                     con.execute("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key,value))

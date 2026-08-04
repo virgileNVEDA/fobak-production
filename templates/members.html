@@ -63,12 +63,12 @@
   <div class="member-list" role="list">
     {% for m in rows %}
     <article id="member-{{ m.id }}" class="member-list-row {{ 'member-focus' if focus|string == m.id|string else '' }}" role="listitem">
-      <div class="member-rank" aria-label="Rang {{ loop.index }}"><span>N°</span><strong>{{ '%03d'|format(loop.index) }}</strong></div>
+      <div class="member-rank" aria-label="Numéro de carte {{ card_numbers.get(m.id, loop.index) }}"><span>Nº carte</span><strong>{{ '%04d'|format(card_numbers.get(m.id, loop.index)) }}</strong></div>
       <div class="member-list-photo">
         {% if m.photo_path %}<img src="{{ url_for('static', filename=m.photo_path) }}" alt="Photo de {{ m.first_name }} {{ m.last_name }}">{% else %}<span>{{ (m.first_name or 'M')[:1] }}{{ (m.last_name or '')[:1] }}</span>{% endif %}
       </div>
       <div class="member-list-main">
-        <div class="member-list-name"><h3>{{ m.last_name }} {{ m.first_name }}</h3><span class="badge {{ m.status or 'active' }}">{{ m.status or 'active' }}</span></div>
+        <div class="member-list-name"><h3>{{ m.last_name }} {{ m.post_name or '' }} {{ m.first_name }}</h3><span class="badge {{ m.status or 'active' }}">{{ m.status or 'active' }}</span></div>
         <p>{{ m.role_label or m.profession or 'Membre' }}{% if m.executive_number %} · <strong>Haut cadre N° {{ m.executive_number }}</strong>{% endif %}</p>
         <div class="member-list-meta"><span>📍 {{ m.province }}{% if m.localite %}, {{ m.localite }}{% endif %}</span><span>🪪 {{ m.adhesion_number or m.code }}</span><span>☎ {{ m.phone }}</span></div>
       </div>
