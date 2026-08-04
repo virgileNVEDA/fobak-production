@@ -3,6 +3,7 @@ from pathlib import Path
 import sys
 import csv
 import json
+import base64
 import uuid
 import secrets
 import shutil
@@ -23,7 +24,7 @@ from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from flask import Flask, render_template, request, redirect, url_for, session, flash, send_file, send_from_directory, Response, abort, has_request_context, jsonify, make_response
-from reportlab.lib.pagesizes import landscape, A6, A4
+from reportlab.lib.pagesizes import landscape, A5, A4
 from reportlab.lib.units import mm
 from reportlab.lib import colors
 from reportlab.pdfgen import canvas
@@ -58,9 +59,9 @@ UPLOAD_ROOT = os.environ.get("UPLOAD_ROOT", os.path.join(STATIC_DIR, "uploads"))
 RDC_FLAG_REL = "img/drapeau_rdc.jpg"
 RDC_FLAG_ABS = os.path.join(STATIC_DIR, RDC_FLAG_REL)
 ALLOWED_IMAGE_EXT = {"png", "jpg", "jpeg", "webp", "pdf", "doc", "docx", "xls", "xlsx"}
-APP_VERSION = "73.0.0"
-APP_RELEASE_NAME = "FOBAK Manager Pro — mémorisation sécurisée de l’identifiant V73"
-CARD_TEMPLATE_VERSION = "paysage-v73-email-membre-visible"
+APP_VERSION = "74.0.0"
+APP_RELEASE_NAME = "FOBAK Manager Pro — génération de documents stabilisée V74"
+CARD_TEMPLATE_VERSION = "paysage-v74-generation-stabilisee"
 
 # Numérotation protocolaire nationale. Le numéro de cadre reste distinct du
 # code unique de la carte afin de conserver la traçabilité des anciens membres.
@@ -1458,7 +1459,8 @@ def enforce_idle_timeout_and_heartbeat():
                     flash("Cette connexion a été fermée par un administrateur.", "warning")
                     return redirect(url_for("login"))
                 con.execute("UPDATE active_sessions SET last_seen=?, active=1 WHERE session_token=? AND user_id=?", (now(), token, user_id))
-                con.execute("UPDATE active_sessions SET active=0 WHERE active=1 AND datetime(last_seen) < datetime('now','-10 minutes')")
+                inactive_cutoff = (datetime.now() - timedelta(minutes=10)).strftime("%Y-%m-%d %H:%M:%S")
+                con.execute("UPDATE active_sessions SET active=0 WHERE active=1 AND datetime(last_seen) < datetime(?)", (inactive_cutoff,))
                 con.commit(); con.close()
             except Exception:
                 pass
@@ -2643,7 +2645,7 @@ def _portrait_card_svg(member, side, settings):
     return '<svg xmlns="http://www.w3.org/2000/svg" width="638" height="1011" viewBox="0 0 638 1011">' + header + body + '</svg>'
 
 
-def generate_member_card_assets(member):
+def _generate_member_card_assets_portrait_legacy(member):
     """Génère une carte PVC portrait lisible pour tout membre, ancien ou nouveau."""
     settings = get_settings()
     code = member["code"] or create_member_code(member["id"], member["province"] or "NAT")
@@ -2822,7 +2824,7 @@ def generate_member_card_pdf(member):
     return generate_member_card_assets(member)["pdf"]
 
 
-def generate_member_card_preview_sheet_pdf(member):
+def _generate_member_card_preview_sheet_pdf_portrait_legacy(member):
     """Crée une planche A4 agrandie pour contrôler les détails sans modifier le format PVC final."""
     assets = generate_member_card_assets(member)
     settings = get_settings()
@@ -3213,7 +3215,7 @@ def draw_checkbox(c, x, y, checked=False):
         c.setLineWidth(1)
 
 
-def generate_adhesion_form_pdf(member=None, blank=False):
+def _generate_adhesion_form_pdf_legacy(member=None, blank=False):
     """Génère une fiche d'adhésion A4 avec en-tête et pied de page harmonisés selon le modèle FOBAK."""
     settings = get_settings()
     cards_dir = os.path.join(UPLOAD_ROOT, "cards")
@@ -3227,7 +3229,6 @@ def generate_adhesion_form_pdf(member=None, blank=False):
     page_w, page_h = A4
     margin_x = 20 * mm
     content_left = margin_x + 6 * mm
-    content_right = page_w - margin_x - 6 * mm
 
     c.setFillColor(colors.white)
     c.rect(0, 0, page_w, page_h, fill=1, stroke=0)
@@ -3749,7 +3750,8 @@ def start_user_session(user, method="password"):
     session["last_activity_ts"] = int(datetime.now().timestamp())
     con = db()
     # Plusieurs appareils autorisés : chaque connexion reste visible et révocable séparément.
-    con.execute("UPDATE active_sessions SET active=0, logout_at=COALESCE(logout_at,?) WHERE user_id=? AND active=1 AND datetime(last_seen)<datetime('now','-24 hours')", (now(), user["id"]))
+    stale_cutoff = (datetime.now() - timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S")
+    con.execute("UPDATE active_sessions SET active=0, logout_at=COALESCE(logout_at,?) WHERE user_id=? AND active=1 AND datetime(last_seen)<datetime(?)", (now(), user["id"], stale_cutoff))
     con.execute("INSERT INTO active_sessions(session_token,user_id,login_at,last_seen,ip_address,user_agent,active) VALUES(?,?,?,?,?,?,1)", (session["session_token"], user["id"], now(), now(), request.remote_addr or "", (request.user_agent.string or "")[:500]))
     con.execute("UPDATE users SET last_login=?, failed_login_count=0, locked_until=NULL WHERE id=?", (now(), user["id"]))
     con.commit(); con.close()
@@ -5045,6 +5047,7 @@ def users_page():
     role_filter = request.args.get("role", "").strip()
     status_filter = request.args.get("status", "").strip()
     connected_filter = request.args.get("connected", "").strip()
+    online_cutoff = (datetime.now() - timedelta(minutes=15)).strftime("%Y-%m-%d %H:%M:%S")
     where = ["u.deleted_at IS NULL"]
     params = []
     if q:
@@ -5055,10 +5058,11 @@ def users_page():
     if status_filter in {"active","inactive"}:
         where.append("u.active=?"); params.append(1 if status_filter == "active" else 0)
     if connected_filter == "yes":
-        where.append("EXISTS(SELECT 1 FROM active_sessions s WHERE s.user_id=u.id AND s.active=1 AND datetime(s.last_seen)>=datetime('now','-15 minutes'))")
+        where.append("EXISTS(SELECT 1 FROM active_sessions s WHERE s.user_id=u.id AND s.active=1 AND datetime(s.last_seen)>=datetime(?))")
+        params.append(online_cutoff)
     sql = f"""
         SELECT u.*, m.id AS member_profile_id, m.code AS member_code, m.first_name AS member_first_name, m.last_name AS member_last_name, m.photo_path AS member_photo_path,
-               CASE WHEN EXISTS(SELECT 1 FROM active_sessions s WHERE s.user_id=u.id AND s.active=1 AND datetime(s.last_seen)>=datetime('now','-15 minutes')) THEN 1 ELSE 0 END AS is_connected,
+               CASE WHEN EXISTS(SELECT 1 FROM active_sessions s WHERE s.user_id=u.id AND s.active=1 AND datetime(s.last_seen)>=datetime(?)) THEN 1 ELSE 0 END AS is_connected,
                (SELECT MAX(s.last_seen) FROM active_sessions s WHERE s.user_id=u.id) AS last_seen,
                (SELECT MAX(s.login_at) FROM active_sessions s WHERE s.user_id=u.id) AS login_at
         FROM users u
@@ -5067,7 +5071,7 @@ def users_page():
         GROUP BY u.id
         ORDER BY is_connected DESC, u.role, u.province, u.email
     """
-    rows = con.execute(sql, params).fetchall()
+    rows = con.execute(sql, [online_cutoff] + params).fetchall()
     con.close()
     return render_template("users.html", rows=rows, can_create_users=can_create_users)
 
@@ -5078,7 +5082,8 @@ def users_page():
 def export_users_csv():
     import csv, io
     con = db()
-    rows = con.execute("""SELECT u.*, CASE WHEN EXISTS(SELECT 1 FROM active_sessions s WHERE s.user_id=u.id AND s.active=1 AND datetime(s.last_seen)>=datetime('now','-15 minutes')) THEN 'Oui' ELSE 'Non' END AS connected FROM users u WHERE u.deleted_at IS NULL ORDER BY u.role,u.last_name,u.first_name""").fetchall()
+    online_cutoff = (datetime.now() - timedelta(minutes=15)).strftime("%Y-%m-%d %H:%M:%S")
+    rows = con.execute("""SELECT u.*, CASE WHEN EXISTS(SELECT 1 FROM active_sessions s WHERE s.user_id=u.id AND s.active=1 AND datetime(s.last_seen)>=datetime(?)) THEN 'Oui' ELSE 'Non' END AS connected FROM users u WHERE u.deleted_at IS NULL ORDER BY u.role,u.last_name,u.first_name""", (online_cutoff,)).fetchall()
     con.close()
     output = io.StringIO(); writer = csv.writer(output, delimiter=';')
     writer.writerow(["Prénom","Nom","E-mail","Téléphone","Rôle","Province","Localité","Actif","Connecté","Dernière connexion"])
@@ -5093,16 +5098,18 @@ def export_users_csv():
 @role_required("super_admin", "president", "secretary", "national_secretary")
 def active_sessions_page():
     con = db()
-    con.execute("UPDATE active_sessions SET active=0 WHERE active=1 AND datetime(last_seen)<datetime('now','-15 minutes')")
+    online_cutoff = (datetime.now() - timedelta(minutes=15)).strftime("%Y-%m-%d %H:%M:%S")
+    history_cutoff = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S")
+    con.execute("UPDATE active_sessions SET active=0 WHERE active=1 AND datetime(last_seen)<datetime(?)", (online_cutoff,))
     con.commit()
     rows = con.execute("""
         SELECT s.*, u.email, u.phone, u.first_name, u.last_name, u.role, u.province,
-               CASE WHEN s.active=1 AND datetime(s.last_seen)>=datetime('now','-15 minutes') THEN 1 ELSE 0 END AS online
+               CASE WHEN s.active=1 AND datetime(s.last_seen)>=datetime(?) THEN 1 ELSE 0 END AS online
         FROM active_sessions s JOIN users u ON u.id=s.user_id
-        WHERE datetime(s.login_at)>=datetime('now','-30 days')
+        WHERE datetime(s.login_at)>=datetime(?)
         ORDER BY online DESC, datetime(s.last_seen) DESC
         LIMIT 300
-    """).fetchall()
+    """, (online_cutoff, history_cutoff)).fetchall()
     con.close()
     online_count = sum(1 for row in rows if row["online"])
     return render_template("active_sessions.html", rows=rows, online_count=online_count, current_session_token=session.get("session_token"))
@@ -5134,7 +5141,8 @@ def revoke_active_session(session_id):
 @role_required("super_admin", "president", "secretary", "national_secretary")
 def print_users():
     con=db()
-    rows=con.execute("""SELECT u.*, CASE WHEN EXISTS(SELECT 1 FROM active_sessions s WHERE s.user_id=u.id AND s.active=1 AND datetime(s.last_seen)>=datetime('now','-15 minutes')) THEN 1 ELSE 0 END AS is_connected FROM users u WHERE u.deleted_at IS NULL ORDER BY is_connected DESC,u.role,u.last_name,u.first_name""").fetchall()
+    online_cutoff = (datetime.now() - timedelta(minutes=15)).strftime("%Y-%m-%d %H:%M:%S")
+    rows=con.execute("""SELECT u.*, CASE WHEN EXISTS(SELECT 1 FROM active_sessions s WHERE s.user_id=u.id AND s.active=1 AND datetime(s.last_seen)>=datetime(?)) THEN 1 ELSE 0 END AS is_connected FROM users u WHERE u.deleted_at IS NULL ORDER BY is_connected DESC,u.role,u.last_name,u.first_name""", (online_cutoff,)).fetchall()
     con.close()
     return render_template('print_users.html', rows=rows)
 
@@ -6142,9 +6150,10 @@ def alerts_page():
     user=current_user(); con=db()
     where, params = member_scope_query(user, 'WHERE deleted_at IS NULL')
     try:
+        expiry_limit = (datetime.now().date() + timedelta(days=90)).strftime("%Y-%m-%d")
         expiring = con.execute(
-            f"SELECT * FROM members {where} AND expires_at IS NOT NULL AND date(expires_at)<=date('now','+90 day') ORDER BY date(expires_at) ASC LIMIT 50",
-            params,
+            f"SELECT * FROM members {where} AND expires_at IS NOT NULL AND date(expires_at)<=date(?) ORDER BY date(expires_at) ASC LIMIT 50",
+            params + [expiry_limit],
         ).fetchall()
         if user['role'] in NATIONAL_ROLES:
             pending_activities = con.execute(
@@ -6927,7 +6936,7 @@ def health_report_print():
 @login_required
 @module_permission_required('statistiques','voir')
 def health_data_quality_page():
-    con=db(); user=current_user(); where,args=_health_scope_clause('hc')
+    con=db(); where,args=_health_scope_clause('hc')
     centers=con.execute('SELECT hc.* FROM health_centers hc'+where+' ORDER BY hc.province,hc.name',args).fetchall(); report=[]
     for c in centers:
         patients=con.execute('SELECT COUNT(*) n FROM patients WHERE center_id=?',(c['id'],)).fetchone()['n']; incomplete=con.execute("SELECT COUNT(*) n FROM patients WHERE center_id=? AND (birth_date IS NULL OR birth_date='' OR phone IS NULL OR phone='')",(c['id'],)).fetchone()['n']; waiting=con.execute("SELECT COUNT(*) n FROM health_visits WHERE center_id=? AND status IN ('waiting','triaged')",(c['id'],)).fetchone()['n']; low_stock=con.execute('SELECT COUNT(*) n FROM (SELECT hp.id,hp.minimum_stock,COALESCE(SUM(b.quantity),0) q FROM health_products hp LEFT JOIN health_stock_batches b ON b.product_id=hp.id WHERE hp.center_id=? GROUP BY hp.id HAVING q<=hp.minimum_stock)',(c['id'],)).fetchone()['n']; unpaid=con.execute("SELECT COALESCE(SUM(total-paid),0) n FROM health_invoices WHERE center_id=? AND status!='paid'",(c['id'],)).fetchone()['n']; score=100 if patients==0 else max(0,round(100-(incomplete/patients*40)-min(waiting,10)*2-min(low_stock,10)*2)); report.append({'center':c,'patients':patients,'incomplete':incomplete,'waiting':waiting,'low_stock':low_stock,'unpaid':unpaid,'score':score})
@@ -7099,8 +7108,12 @@ def too_large(_):
 
 @app.errorhandler(500)
 def internal_error(error):
-    logging.error("Erreur interne: %s\n%s", error, traceback.format_exc())
-    return render_template("error.html", message="Une erreur interne est survenue. Aucun détail technique sensible n’est affiché. Consultez le journal administrateur."), 500
+    incident_id = "ERR-" + datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + secrets.token_hex(2).upper()
+    logging.error("Erreur interne %s — route=%s — utilisateur=%s — %s\n%s", incident_id, request.path, session.get("user_id"), error, traceback.format_exc())
+    return render_template(
+        "error.html",
+        message=f"Une erreur interne est survenue. Référence : {incident_id}. Communiquez cette référence à l’administrateur pour retrouver immédiatement le détail dans le journal.",
+    ), 500
 
 
 init_db()
