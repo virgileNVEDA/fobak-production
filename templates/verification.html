@@ -6,6 +6,7 @@
     <p class="badge active">Code valide : {{ member.code }}</p>
     <h2>{{ member.last_name }} {{ member.first_name }}</h2>
     <p><strong>Province :</strong> {{ member.province }} | <strong>Téléphone :</strong> {{ member.phone }}</p>
+    <p><strong>E-mail :</strong> {% if card_email!='Non renseignée' %}<a href="mailto:{{ card_email }}">{{ card_email }}</a>{% else %}Non renseignée{% endif %}</p>
     <p><strong>Adhésion :</strong> {{ member.joined_at[:10] }} | <strong>Expiration :</strong> {{ member.expires_at[:10] }}</p>
     <p><strong>Statut :</strong> {{ member.status or 'active' }}</p>
     {% if member.expires_at[:10] < today %}<p class="flash danger">Attention : cette carte est expirée.</p>{% endif %}

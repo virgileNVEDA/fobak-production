@@ -66,9 +66,9 @@ UPLOAD_ROOT = os.environ.get("UPLOAD_ROOT", os.path.join(STATIC_DIR, "uploads"))
 RDC_FLAG_REL = "img/drapeau_rdc.jpg"
 RDC_FLAG_ABS = os.path.join(STATIC_DIR, RDC_FLAG_REL)
 ALLOWED_IMAGE_EXT = {"png", "jpg", "jpeg", "webp", "pdf", "doc", "docx", "xls", "xlsx"}
-APP_VERSION = "70.0.0"
-APP_RELEASE_NAME = "FOBAK Manager Pro — QR fiable, recherche avancée et connexions V70"
-CARD_TEMPLATE_VERSION = "paysage-v70-qr-court-haute-fiabilite"
+APP_VERSION = "71.0.0"
+APP_RELEASE_NAME = "FOBAK Manager Pro — e-mail membre visible sur les cartes V71"
+CARD_TEMPLATE_VERSION = "paysage-v71-email-membre-visible"
 
 # Numérotation protocolaire nationale. Le numéro de cadre reste distinct du
 # code unique de la carte afin de conserver la traçabilité des anciens membres.
@@ -1804,6 +1804,18 @@ def normalized_phone(prefix, number):
     number=number.lstrip('0')
     return f"{prefix}{number}" if number else ""
 
+def valid_contact_email(value):
+    """Accepte un e-mail réel facultatif et refuse les formats incomplets."""
+    email=(value or "").strip()
+    return not email or bool(re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]{2,}", email))
+
+def member_card_email(value):
+    """N'affiche jamais les identifiants techniques créés quand aucun e-mail n'a été fourni."""
+    email=(value or "").strip()
+    if not email or email.lower().endswith(("@asbl.local","@fondation.local")):
+        return "Non renseignée"
+    return email
+
 def save_upload(file, folder):
     """Téléversement sûr et persistant. Retourne un chemin relatif ou une chaîne vide."""
     if not file or not getattr(file, 'filename', '') or not allowed_file(file.filename):
@@ -2933,6 +2945,18 @@ def _add_card_contact_links(document, settings, x, y, card_w, card_h):
     for key, left_ratio, right_ratio, bottom, top in link_boxes:
         document.linkURL(urls[key], (x+card_w*left_ratio, bottom, x+card_w*right_ratio, top), relative=0, thickness=0)
 
+def _add_member_email_link(document, member, x, y, card_w, card_h):
+    """Rend l'adresse personnelle du recto cliquable, sans exposer une adresse technique locale."""
+    email=member_card_email(member["email"])
+    if email == "Non renseignée":
+        return
+    document.linkURL(
+        "mailto:" + email,
+        (x+card_w*.485, y+card_h*.285, x+card_w*.755, y+card_h*.335),
+        relative=0,
+        thickness=0,
+    )
+
 
 def generate_member_card_assets(member):
     """Génère la carte officielle FOBAK paysage, lisible et prête pour impression PVC."""
@@ -3038,20 +3062,22 @@ def generate_member_card_assets(member):
         ("N° CARTE", card_number),
         ("N° ADHÉSION", adhesion_number),
         ("TÉLÉPHONE", member["phone"]),
+        ("E-MAIL", member_card_email(member["email"])),
         ("PROVINCE", member["province"]),
         ("VALIDITÉ", f"{(member['joined_at'] or '')[:10]} au {(member['expires_at'] or '')[:10]}"),
     ]
-    y = 341
+    y = 337
     for label, value in rows:
-        draw.text((330, y), label, font=_card_font(20, True), fill=muted)
-        value_font = fitted_font(draw, value, 23, 14, 205)
-        draw.text((505, y), str(value or "-"), font=value_font, fill=dark)
-        draw.line((330, y+29, 720, y+29), fill=line, width=2)
-        y += 37
-    qr_image = make_scannable_qr(short_verification_url(member["id"]), 218)
-    draw.rounded_rectangle((742, 292, 978, 530), radius=17, fill="white", outline=blue, width=4)
-    front.paste(qr_image, (751, 295))
-    draw.text((860, 520), "VÉRIFICATION OFFICIELLE", font=_card_font(10, True), anchor="mm", fill=navy)
+        draw.text((330, y), label, font=_card_font(18, True), fill=muted)
+        value_font = fitted_font(draw, value, 20, 12, 255)
+        visible_value = _fit_text(draw, value, value_font, 255, 60)
+        draw.text((495, y), str(visible_value or "-"), font=value_font, fill=dark)
+        draw.line((330, y+25, 755, y+25), fill=line, width=2)
+        y += 31
+    qr_image = make_scannable_qr(short_verification_url(member["id"]), 184)
+    draw.rounded_rectangle((775, 292, 978, 530), radius=17, fill="white", outline=blue, width=4)
+    front.paste(qr_image, (784, 302))
+    draw.text((876, 518), "VÉRIFICATION OFFICIELLE", font=_card_font(9, True), anchor="mm", fill=navy)
     draw_contact_footer(draw, f"Valide jusqu'au {(member['expires_at'] or '')[:10] or '—'}")
 
     back, draw = base_card("CARTE DE MEMBRE")
@@ -3099,6 +3125,8 @@ def generate_member_card_assets(member):
     for side in ("recto", "verso"):
         document.drawImage(paths[side + "_png"], 0, 0, 85.6*mm, 54*mm, preserveAspectRatio=False, mask="auto")
         _add_card_contact_links(document, settings, 0, 0, 85.6*mm, 54*mm)
+        if side == "recto":
+            _add_member_email_link(document, member, 0, 0, 85.6*mm, 54*mm)
         document.showPage()
     document.save()
     paths["pdf"] = pdf_path
@@ -3107,7 +3135,7 @@ def generate_member_card_assets(member):
         for key, path in paths.items():
             if key != "pdf":
                 archive.write(path, os.path.basename(path))
-        archive.writestr("LISEZ_MOI.txt", "Modèle FOBAK paysage V70, format PVC-ID1 85,6 x 54 mm. Police embarquée haute lisibilité, QR court haute fiabilité au recto uniquement, signature, cachet et contacts cliquables dans le PDF.\n")
+        archive.writestr("LISEZ_MOI.txt", "Modèle FOBAK paysage V71, format PVC-ID1 85,6 x 54 mm. L'adresse e-mail personnelle du membre apparaît au recto et devient cliquable dans le PDF. Les adresses techniques locales ne sont jamais imprimées.\n")
     paths["zip"] = zip_path
     Path(os.path.join(cards_dir, ".card_template_version")).write_text(CARD_TEMPLATE_VERSION, encoding="utf-8")
     return paths
@@ -3137,6 +3165,8 @@ def generate_member_card_preview_sheet_pdf(member):
         document.roundRect(x-2*mm, y-2*mm, card_w+4*mm, card_h+4*mm, 3*mm, fill=0, stroke=1)
         document.drawImage(assets[side+"_png"], x, y, card_w, card_h, preserveAspectRatio=False, mask="auto")
         _add_card_contact_links(document, settings, x, y, card_w, card_h)
+        if side == "recto":
+            _add_member_email_link(document, member, x, y, card_w, card_h)
         document.setFillColor(colors.HexColor("#526A7A")); document.setFont("Helvetica", 8.5)
         document.drawCentredString(page_w/2, 7*mm, "Le PDF final d'impression conserve le format physique PVC-ID1 exact : 85,6 x 54 mm.")
         document.showPage()
@@ -4857,16 +4887,16 @@ def verify_member(code):
                 (protocol_match.group(1),),
             ).fetchone()
     con.close()
-    return render_template("verification.html", member=member, code=code, today=today())
+    return render_template("verification.html", member=member, code=code, today=today(), card_email=member_card_email(member["email"]) if member else "")
 
 
 @app.route("/v/<int:member_id>")
 def verify_member_short(member_id):
-    """Point public court utilisé par les QR des cartes V70."""
+    """Point public court utilisé par les QR des cartes V71."""
     con = db()
     member = con.execute("SELECT * FROM members WHERE id=? AND deleted_at IS NULL", (member_id,)).fetchone()
     con.close()
-    return render_template("verification.html", member=member, code=(member["code"] if member else str(member_id)), today=today())
+    return render_template("verification.html", member=member, code=(member["code"] if member else str(member_id)), today=today(), card_email=member_card_email(member["email"]) if member else "")
 
 
 @app.route("/admin/members/new", methods=["GET", "POST"])
@@ -4888,6 +4918,9 @@ def new_member():
         phone = normalized_phone(phone_prefix, request.form.get("phone", ""))
         if not first_name or not last_name or not phone:
             flash("Nom, prénom et téléphone sont obligatoires.", "danger")
+            return redirect(url_for("new_member"))
+        if not valid_contact_email(email):
+            flash("L’adresse e-mail est incomplète. Exemple attendu : nom@domaine.com", "danger")
             return redirect(url_for("new_member"))
         if not email:
             email = f"{phone}@asbl.local"
@@ -4955,6 +4988,12 @@ def edit_member(member_id):
         con.close()
         flash("Nom, prénom et téléphone sont obligatoires.", "danger")
         return redirect(url_for("edit_member", member_id=member_id))
+    if not valid_contact_email(email):
+        con.close()
+        flash("L’adresse e-mail est incomplète. Exemple attendu : nom@domaine.com", "danger")
+        return redirect(url_for("edit_member", member_id=member_id))
+    if not email:
+        email = f"{phone}@asbl.local"
     if user["role"] in PROVINCIAL_ROLES and province != (user["province"] or ""):
         con.close()
         abort(403)

@@ -18,7 +18,7 @@
     <label>Commune / Secteur <input name="commune" value="{{ member.commune or '' }}"></label>
     <label>Localité / Cellule <input name="localite" value="{{ member.localite or '' }}"></label>
     <label>Téléphone <input name="phone" value="{{ member.phone or '' }}" required></label>
-    <label>E-mail <input type="email" name="email" value="{{ member.email or '' }}"></label>
+    <label>Adresse e-mail affichée sur la carte <input type="email" name="email" value="{{ '' if (member.email or '').endswith('@asbl.local') or (member.email or '').endswith('@fondation.local') else (member.email or '') }}"><small>Enregistrez pour régénérer immédiatement la carte avec cette adresse.</small></label>
     <label class="full">Adresse physique <input name="physical_address" value="{{ member.physical_address or '' }}"></label>
 
     <h3 class="full section-line">II. Photo et informations professionnelles</h3>

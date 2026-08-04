@@ -1,10 +1,10 @@
-const CACHE_NAME = 'fobak-manager-shell-v70';
+const CACHE_NAME = 'fobak-manager-shell-v71';
 const OFFLINE_URL = '/hors-connexion';
 const CORE_ASSETS = [
   '/',
   OFFLINE_URL,
-  '/static/css/style.css?v=70.0.0',
-  '/static/js/app.js?v=70.0.0',
+  '/static/css/style.css?v=71.0.0',
+  '/static/js/app.js?v=71.0.0',
   '/static/img/fobak_app_icon_v21.png',
   '/static/manifest.json'
 ];

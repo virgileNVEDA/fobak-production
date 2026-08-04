@@ -19,7 +19,7 @@
     <label>Téléphone
       <div class="phone-composite"><select name="phone_country_code" class="country-code-select" required>{% for iso, code, country in country_codes %}<option value="{{ code }}" {{ 'selected' if iso=='CD' else '' }}>{{ country }} ({{ code }})</option>{% endfor %}</select><input name="phone" inputmode="tel" required placeholder="Numéro sans indicatif"></div>
     </label>
-    <label>E-mail <input type="email" name="email" placeholder="facultatif"></label>
+    <label>Adresse e-mail à afficher sur la carte <input type="email" name="email" placeholder="exemple@domaine.com"><small>Facultatif. Si elle est fournie, elle apparaîtra sur la carte et dans la vérification QR.</small></label>
     <label class="full">Adresse physique <input name="physical_address"></label>
     <div class="photo-capture-widget full">
       <label>Photo du membre</label>
