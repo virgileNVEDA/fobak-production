@@ -1,0 +1,58 @@
+{% extends 'base.html' %}
+{% block content %}
+<nav class="member-profile-breadcrumb" aria-label="Fil d'Ariane"><a href="{{ url_for('members', province=member.province) }}">Membres</a><span>›</span><a href="{{ url_for('members', province=member.province) }}">{{ member.province }}</a><span>›</span><strong>{{ member.last_name }} {{ member.first_name }}</strong></nav>
+
+<section class="member-profile-hero">
+  <div class="member-profile-identity">
+    <div class="member-profile-photo">{% if member.photo_path %}<img src="{{ url_for('static', filename=member.photo_path) }}" alt="Photo de {{ member.first_name }} {{ member.last_name }}">{% else %}<span>{{ (member.first_name or 'M')[:1] }}{{ (member.last_name or '')[:1] }}</span>{% endif %}</div>
+    <div><span class="eyebrow">Dossier membre</span><h1>{{ member.last_name }} {{ member.first_name }}</h1><p>{{ member.role_label or member.profession or 'Membre de la Fondation' }}</p><div class="profile-badges"><span class="badge {{ member.status or 'active' }}">{{ member.status or 'active' }}</span><span class="badge">📍 {{ member.province }}</span>{% if member.executive_number %}<span class="badge executive">Haut cadre N° {{ member.executive_number }}</span>{% endif %}</div></div>
+  </div>
+  <div class="member-profile-rank"><span>{{ rank_label }}</span><strong>{{ '%03d'|format(provincial_rank or 0) }}</strong><small>sur {{ provincial_total }} membre(s)</small></div>
+</section>
+
+<section class="member-profile-actions" aria-label="Actions sur le membre">
+  <a class="btn" href="{{ url_for('members', province=member.province) }}">← Retour à la province</a>
+  {% if session.role in ['super_admin','president','secretary','national_secretary','provincial_admin','provincial_secretary','local_admin'] %}<a class="btn primary" href="{{ url_for('edit_member', member_id=member.id) }}">✎ Modifier le membre</a>{% endif %}
+  {% if can_print_card %}<a class="btn" target="_blank" href="{{ url_for('card_preview', member_id=member.id) }}">👁 Voir la carte</a><a class="btn" href="{{ url_for('card', member_id=member.id) }}">⬇ Carte PDF</a><a class="btn" target="_blank" href="{{ url_for('card_a4_preview', member_id=member.id) }}">🖨 Aperçu A4</a>{% endif %}
+  <a class="btn" href="{{ url_for('fiche_adhesion', member_id=member.id) }}">📄 Fiche d’adhésion</a>
+  <a class="btn light-btn" href="{{ url_for('member_history', member_id=member.id) }}">🕘 Historique complet</a>
+</section>
+
+<section class="grid two member-profile-grid">
+  <article class="card profile-info-card">
+    <div class="section-title-row"><div><span class="eyebrow">Identité et coordonnées</span><h2>Informations du membre</h2></div></div>
+    <dl class="member-info-list">
+      <div><dt>N° d’adhésion</dt><dd>{{ member.adhesion_number or '—' }}</dd></div><div><dt>N° de carte</dt><dd>{{ member.code }}</dd></div>
+      <div><dt>Téléphone</dt><dd><a href="tel:{{ member.phone }}">{{ member.phone or '—' }}</a></dd></div><div><dt>E-mail</dt><dd>{% if member.email and '@asbl.local' not in member.email %}<a href="mailto:{{ member.email }}">{{ member.email }}</a>{% else %}Non renseigné{% endif %}</dd></div>
+      <div><dt>Province</dt><dd>{{ member.province or '—' }}</dd></div><div><dt>Territoire / Commune</dt><dd>{{ member.territory or '—' }} / {{ member.commune or '—' }}</dd></div>
+      <div><dt>Localité</dt><dd>{{ member.localite or '—' }}</dd></div><div><dt>Adresse</dt><dd>{{ member.physical_address or '—' }}</dd></div>
+      <div><dt>Naissance</dt><dd>{{ member.birth_date or '—' }}{% if member.birth_place %} à {{ member.birth_place }}{% endif %}</dd></div><div><dt>Profession</dt><dd>{{ member.profession or '—' }}</dd></div>
+      <div><dt>Date d’adhésion</dt><dd>{{ (member.joined_at or '')[:10] or '—' }}</dd></div><div><dt>Carte valable jusqu’au</dt><dd>{{ (member.expires_at or '')[:10] or '—' }}</dd></div>
+    </dl>
+  </article>
+
+  <article class="card contribution-summary-card">
+    <div class="section-title-row"><div><span class="eyebrow">Situation financière</span><h2>Cotisations récentes</h2></div><strong class="contribution-total">{{ '%.2f'|format(payment_total or 0) }}</strong></div>
+    {% for p in payments %}<div class="profile-timeline-item"><span class="timeline-dot"></span><div><strong>{{ p.amount }} {{ p.currency }}</strong><p>{{ p.contribution_type or p.method or 'Cotisation' }} · {{ p.status }}</p><small>{{ (p.paid_at or p.created_at or '')[:10] }}</small></div></div>{% else %}<div class="profile-empty"><span>💳</span><p>Aucune cotisation enregistrée.</p></div>{% endfor %}
+  </article>
+</section>
+
+{% if can_print_card %}
+<section class="card profile-cards-section">
+  <div class="section-title-row"><div><span class="eyebrow">Documents officiels</span><h2>Carte du membre</h2><p>Contrôlez les deux faces avant téléchargement ou impression.</p></div><a class="btn primary" target="_blank" href="{{ url_for('card_pdf_preview', member_id=member.id) }}">Ouvrir le PDF imprimable</a></div>
+  <div class="profile-card-previews"><figure><img src="{{ url_for('card_preview_image', member_id=member.id, side='recto') }}" alt="Recto de la carte"><figcaption>Recto — identité</figcaption></figure><figure><img src="{{ url_for('card_preview_image', member_id=member.id, side='verso') }}" alt="Verso de la carte"><figcaption>Verso — validation</figcaption></figure></div>
+  <div class="profile-document-actions"><a href="{{ url_for('card_export', member_id=member.id, side='recto', fmt='png') }}">Recto PNG</a><a href="{{ url_for('card_export', member_id=member.id, side='verso', fmt='png') }}">Verso PNG</a><a href="{{ url_for('card_export', member_id=member.id, side='recto', fmt='sources') }}">Sources graphiques</a><a href="{{ url_for('verify_member', code=member.code) }}">Vérification publique</a></div>
+</section>
+{% endif %}
+
+<section class="grid two member-profile-grid">
+  <article class="card"><div class="section-title-row"><div><span class="eyebrow">Traçabilité</span><h2>Dernières actions</h2></div></div>{% for a in recent_actions %}<div class="profile-timeline-item"><span class="timeline-dot"></span><div><strong>{{ a.action }}</strong><p>{{ a.details or 'Action enregistrée dans le journal.' }}</p><small>{{ a.created_at }}</small></div></div>{% else %}<div class="profile-empty"><p>Aucune action récente.</p></div>{% endfor %}</article>
+  <article class="card"><div class="section-title-row"><div><span class="eyebrow">Validité</span><h2>Renouvellements</h2></div></div>{% for r in renewals %}<div class="profile-timeline-item"><span class="timeline-dot success"></span><div><strong>Valable jusqu’au {{ r.new_expiry }}</strong><p>{{ r.notes or 'Renouvellement de la carte' }}</p><small>{{ r.renewed_at }}</small></div></div>{% else %}<div class="profile-empty"><p>Aucun renouvellement antérieur.</p></div>{% endfor %}{% if can_print_card %}<form method="post" action="{{ url_for('renew_member_card', member_id=member.id) }}" onsubmit="return confirm('Renouveler cette carte pour une année ?')"><button class="btn primary" type="submit">Renouveler la carte pour un an</button></form>{% endif %}</article>
+</section>
+
+<details class="card sensitive-actions"><summary>Actions administratives sensibles</summary><div>
+  {% if session.role in ['super_admin','president','secretary','national_secretary','provincial_admin','provincial_secretary','local_admin'] %}<form method="post" action="{{ url_for('toggle_member', member_id=member.id) }}" class="inline"><button class="btn" type="submit">{{ 'Désactiver' if member.status=='active' else 'Réactiver' }} le membre</button></form>{% endif %}
+  {% if session.role in ['super_admin','president','secretary','national_secretary','provincial_admin','provincial_secretary'] %}<form method="post" action="{{ url_for('delete_member', member_id=member.id) }}" class="inline" onsubmit="return confirm('Archiver ce membre ?')"><button class="btn danger" type="submit">Archiver le membre</button></form>{% endif %}
+  {% if session.role in ['super_admin','secretary','national_secretary'] %}<form method="post" action="{{ url_for('delete_member_permanent', member_id=member.id) }}" class="inline" onsubmit="return confirm('Suppression définitive et irréversible. Continuer ?')"><button class="btn danger" type="submit">Suppression définitive</button></form>{% endif %}
+</div></details>
+{% endblock %}

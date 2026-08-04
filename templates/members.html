@@ -1,68 +1,89 @@
 {% extends 'base.html' %}
 {% block content %}
-<section class="page-heading">
-  <div><span class="eyebrow">Fondation Bakitani</span><h1>Gestion des membres</h1><p>Recherchez, filtrez, consultez et imprimez les dossiers des membres selon vos autorisations.</p></div>
-</section>
-<section class="card">
-  <h1>Liste des membres</h1>
-  <form class="filters" method="get">
-    <select name="province"><option value="">Toutes les provinces</option>{% for p in provinces %}<option value="{{ p }}" {{ 'selected' if request.args.get('province')==p else '' }}>{{ p }}</option>{% endfor %}</select>
-    <input name="year" placeholder="Année" value="{{ request.args.get('year','') }}">
-    <input name="month" placeholder="Mois: 1-12" value="{{ request.args.get('month','') }}">
-    <select name="status"><option value="">Tous statuts</option><option value="active" {{ 'selected' if request.args.get('status')=='active' else '' }}>Actifs</option><option value="inactive" {{ 'selected' if request.args.get('status')=='inactive' else '' }}>Désactivés</option></select>
-    <button class="btn">Filtrer</button>
-  </form>
-  <div class="admin-menu" style="margin-bottom:14px">
-    <a class="btn primary" href="{{ url_for('new_member') }}">Ajouter membre</a>
-    <a class="btn" href="{{ url_for('export_members_csv') }}">Exporter CSV</a>
-    <a class="btn" href="{{ url_for('export_members_xlsx') }}">Exporter Excel</a>
-    <a class="btn" href="{{ url_for('import_members') }}">Importer Excel/CSV</a>
-    <a class="btn" href="{{ url_for('print_members', province=request.args.get('province',''), year=request.args.get('year',''), month=request.args.get('month',''), status=request.args.get('status','')) }}">Imprimer avec en-tête</a>
-    <a class="btn" href="{{ url_for('fiche_vierge') }}">Fiche vierge</a>
+<section class="page-heading members-heading">
+  <div>
+    <span class="eyebrow">Répertoire territorial</span>
+    <h1>Membres par province</h1>
+    <p>Choisissez une province pour obtenir immédiatement sa liste numérotée. Chaque nouvelle adhésion est classée automatiquement selon la province enregistrée.</p>
   </div>
-  <div class="table-wrap printable">
-    <table>
-      <thead><tr><th>Rang</th><th>N° adhésion</th><th>Code</th><th>Nom</th><th>Contact</th><th>Zone</th><th>Statut</th><th>Adhésion</th><th>Documents</th><th>Actions</th></tr></thead>
-      <tbody>
-        {% for m in rows %}
-        <tr>
-          <td>{% if m.executive_number %}<strong class="badge active">N° {{ m.executive_number }}</strong><br><small>{{ m.executive_position or m.role_label }}</small>{% else %}<span class="badge">Membre</span>{% endif %}</td>
-          <td>{{ m.adhesion_number or '-' }}</td>
-          <td>{{ m.code }}</td>
-          <td><strong>{{ m.last_name }} {{ m.first_name }}</strong><br><small>{{ m.profession }}</small></td>
-          <td>{{ m.phone }}<br><small>{{ m.email }}</small></td>
-          <td>{{ m.province }}<br><small>{{ m.territory }} / {{ m.commune }} / {{ m.localite }}</small></td>
-          <td><span class="badge {{ m.status or 'active' }}">{{ m.status or 'active' }}</span></td>
-          <td>{{ m.joined_at[:10] }}<br><small>Exp. {{ m.expires_at[:10] }}</small></td>
-          <td class="card-actions-cell">
-<a class="btn small primary" href="{{ url_for('card_preview', member_id=m.id) }}">Aperçu carte</a>
-<a class="btn small" href="{{ url_for('card', member_id=m.id) }}">Télécharger PDF</a>
-<a class="btn small light-btn" href="{{ url_for('card_export', member_id=m.id, side='recto', fmt='png') }}">Recto PNG</a>
-<a class="btn small light-btn" href="{{ url_for('card_export', member_id=m.id, side='verso', fmt='png') }}">Verso PNG</a>
-<a class="btn small light-btn" href="{{ url_for('card_export', member_id=m.id, side='recto', fmt='sources') }}">Sources Photoshop</a>
-<form method="post" action="{{ url_for('renew_member_card', member_id=m.id) }}" class="inline" onsubmit="return confirm('Renouveler cette carte pour une année ?')"><button class="btn small primary" type="submit">Renouveler 1 an</button></form>
-<a class="btn small light-btn" href="{{ url_for('fiche_adhesion', member_id=m.id) }}">Fiche PDF</a>
-<a class="btn small light-btn" href="{{ url_for('verify_member', code=m.code) }}">Vérifier QR</a>
-<a class="btn small light-btn" href="{{ url_for('member_history', member_id=m.id) }}">Historique</a>
-</td>
-          <td class="actions-cell">
-            <a class="btn small primary" href="{{ url_for('edit_member', member_id=m.id) }}">Modifier</a>
-            {% if session.role in ['super_admin','president','secretary','national_secretary','provincial_admin','provincial_secretary','local_admin'] %}
-            <form method="post" action="{{ url_for('toggle_member', member_id=m.id) }}" class="inline"><button class="btn small">Activer/Désactiver</button></form>
-            {% endif %}
-            {% if session.role in ['super_admin','president','secretary','national_secretary','provincial_admin','provincial_secretary'] %}
-            <form method="post" action="{{ url_for('delete_member', member_id=m.id) }}" class="inline" onsubmit="return confirm('Archiver ce membre ?')"><button class="btn small danger">Archiver</button></form>
-            {% endif %}
-            {% if session.role in ['super_admin','secretary','national_secretary'] %}
-            <form method="post" action="{{ url_for('delete_member_permanent', member_id=m.id) }}" class="inline" onsubmit="return confirm('Suppression définitive : action irréversible. Continuer ?')"><button class="btn small danger">Définitif</button></form>
-            {% endif %}
-          </td>
-        </tr>
-        {% else %}
-        <tr><td colspan="10">Aucun membre trouvé.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  <a class="btn primary" href="{{ url_for('new_member') }}">＋ Enregistrer un membre</a>
+</section>
+
+<section class="member-stat-grid" aria-label="Statistiques des membres">
+  {% if national_total is not none %}
+  <article class="member-stat-card important"><span>🇨🇩 Total général national</span><strong>{{ national_total }}</strong><small>Toutes les provinces réunies</small></article>
+  {% endif %}
+  <article class="member-stat-card"><span>👥 Membres dans votre périmètre</span><strong>{{ scope_total }}</strong><small>Selon les droits de votre compte</small></article>
+  <article class="member-stat-card"><span>✅ Membres actifs</span><strong>{{ active_total }}</strong><small>Mises à jour automatiques</small></article>
+  <article class="member-stat-card"><span>📍 Résultat affiché</span><strong>{{ filtered_total }}</strong><small>{{ selected_province or 'Toutes les provinces accessibles' }}</small></article>
+</section>
+
+<section class="card province-directory">
+  <div class="section-title-row">
+    <div><span class="eyebrow">Classement automatique</span><h2>Choisir une province</h2></div>
+    {% if selected_province %}<span class="province-current">{{ selected_province }} · {{ province_counts.get(selected_province, 0) }} membre(s)</span>{% endif %}
+  </div>
+  <form class="province-filter-form" method="get" id="province-filter-form">
+    <label for="province-select">Province</label>
+    <select id="province-select" name="province" {% if current_user.role not in ['super_admin','president','secretary','national_secretary'] %}disabled{% else %}onchange="this.form.submit()"{% endif %}>
+      {% if current_user.role in ['super_admin','president','secretary','national_secretary'] %}<option value="">Toutes les provinces — {{ scope_total }} membres</option>{% endif %}
+      {% for p in provinces %}<option value="{{ p }}" {{ 'selected' if selected_province==p else '' }}>{{ p }} — {{ province_counts.get(p, 0) }} membre(s)</option>{% endfor %}
+    </select>
+    {% if current_user.role not in ['super_admin','president','secretary','national_secretary'] %}<input type="hidden" name="province" value="{{ selected_province }}">{% endif %}
+    <label for="member-status">Statut</label>
+    <select id="member-status" name="status" onchange="this.form.submit()">
+      <option value="">Tous les statuts</option>
+      <option value="active" {{ 'selected' if request.args.get('status')=='active' else '' }}>Actifs</option>
+      <option value="inactive" {{ 'selected' if request.args.get('status')=='inactive' else '' }}>Inactifs</option>
+    </select>
+    <input name="year" inputmode="numeric" placeholder="Année" value="{{ request.args.get('year','') }}" aria-label="Année d'adhésion">
+    <input name="month" inputmode="numeric" placeholder="Mois 1–12" value="{{ request.args.get('month','') }}" aria-label="Mois d'adhésion">
+    <button class="btn" type="submit">Appliquer</button>
+  </form>
+
+  {% if current_user.role in ['super_admin','president','secretary','national_secretary'] %}
+  <div class="province-chip-list" aria-label="Accès rapide aux provinces">
+    {% for p in provinces if province_counts.get(p, 0) %}<a class="province-chip {{ 'selected' if selected_province==p else '' }}" href="{{ url_for('members', province=p) }}"><span>{{ p }}</span><strong>{{ province_counts.get(p, 0) }}</strong></a>{% endfor %}
+  </div>
+  {% endif %}
+</section>
+
+<section class="card member-directory-card">
+  <div class="section-title-row">
+    <div><span class="eyebrow">Liste numérotée</span><h2>{{ selected_province or 'Toutes les provinces accessibles' }}</h2><p>Le rang affiché suit le filtre actuel. Les numéros officiels de carte et d’adhésion restent uniques et inchangés.</p></div>
+    <div class="directory-actions">
+      {% if selected_province and can_print_cards %}
+      <a class="btn primary" target="_blank" href="{{ url_for('print_province_member_cards', province=selected_province, status=request.args.get('status','')) }}">👁 Voir les cartes de la province</a>
+      <a class="btn" href="{{ url_for('print_province_member_cards', province=selected_province, status=request.args.get('status',''), download=1) }}">⬇ Télécharger les cartes</a>
+      {% endif %}
+      <a class="btn" target="_blank" href="{{ url_for('print_members', province=selected_province, year=request.args.get('year',''), month=request.args.get('month',''), status=request.args.get('status','')) }}">🖨 Imprimer la liste</a>
+    </div>
+  </div>
+
+  <div class="member-list" role="list">
+    {% for m in rows %}
+    <article id="member-{{ m.id }}" class="member-list-row {{ 'member-focus' if focus|string == m.id|string else '' }}" role="listitem">
+      <div class="member-rank" aria-label="Rang {{ loop.index }}"><span>N°</span><strong>{{ '%03d'|format(loop.index) }}</strong></div>
+      <div class="member-list-photo">
+        {% if m.photo_path %}<img src="{{ url_for('static', filename=m.photo_path) }}" alt="Photo de {{ m.first_name }} {{ m.last_name }}">{% else %}<span>{{ (m.first_name or 'M')[:1] }}{{ (m.last_name or '')[:1] }}</span>{% endif %}
+      </div>
+      <div class="member-list-main">
+        <div class="member-list-name"><h3>{{ m.last_name }} {{ m.first_name }}</h3><span class="badge {{ m.status or 'active' }}">{{ m.status or 'active' }}</span></div>
+        <p>{{ m.role_label or m.profession or 'Membre' }}{% if m.executive_number %} · <strong>Haut cadre N° {{ m.executive_number }}</strong>{% endif %}</p>
+        <div class="member-list-meta"><span>📍 {{ m.province }}{% if m.localite %}, {{ m.localite }}{% endif %}</span><span>🪪 {{ m.adhesion_number or m.code }}</span><span>☎ {{ m.phone }}</span></div>
+      </div>
+      <div class="member-list-actions">
+        <a class="btn primary" href="{{ url_for('member_profile', member_id=m.id) }}">Ouvrir le profil →</a>
+        {% if session.role in ['super_admin','president','secretary','national_secretary','provincial_admin','provincial_secretary','local_admin'] %}<a class="btn light-btn" href="{{ url_for('edit_member', member_id=m.id) }}">Modifier</a>{% endif %}
+      </div>
+    </article>
+    {% else %}
+    <div class="empty-directory"><span>👥</span><h3>Aucun membre trouvé</h3><p>Modifiez les filtres ou enregistrez le premier membre de cette province.</p></div>
+    {% endfor %}
+  </div>
+
+  <div class="directory-footer-actions">
+    <a href="{{ url_for('export_members_csv') }}">Exporter CSV</a><a href="{{ url_for('export_members_xlsx') }}">Exporter Excel</a><a href="{{ url_for('import_members') }}">Importer Excel/CSV</a><a href="{{ url_for('fiche_vierge') }}">Fiche vierge</a>
   </div>
 </section>
 {% endblock %}

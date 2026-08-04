@@ -59,8 +59,8 @@ UPLOAD_ROOT = os.environ.get("UPLOAD_ROOT", os.path.join(STATIC_DIR, "uploads"))
 RDC_FLAG_REL = "img/drapeau_rdc.jpg"
 RDC_FLAG_ABS = os.path.join(STATIC_DIR, RDC_FLAG_REL)
 ALLOWED_IMAGE_EXT = {"png", "jpg", "jpeg", "webp", "pdf", "doc", "docx", "xls", "xlsx"}
-APP_VERSION = "76.0.0"
-APP_RELEASE_NAME = "FOBAK Manager Pro — formulaires publics sécurisés V76"
+APP_VERSION = "77.0.0"
+APP_RELEASE_NAME = "FOBAK Manager Pro — répertoire provincial des membres V77"
 CARD_TEMPLATE_VERSION = "paysage-v74-generation-stabilisee"
 
 # Numérotation protocolaire nationale. Le numéro de cadre reste distinct du
@@ -1574,7 +1574,7 @@ def get_latest_login_sound_alert(user):
 
 MODULE_GUIDES = {
     "dashboard": ("Tableau de bord", "Suivez les indicateurs essentiels, les communications récentes et accédez rapidement aux tâches autorisées pour votre rôle.", "Consulter les statistiques", "Ouvrir une action rapide"),
-    "members": ("Membres et cartes", "Recherchez, enregistrez ou modifiez un membre, puis prévisualisez et imprimez sa carte officielle et sa fiche d’adhésion.", "Rechercher un membre", "Gérer sa carte"),
+    "members": ("Membres par province", "Choisissez une province pour afficher sa liste numérotée. Ouvrez ensuite le profil d’un membre pour consulter ses données, modifier son dossier, voir sa carte ou imprimer les cartes de la province selon vos droits.", "Choisir une province", "Ouvrir un profil membre"),
     "applications": ("Demandes d’adhésion", "Contrôlez les dossiers reçus, leurs photos et informations avant validation ou rejet.", "Vérifier le dossier", "Valider la demande"),
     "payments": ("Cotisations", "Enregistrez et retrouvez les paiements, filtrez-les et éditez les justificatifs selon vos droits.", "Ajouter un paiement", "Filtrer ou exporter"),
     "treasury": ("Trésorerie", "Suivez les entrées, sorties, soldes et pièces justificatives de la Fondation.", "Contrôler les mouvements", "Produire un état"),
@@ -3253,6 +3253,53 @@ def generate_member_card_preview_sheet_pdf(member):
     document.save()
     return preview_path
 
+
+def generate_province_member_cards_pdf(members, province):
+    """Planche A4 paysage : trois membres par page, recto et verso à taille PVC réelle."""
+    batch_dir = os.path.join(UPLOAD_ROOT, "cards", "batches")
+    os.makedirs(batch_dir, exist_ok=True)
+    safe_province = re.sub(r"[^A-Za-z0-9_-]+", "_", province or "province").strip("_") or "province"
+    output_path = os.path.join(batch_dir, f"cartes_{safe_province}_{datetime.now():%Y%m%d_%H%M%S}.pdf")
+    document = canvas.Canvas(output_path, pagesize=landscape(A4))
+    page_w, page_h = landscape(A4)
+    card_w, card_h = 85.6 * mm, 54 * mm
+    margin_x, header_h = 10 * mm, 17 * mm
+    gap_x = (page_w - 2 * margin_x - 3 * card_w) / 2
+    members = list(members)
+    total_pages = max(1, (len(members) + 2) // 3)
+    for page_index in range(total_pages):
+        chunk = members[page_index * 3:(page_index + 1) * 3]
+        document.setFillColor(colors.white)
+        document.rect(0, 0, page_w, page_h, fill=1, stroke=0)
+        document.setFillColor(colors.HexColor("#06466F"))
+        document.rect(0, page_h - header_h, page_w, header_h, fill=1, stroke=0)
+        document.setFillColor(colors.white)
+        document.setFont("Helvetica-Bold", 14)
+        document.drawString(margin_x, page_h - 10.5 * mm, f"CARTES DES MEMBRES — {province.upper()}")
+        document.setFont("Helvetica", 8)
+        document.drawRightString(page_w - margin_x, page_h - 10.5 * mm, f"Page {page_index + 1}/{total_pages} · {len(members)} membre(s)")
+        for column, member in enumerate(chunk):
+            assets = generate_member_card_assets(member)
+            x = margin_x + column * (card_w + gap_x)
+            recto_y = page_h - header_h - 7 * mm - card_h
+            verso_y = 11 * mm
+            document.setFillColor(colors.HexColor("#526A7A"))
+            document.setFont("Helvetica-Bold", 6.5)
+            document.drawString(x, recto_y + card_h + 2 * mm, f"RECTO · {member['last_name']} {member['first_name']}")
+            document.drawString(x, verso_y + card_h + 2 * mm, f"VERSO · {member['code']}")
+            document.drawImage(assets["recto_png"], x, recto_y, card_w, card_h, preserveAspectRatio=False, mask="auto")
+            document.drawImage(assets["verso_png"], x, verso_y, card_w, card_h, preserveAspectRatio=False, mask="auto")
+            document.setStrokeColor(colors.HexColor("#B8D7E7"))
+            document.setLineWidth(0.5)
+            document.rect(x, recto_y, card_w, card_h, fill=0, stroke=1)
+            document.rect(x, verso_y, card_w, card_h, fill=0, stroke=1)
+        document.setFillColor(colors.HexColor("#526A7A"))
+        document.setFont("Helvetica", 6.5)
+        document.drawCentredString(page_w / 2, 4 * mm, "Format physique PVC-ID1 85,6 × 54 mm · Imprimer à 100 %, sans ajustement à la page")
+        document.showPage()
+    document.save()
+    return output_path
+
 def draw_contained_pdf_image(c, image_path, x, y, width, height):
     """Place une image entière dans son cadre PDF, sans recadrage ni déformation."""
     if not image_path or not os.path.exists(image_path):
@@ -4350,7 +4397,8 @@ def accept_application(app_id):
     generate_member_card_pdf(member)
     generate_adhesion_form_pdf(member)
     flash(f"Adhésion acceptée. Identifiant: {a['email']} ou {a['phone']}. Mot de passe initial: numéro de téléphone.", "success")
-    return redirect(url_for("applications"))
+    flash(f"Le membre figure maintenant dans la liste numérotée de la province {a['province']}.", "info")
+    return redirect(url_for("members", province=a["province"], focus=member_id) + f"#member-{member_id}")
 
 
 @app.route("/admin/applications/<int:app_id>/reject", methods=["POST"])
@@ -4377,10 +4425,14 @@ def reject_application(app_id):
 @role_required("super_admin", "president", "secretary", "national_secretary", "provincial_president", "provincial_admin", "provincial_secretary", "local_admin", "registration_agent")
 def members():
     user = current_user()
-    province = request.args.get("province", "")
+    province = request.args.get("province", "").strip()
     year = request.args.get("year", "")
     month = request.args.get("month", "")
     status = request.args.get("status", "")
+    if province and province not in PROVINCES:
+        abort(400, description="Province non reconnue.")
+    if user["role"] not in NATIONAL_ROLES:
+        province = user["province"] or ""
     con = db()
     where, params = member_scope_query(user)
     if province and user["role"] in NATIONAL_ROLES:
@@ -4397,8 +4449,24 @@ def members():
         "CAST(executive_number AS INTEGER), last_name COLLATE NOCASE, first_name COLLATE NOCASE, joined_at DESC",
         params,
     ).fetchall()
+    count_where, count_params = member_scope_query(user)
+    province_counts_rows = con.execute(
+        f"SELECT COALESCE(NULLIF(province,''),'Non renseignée') AS province_name, COUNT(*) AS total "
+        f"FROM members {count_where} GROUP BY COALESCE(NULLIF(province,''),'Non renseignée') ORDER BY province_name COLLATE NOCASE",
+        count_params,
+    ).fetchall()
+    province_counts = {row["province_name"]: row["total"] for row in province_counts_rows}
+    scope_total = sum(province_counts.values())
+    active_total = con.execute(
+        f"SELECT COUNT(*) AS total FROM members {count_where} AND status='active'", count_params
+    ).fetchone()["total"]
+    national_total = con.execute("SELECT COUNT(*) AS total FROM members WHERE deleted_at IS NULL").fetchone()["total"] if user["role"] in NATIONAL_ROLES else None
     con.close()
-    return render_template("members.html", rows=rows)
+    return render_template(
+        "members.html", rows=rows, selected_province=province, province_counts=province_counts,
+        scope_total=scope_total, active_total=active_total, national_total=national_total,
+        filtered_total=len(rows), can_print_cards=can_output_member_card(user), focus=request.args.get("focus", ""),
+    )
 
 
 @app.route("/admin/members/export.csv")
@@ -4689,6 +4757,10 @@ def approve_activity(activity_id):
     a = con.execute("SELECT * FROM activities WHERE id=?", (activity_id,)).fetchone()
     if not a:
         con.close(); abort(404)
+    if (a["province"] or "") not in PROVINCES:
+        con.close()
+        flash("La province de cette demande est absente ou invalide. Corrigez le dossier avant validation.", "danger")
+        return redirect(url_for("applications"))
     con.execute("UPDATE activities SET status='approved', approved_at=?, approved_by=? WHERE id=?", (now(), user["id"], activity_id))
     con.commit(); con.close()
     log_action(user["id"], "Validation activité provinciale", "activity", activity_id)
@@ -4908,6 +4980,9 @@ def new_member():
     if request.method == "POST":
         province = request.form.get("province", "").strip()
         localite = request.form.get("localite", "").strip()
+        if province not in PROVINCES:
+            flash("Choisissez une province valide : elle détermine automatiquement la liste du membre.", "danger")
+            return redirect(url_for("new_member"))
         if user["role"] in PROVINCIAL_ROLES and province != user["province"]:
             abort(403)
         if user["role"] == "local_admin" and (province != user["province"] or localite != user["localite"]):
@@ -4951,10 +5026,100 @@ def new_member():
         generate_adhesion_form_pdf(member)
         log_action(user["id"], "Création locale membre", "member", member_id, code)
         flash(f"Membre ajouté. Identifiant: {email} ou {phone}. Mot de passe initial: {phone}", "success")
-        return redirect(url_for("members"))
+        return redirect(url_for("members", province=province, focus=member_id) + f"#member-{member_id}")
     default_province = user["province"] if user["role"] not in NATIONAL_ROLES else ""
     default_localite = user["localite"] if user["role"] == "local_admin" else ""
     return render_template("member_form.html", default_province=default_province, default_localite=default_localite)
+
+
+@app.route("/admin/members/<int:member_id>")
+@login_required
+@role_required("super_admin", "president", "secretary", "national_secretary", "provincial_president", "provincial_admin", "provincial_secretary", "local_admin", "registration_agent")
+def member_profile(member_id):
+    """Dossier central du membre : identité, cartes, cotisations et actions autorisées."""
+    user = current_user()
+    con = db()
+    member = con.execute("SELECT * FROM members WHERE id=? AND deleted_at IS NULL", (member_id,)).fetchone()
+    if not member:
+        con.close()
+        abort(404)
+    if not can_manage_member(user, member):
+        con.close()
+        abort(403)
+    rank_where, rank_params = member_scope_query(user)
+    rank_where += " AND province=?"
+    rank_params.append(member["province"] or "")
+    ranked = con.execute(
+        f"SELECT id FROM members {rank_where} ORDER BY "
+        "CASE WHEN NULLIF(executive_number,'') IS NOT NULL THEN 0 ELSE 1 END, "
+        "CAST(executive_number AS INTEGER), last_name COLLATE NOCASE, first_name COLLATE NOCASE, id",
+        rank_params,
+    ).fetchall()
+    ranked_ids = [row["id"] for row in ranked]
+    provincial_rank = ranked_ids.index(member_id) + 1 if member_id in ranked_ids else None
+    payments_rows = con.execute(
+        "SELECT * FROM payments WHERE member_id=? ORDER BY created_at DESC LIMIT 8", (member_id,)
+    ).fetchall()
+    payment_total = con.execute(
+        "SELECT COALESCE(SUM(amount),0) AS total FROM payments WHERE member_id=? AND status IN ('confirmed','paid','validé','valide')",
+        (member_id,),
+    ).fetchone()["total"]
+    renewals = con.execute(
+        "SELECT * FROM card_renewals WHERE member_id=? ORDER BY renewed_at DESC LIMIT 6", (member_id,)
+    ).fetchall()
+    recent_actions = con.execute(
+        "SELECT * FROM audit_logs WHERE target_id=? AND target_type IN ('member','members','payment') ORDER BY created_at DESC LIMIT 10",
+        (member_id,),
+    ).fetchall()
+    con.close()
+    return render_template(
+        "member_profile.html", member=member, provincial_rank=provincial_rank,
+        provincial_total=len(ranked_ids), payments=payments_rows, payment_total=payment_total,
+        renewals=renewals, recent_actions=recent_actions, can_print_card=can_output_member_card(user),
+        rank_label=("Rang local" if user["role"] == "local_admin" else "Rang dans la province"),
+    )
+
+
+@app.route("/admin/members/cards/province.pdf")
+@login_required
+@role_required("super_admin", "president", "secretary", "national_secretary", "provincial_president", "provincial_admin", "provincial_secretary", "local_admin", "registration_agent")
+def print_province_member_cards():
+    """Aperçu ou téléchargement groupé des cartes d'une province."""
+    user = current_user()
+    if not can_output_member_card(user):
+        abort(403)
+    province = request.args.get("province", "").strip()
+    if user["role"] not in NATIONAL_ROLES:
+        province = user["province"] or ""
+    if not province or province not in PROVINCES:
+        flash("Choisissez d’abord une province pour générer ses cartes.", "warning")
+        return redirect(url_for("members"))
+    status = request.args.get("status", "").strip()
+    con = db()
+    where, params = member_scope_query(user)
+    where += " AND province=?"
+    params.append(province)
+    if status:
+        where += " AND status=?"
+        params.append(status)
+    rows = con.execute(
+        f"SELECT * FROM members {where} ORDER BY "
+        "CASE WHEN NULLIF(executive_number,'') IS NOT NULL THEN 0 ELSE 1 END, "
+        "CAST(executive_number AS INTEGER), last_name COLLATE NOCASE, first_name COLLATE NOCASE, id",
+        params,
+    ).fetchall()
+    con.close()
+    if not rows:
+        flash(f"Aucune carte à générer pour la province {province} avec ces filtres.", "warning")
+        return redirect(url_for("members", province=province, status=status))
+    output_path = generate_province_member_cards_pdf(rows, province)
+    download = request.args.get("download") == "1"
+    response = send_file(
+        output_path, mimetype="application/pdf", as_attachment=download,
+        download_name=f"cartes_membres_{re.sub(r'[^A-Za-z0-9_-]+', '_', province)}.pdf", max_age=0,
+    )
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    return response
 
 
 @app.route("/admin/members/<int:member_id>/edit", methods=["GET", "POST"])
@@ -4985,6 +5150,10 @@ def edit_member(member_id):
     email = request.form.get("email", "").strip()
     province = request.form.get("province", "").strip()
     localite = request.form.get("localite", "").strip()
+    if province not in PROVINCES:
+        con.close()
+        flash("Choisissez une province valide : elle détermine le classement automatique du membre.", "danger")
+        return redirect(url_for("edit_member", member_id=member_id))
     if not first_name or not last_name or not phone:
         con.close()
         flash("Nom, prénom et téléphone sont obligatoires.", "danger")
@@ -5075,7 +5244,7 @@ def edit_member(member_id):
     generate_member_card_assets(updated)
     log_action(user["id"], "Modification membre", "member", member_id, updated["code"])
     flash("Membre modifié et carte régénérée avec succès.", "success")
-    return redirect(url_for("members"))
+    return redirect(url_for("member_profile", member_id=member_id))
 
 
 @app.route("/admin/members/print")
@@ -5119,7 +5288,7 @@ def toggle_member(member_id):
     con.commit(); con.close()
     log_action(user["id"], f"Changement statut membre: {new_status}", "member", member_id)
     flash("Statut du membre modifié.", "success")
-    return redirect(url_for("members"))
+    return redirect(url_for("member_profile", member_id=member_id))
 
 
 @app.route("/admin/members/<int:member_id>/delete", methods=["POST"])
@@ -6364,7 +6533,7 @@ def member_history(member_id):
     if not can_manage_member(user, member): con.close(); abort(403)
     payments_rows=con.execute('SELECT * FROM payments WHERE member_id=? ORDER BY created_at DESC', (member_id,)).fetchall()
     actions=con.execute("SELECT * FROM audit_logs WHERE target_id=? AND target_type IN ('member','members','payment') ORDER BY created_at DESC LIMIT 80", (member_id,)).fetchall()
-    con.close(); return render_template('member_history.html', member=member, payments=payments_rows, actions=actions)
+    con.close(); return render_template('member_history.html', member=member, payments=payments_rows, actions=actions, can_print_card=can_output_member_card(user))
 
 
 @app.route('/admin/assistant-demarrage', methods=['GET','POST'])
@@ -6533,9 +6702,9 @@ def module_permission_required(module, action='voir'):
 
 
 BUSINESS_ENDPOINT_MODULES = {
-    'members':'membres', 'new_member':'membres', 'toggle_member':'membres', 'delete_member':'membres',
+    'members':'membres', 'member_profile':'membres', 'member_history':'membres', 'new_member':'membres', 'toggle_member':'membres', 'delete_member':'membres',
     'delete_member_permanent':'membres', 'print_members':'membres', 'export_members_csv':'membres',
-    'export_members_xlsx':'membres', 'import_members':'membres', 'card':'membres', 'card_export':'membres',
+    'print_province_member_cards':'membres', 'export_members_xlsx':'membres', 'import_members':'membres', 'card':'membres', 'card_export':'membres',
     'fiche_adhesion':'membres', 'renew_member_card':'membres', 'applications':'adhesions',
     'accept_application':'adhesions', 'reject_application':'adhesions', 'payments':'cotisations',
     'print_payments':'cotisations', 'export_payments_csv':'cotisations', 'export_payments_xlsx':'cotisations',
