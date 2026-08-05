@@ -1,5 +1,25 @@
 {% extends 'base.html' %}
 {% block content %}
+<section class="public-carousel-compact" data-carousel>
+  <div class="slides">
+    {% if carousel %}
+      {% for img in carousel %}
+        <div class="slide {{ 'is-active' if loop.first else '' }}" style="background-image:url('{{ url_for('static', filename=img.image_path) }}'); background-size:{{ img.image_fit or 'cover' }}">
+          <div class="slide-message"><strong>{{ img.title or settings.structure_name }}</strong>{% if img.message %}<span>{{ img.message }}</span>{% endif %}</div>
+        </div>
+      {% endfor %}
+    {% else %}
+      <div class="slide is-active carousel-fallback-slide">
+        <div class="carousel-fallback-logo"><img src="{{ url_for('static', filename=settings.get('emblem_path','img/fobak_embleme_officiel_v79.png')) }}" alt="Emblème officiel FOBAK"></div>
+        <div class="slide-message"><strong>Bienvenue à la Fondation Bakitani</strong><span>Adhésion, activités, cotisations et suivi des membres sur une même plateforme.</span></div>
+      </div>
+    {% endif %}
+  </div>
+  <button class="carousel-control prev" type="button" aria-label="Image précédente">‹</button>
+  <button class="carousel-control next" type="button" aria-label="Image suivante">›</button>
+  <div class="carousel-dots" aria-label="Navigation du carrousel"></div>
+</section>
+
 <section class="welcome-hero">
   <div class="welcome-copy">
     <span class="welcome-kicker">Bienvenue sur la plateforme officielle FOBAK</span>
@@ -61,25 +81,7 @@
 </section>
 {% endif %}
 
-<section class="public-carousel-compact" data-carousel>
-  <div class="slides">
-    {% if carousel %}
-      {% for img in carousel %}
-        <div class="slide {{ 'is-active' if loop.first else '' }}" style="background-image:url('{{ url_for('static', filename=img.image_path) }}'); background-size:{{ img.image_fit or 'cover' }}">
-          <div class="slide-message"><strong>{{ img.title or settings.structure_name }}</strong>{% if img.message %}<span>{{ img.message }}</span>{% endif %}</div>
-        </div>
-      {% endfor %}
-    {% else %}
-      <div class="slide is-active carousel-fallback-slide">
-        <div class="carousel-fallback-logo"><img src="{{ url_for('static', filename=settings.get('emblem_path','img/fobak_embleme_officiel_v79.png')) }}" alt="Emblème officiel FOBAK"></div>
-        <div class="slide-message"><strong>Bienvenue à la Fondation Bakitani</strong><span>Adhésion, activités, cotisations et suivi des membres sur une même plateforme.</span></div>
-      </div>
-    {% endif %}
-  </div>
-  <button class="carousel-control prev" type="button" aria-label="Image précédente">‹</button>
-  <button class="carousel-control next" type="button" aria-label="Image suivante">›</button>
-  <div class="carousel-dots" aria-label="Navigation du carrousel"></div>
-</section>
+
 
 <section class="home-intro">
   <article class="home-intro-card">
@@ -100,6 +102,32 @@
     </div>
   </aside>
 </section>
+
+{% if biography %}
+<section class="president-biography-public" id="biographie-president">
+  <div class="president-biography-heading">
+    <div>
+      <span class="eyebrow">Présidence nationale</span>
+      <h2>Biographie du Président national</h2>
+      <p>Découvrez le parcours académique, professionnel et associatif du dirigeant national.</p>
+    </div>
+    {% if session.get('role') in ['super_admin','president'] %}<a class="btn small" href="{{ url_for('manage_president_biography') }}">Modifier la biographie</a>{% endif %}
+  </div>
+  <div class="president-biography-layout">
+    <aside class="president-biography-profile">
+      {% if biography.photo_path %}<img src="{{ url_for('static', filename=biography.photo_path) }}" alt="{{ biography.full_name }}">{% else %}<div class="president-biography-placeholder">SBM</div>{% endif %}
+      <h3>{{ biography.full_name }}</h3>
+      <strong>{{ biography.public_title }}</strong>
+    </aside>
+    <div class="president-biography-content">
+      <p class="biography-lead">{{ biography.introduction }}</p>
+      {% for title, text in [('Formation universitaire', biography.education), ('Carrière professionnelle', biography.career), ('Engagement politique et associatif', biography.engagement), ('Formations complémentaires', biography.training)] %}
+        {% if text %}<details {{ 'open' if loop.first else '' }}><summary>{{ title }}</summary><p>{{ text }}</p></details>{% endif %}
+      {% endfor %}
+    </div>
+  </div>
+</section>
+{% endif %}
 
 <section class="public-info-strip">
   <div><strong>Adhésion</strong><span>En ligne ou localement</span></div>

@@ -22,16 +22,9 @@
       data-login-alert-message="{{ login_sound_alert.message|e if login_sound_alert else '' }}"
       style="--watermark-url:url('{{ url_for('static', filename=settings.get('emblem_path','img/fobak_embleme_officiel_v79.png')) }}')">
   <div id="page-loader" class="page-loader">
-    <div class="loader-card loader-professional">
-      <div class="loader-logo-ring">
-        <div class="loader-logo">
-          <img src="{{ url_for('static', filename=settings.get('emblem_path','img/fobak_embleme_officiel_v79.png')) }}" alt="Emblème FOBAK">
-        </div>
-      </div>
-      <small>Chargement sécurisé</small>
-      <strong>{{ settings.structure_name }}</strong>
-      <div class="loader-progress"><span></span></div>
-      <em>Veuillez patienter...</em>
+    <div class="loader-minimal" role="status" aria-live="polite">
+      <img class="loader-emblem-spin" src="{{ url_for('static', filename=settings.get('emblem_path','img/fobak_embleme_officiel_v79.png')) }}" alt="Emblème FOBAK">
+      <span>Veuillez patienter...</span>
     </div>
   </div>
 
@@ -43,7 +36,7 @@
         <button id="sidebar-close-button" class="menu-round sidebar-close-button" data-sidebar-action="collapse" type="button" aria-label="Masquer le menu">×</button>
         <div class="side-brand">
           <div class="side-logo">
-            {% if settings.logo_dark_path %}<img src="{{ url_for('static', filename=settings.logo_dark_path) }}" alt="Logo FOBAK" onerror="this.onerror=null;this.src='{{ url_for('static', filename='img/fobak_logo_official_v25.png') }}'">{% else %}<span>FOBAK</span>{% endif %}
+            <img src="{{ url_for('static', filename=settings.get('emblem_path','img/fobak_embleme_officiel_v79.png')) }}" alt="Emblème FOBAK">
           </div>
           <div>
             <strong>{{ settings.structure_name }}</strong>
@@ -130,6 +123,7 @@
               <a href="{{ url_for('audit_center') }}">Journal d’audit</a>
               <a href="{{ url_for('diagnostic_center') }}">Diagnostic</a>
               <a href="{{ url_for('year_closure') }}">Clôture d’exercice</a>
+              {% if session.role in ['super_admin','president'] %}<a href="{{ url_for('manage_president_biography') }}">Biographie du Président</a>{% endif %}
               {% if session.role == 'super_admin' %}<a href="{{ url_for('settings_page') }}">Paramètres généraux</a>{% endif %}
             </div>
           </details>
@@ -170,6 +164,7 @@
         <a href="{{ url_for('diagnostic_center') }}" class="{{ 'active' if request.endpoint == 'diagnostic_center' else '' }}"><span>🩺</span> Diagnostic général <b>›</b></a>
         {% if session.role == 'super_admin' %}<a href="{{ url_for('setup_wizard') }}" class="{{ 'active' if request.endpoint == 'setup_wizard' else '' }}"><span>🧭</span> Assistant démarrage <b>›</b></a>{% endif %}
         {% if session.role in ['super_admin','president','secretary','national_secretary'] %}<a href="{{ url_for('executive_numbers_page') }}" class="{{ 'active' if request.endpoint == 'executive_numbers_page' else '' }}"><span>🔢</span> Numéros hauts cadres <b>›</b></a>{% endif %}
+        {% if session.role in ['super_admin','president'] %}<a href="{{ url_for('manage_president_biography') }}" class="{{ 'active' if request.endpoint == 'manage_president_biography' else '' }}"><span>👤</span> Biographie du Président <b>›</b></a>{% endif %}
         {% if session.role == 'super_admin' %}<a href="{{ url_for('settings_page') }}" class="{{ 'active' if request.endpoint == 'settings_page' else '' }}"><span>⚙️</span> Paramètres <b>›</b></a>{% endif %}
         {% endif %}
         {% else %}
@@ -245,7 +240,7 @@
   <div id="public-menu-backdrop" class="public-menu-backdrop" aria-hidden="true"></div>
   <header class="site-header public-header">
     <div class="logo-box">
-      {% if settings.logo_dark_path %}<img src="{{ url_for('static', filename=settings.logo_dark_path) }}" alt="Logo FOBAK" onerror="this.onerror=null;this.src='{{ url_for('static', filename='img/fobak_logo_official_v25.png') }}'">{% else %}<span>FOBAK</span>{% endif %}
+      <img src="{{ url_for('static', filename=settings.get('emblem_path','img/fobak_embleme_officiel_v79.png')) }}" alt="Emblème FOBAK">
     </div>
     <div class="brand-block">
       <strong>{{ settings.structure_name }}</strong>
@@ -296,7 +291,7 @@
   {% if current_user %}
       <footer class="app-footer dashboard-style-footer">
         <div class="footer-about">
-          <div class="footer-logo">{% if settings.logo_dark_path %}<img src="{{ url_for('static', filename=settings.logo_dark_path) }}" alt="Logo FOBAK" onerror="this.onerror=null;this.src='{{ url_for('static', filename='img/fobak_logo_official_v25.png') }}'">{% else %}<span>FOBAK</span>{% endif %}</div>
+          <div class="footer-logo"><img src="{{ url_for('static', filename=settings.get('emblem_path','img/fobak_embleme_officiel_v79.png')) }}" alt="Emblème FOBAK"></div>
           <p>{{ settings.footer_note }}</p>
         </div>
         <div>
@@ -336,7 +331,7 @@
   {% else %}
   <footer class="app-footer public-footer dashboard-style-footer">
     <div class="footer-about">
-      <div class="footer-logo">{% if settings.logo_dark_path %}<img src="{{ url_for('static', filename=settings.logo_dark_path) }}" alt="Logo FOBAK" onerror="this.onerror=null;this.src='{{ url_for('static', filename='img/fobak_logo_official_v25.png') }}'">{% else %}<span>FOBAK</span>{% endif %}</div>
+      <div class="footer-logo"><img src="{{ url_for('static', filename=settings.get('emblem_path','img/fobak_embleme_officiel_v79.png')) }}" alt="Emblème FOBAK"></div>
       <p>{{ settings.footer_note }}</p>
     </div>
     <div><h3>Adresse & contacts</h3><p>📍 <a class="footer-map-link" href="{{ maps_url }}" target="_blank" rel="noopener">{{ settings.headquarters }}</a></p><p>☎ <a href="tel:{{ settings.contact_phones|replace(' ','')|replace(';',',') }}">{{ settings.contact_phones }}</a></p><p>🌍 <a href="{{ settings.get('public_base_url') or 'https://fondationbakitani.org' }}" target="_blank" rel="noopener">{{ settings.get('public_base_url') or 'https://fondationbakitani.org' }}</a></p><div class="socials">{% if settings.facebook and settings.facebook != '#' %}<a href="{{ settings.facebook }}" target="_blank" rel="noopener noreferrer" aria-label="Facebook">f</a>{% endif %}{% if settings.youtube and settings.youtube != '#' %}<a href="{{ settings.youtube }}" target="_blank" rel="noopener noreferrer" aria-label="YouTube">▶</a>{% endif %}{% if settings.whatsapp and settings.whatsapp != '#' %}<a href="{{ settings.whatsapp if settings.whatsapp.startswith('http') else 'https://wa.me/' + settings.whatsapp|replace('+','')|replace(' ','') }}" target="_blank" rel="noopener noreferrer" aria-label="WhatsApp">☎</a>{% endif %}{% if settings.instagram and settings.instagram != '#' %}<a href="{{ settings.instagram }}" target="_blank" rel="noopener noreferrer" aria-label="Instagram">◎</a>{% endif %}{% if settings.tiktok and settings.tiktok != '#' %}<a href="{{ settings.tiktok }}" target="_blank" rel="noopener noreferrer" aria-label="TikTok">♪</a>{% endif %}{% if settings.x_twitter and settings.x_twitter != '#' %}<a href="{{ settings.x_twitter }}" target="_blank" rel="noopener noreferrer" aria-label="X">𝕏</a>{% endif %}{% if settings.linkedin and settings.linkedin != '#' %}<a href="{{ settings.linkedin }}" target="_blank" rel="noopener noreferrer" aria-label="LinkedIn">in</a>{% endif %}</div></div>

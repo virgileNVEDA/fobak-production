@@ -1,0 +1,32 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="card biography-admin-header">
+  <div>
+    <span class="eyebrow">Contenu public</span>
+    <h1>Biographie du Président national</h1>
+    <p>Cette rubrique est visible sur la page d’accueil. Seuls l’Administrateur et le Président national peuvent la modifier, l’importer ou la retirer.</p>
+  </div>
+  <a class="btn" href="{{ url_for('index') }}#biographie-president">Voir la page publique</a>
+</section>
+<section class="card">
+  <form method="post" enctype="multipart/form-data" class="form grid two">
+    <label>Nom complet<input name="full_name" required value="{{ biography.full_name if biography else 'Sam Bienvenu MAYAGA' }}"></label>
+    <label>Fonction publique<input name="public_title" value="{{ biography.public_title if biography else 'Président National' }}"></label>
+    <label>Photo officielle<input type="file" name="photo" accept="image/*"><small>L’ancienne photo est conservée si aucune nouvelle photo n’est choisie.</small></label>
+    <label>Importer un texte<input type="file" name="biography_file" accept=".txt,.docx"><small>TXT ou DOCX. Le texte importé remplace l’introduction et reste modifiable.</small></label>
+    <label class="full">Présentation générale<textarea name="introduction" rows="6">{{ biography.introduction if biography else '' }}</textarea></label>
+    <label class="full">Formation universitaire<textarea name="education" rows="7">{{ biography.education if biography else '' }}</textarea></label>
+    <label class="full">Carrière professionnelle<textarea name="career" rows="9">{{ biography.career if biography else '' }}</textarea></label>
+    <label class="full">Engagement politique et associatif<textarea name="engagement" rows="9">{{ biography.engagement if biography else '' }}</textarea></label>
+    <label class="full">Formations complémentaires<textarea name="training" rows="7">{{ biography.training if biography else '' }}</textarea></label>
+    <button class="btn primary full">Enregistrer et publier</button>
+  </form>
+</section>
+{% if biography %}
+<section class="card sensitive-actions">
+  <h2>Retirer de la page publique</h2>
+  <p>La suppression masque la biographie sans détruire définitivement son contenu. Une nouvelle modification la republiera.</p>
+  <form method="post" action="{{ url_for('delete_president_biography') }}" onsubmit="return confirm('Retirer la biographie de la page publique ?')"><button class="btn danger">Supprimer / masquer publiquement</button></form>
+</section>
+{% endif %}
+{% endblock %}

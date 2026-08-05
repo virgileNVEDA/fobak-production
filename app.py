@@ -8,6 +8,7 @@ import uuid
 import secrets
 import shutil
 import zipfile
+import xml.etree.ElementTree as ET
 import sqlite3
 from io import StringIO, BytesIO
 from urllib.parse import quote_plus
@@ -59,9 +60,9 @@ UPLOAD_ROOT = os.environ.get("UPLOAD_ROOT", os.path.join(STATIC_DIR, "uploads"))
 RDC_FLAG_REL = "img/drapeau_rdc.jpg"
 RDC_FLAG_ABS = os.path.join(STATIC_DIR, RDC_FLAG_REL)
 ALLOWED_IMAGE_EXT = {"png", "jpg", "jpeg", "webp", "pdf", "doc", "docx", "xls", "xlsx"}
-APP_VERSION = "79.0.0"
-APP_RELEASE_NAME = "FOBAK Manager Pro — emblème officiel intégré V79"
-CARD_TEMPLATE_VERSION = "paysage-v79-embleme-officiel"
+APP_VERSION = "80.0.0"
+APP_RELEASE_NAME = "FOBAK Manager Pro — interface et cartes épurées V80"
+CARD_TEMPLATE_VERSION = "paysage-v80-epure-embleme"
 
 # Numérotation protocolaire nationale. Le numéro de cadre reste distinct du
 # code unique de la carte afin de conserver la traçabilité des anciens membres.
@@ -254,6 +255,24 @@ PROVINCES = [
     "Sud-Kivu", "Sud-Ubangi", "Tanganyika", "Tshopo", "Tshuapa"
 ]
 
+# Formes administratives correctes utilisées sur les cartes provinciales.
+# La valeur contient volontairement la préposition et, lorsqu'il le faut,
+# l'article défini afin d'éviter des libellés comme « DE MONGALA ».
+PROVINCE_COORDINATION_FORMS = {
+    "Bas-Uele": "DU BAS-UELE", "Équateur": "DE L’ÉQUATEUR",
+    "Haut-Katanga": "DU HAUT-KATANGA", "Haut-Lomami": "DU HAUT-LOMAMI",
+    "Haut-Uele": "DU HAUT-UELE", "Ituri": "DE L’ITURI", "Kasaï": "DU KASAÏ",
+    "Kasaï-Central": "DU KASAÏ-CENTRAL", "Kasaï-Oriental": "DU KASAÏ-ORIENTAL",
+    "Kinshasa": "DE KINSHASA", "Kongo-Central": "DU KONGO-CENTRAL",
+    "Kwango": "DU KWANGO", "Kwilu": "DU KWILU", "Lomami": "DE LA LOMAMI",
+    "Lualaba": "DU LUALABA", "Mai-Ndombe": "DU MAI-NDOMBE",
+    "Maniema": "DU MANIEMA", "Mongala": "DE LA MONGALA",
+    "Nord-Kivu": "DU NORD-KIVU", "Nord-Ubangi": "DU NORD-UBANGI",
+    "Sankuru": "DU SANKURU", "Sud-Kivu": "DU SUD-KIVU",
+    "Sud-Ubangi": "DU SUD-UBANGI", "Tanganyika": "DU TANGANYIKA",
+    "Tshopo": "DE LA TSHOPO", "Tshuapa": "DE LA TSHUAPA",
+}
+
 TERRITOIRES = {
     "Bas-Uele": ["Aketi", "Ango", "Bambesa", "Bondo", "Buta", "Poko"],
     "Équateur": ["Basankusu", "Bikoro", "Bolomba", "Bomongo", "Ingende", "Lukolela", "Makanza"],
@@ -363,7 +382,7 @@ def db():
 def init_db():
     os.makedirs(UPLOAD_ROOT, exist_ok=True)
     os.makedirs(os.path.join(STATIC_DIR, "img"), exist_ok=True)
-    for sub in ["carousel", "logos", "photos", "signatures", "cards", "activities", "support", "backups", "official_docs"]:
+    for sub in ["carousel", "logos", "photos", "signatures", "cards", "activities", "support", "backups", "official_docs", "biography"]:
         os.makedirs(os.path.join(UPLOAD_ROOT, sub), exist_ok=True)
     os.makedirs(os.path.join(BASE_DIR, "backups"), exist_ok=True)
     con = db()
@@ -514,6 +533,20 @@ def init_db():
         image_path TEXT NOT NULL,
         active INTEGER DEFAULT 1,
         created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS president_biography (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        full_name TEXT NOT NULL,
+        public_title TEXT DEFAULT 'Président National',
+        introduction TEXT,
+        education TEXT,
+        career TEXT,
+        engagement TEXT,
+        training TEXT,
+        photo_path TEXT,
+        active INTEGER DEFAULT 1,
+        updated_at TEXT NOT NULL,
+        updated_by INTEGER
     );
     CREATE TABLE IF NOT EXISTS adhesion_fields (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1287,6 +1320,18 @@ def init_db():
     cur.execute("CREATE INDEX IF NOT EXISTS idx_password_reset_status ON password_reset_requests(status, requested_at)")
 
     default_permissions = ['voir','ajouter','modifier','supprimer','imprimer','exporter','valider','parametres','imprimer_cartes','telecharger_cartes']
+    biography_exists = cur.execute("SELECT id FROM president_biography LIMIT 1").fetchone()
+    if not biography_exists:
+        cur.execute("""INSERT INTO president_biography(full_name,public_title,introduction,education,career,engagement,training,active,updated_at)
+                       VALUES(?,?,?,?,?,?,?,?,?)""", (
+            "Sam Bienvenu MAYAGA", "Président National",
+            "Sam Bienvenu MAYAGA est un homme d’État et acteur de la société civile en République démocratique du Congo. Il est connu pour sa maîtrise de l’administration publique, des principes budgétaires, ainsi que pour son engagement au sein des organisations de la société civile.",
+            "Sam Bienvenu MAYAGA est titulaire d’une licence (BAC+5) en Sciences politiques et administratives, option Sciences politiques, obtenue en 2012 à l’Université de Kinshasa (UNIKIN). En 2025, il obtient une seconde licence (BAC+5) en Sciences commerciales et financières, option Comptabilité, à la Haute École de Commerce de Kinshasa (HEC/KIN, ex-ISC/Gombe). La même année, il entreprend un master en Management des projets aux Hautes Études Commerciales (HEC) du Royaume du Maroc. Il est également diplômé d’État en Pédagogie générale depuis 2007.",
+            "Depuis 2021, Sam Bienvenu MAYAGA exerce les fonctions de Secrétaire particulier de Son Excellence Élysé BOKUMWANA Maposo, Vice-Ministre du Budget de la République démocratique du Congo. Depuis août 2024, il est collaborateur à la Direction générale du Développement et du Suivi des Performances (DGDSP) du Secrétariat général au Budget. Auparavant, il a été Directeur du personnel à l’Office des Routes, Direction provinciale de Kinshasa, de 2014 à 2021. De 2013 à 2017, il a occupé les fonctions d’Assistant parlementaire auprès de l’Honorable Député national Élysé BOKUMWANA. En 2019, il a été Rédacteur au Cabinet du Président du Bureau provisoire de l’Assemblée nationale de la RDC.",
+            "Depuis décembre 2025, Sam Bienvenu MAYAGA est l’initiateur et Président national du mouvement Les Amis de Sam Bienvenu MAYAGA (ASBM). Il est également, depuis 2022, initiateur et Président de la Fondation BAKITANI. Depuis 2020, il est proche du Parti de l’Unité Nationale (PUNA). Il est en outre membre fondateur des coopératives d’épargne et de crédit BOMENGO et LISUNGI Mbandaka, et Coordonnateur du Bureau de liaison à Kinshasa. Entre 2007 et 2024, il a été chargé des relations publiques de l’ONG Solidarité Commune (SOCO), impliquée dans le Projet de développement local des 145 territoires (PDL-145T), en partenariat avec le PNUD, notamment dans la province de la Mongala.",
+            "Sam Bienvenu MAYAGA a suivi plusieurs formations certifiantes, notamment en gouvernance, gestion des marchés publics et partenariats public-privé (Dubaï, 2026), en système comptable des entités à but non lucratif (CPCC, 2025), en budget-programme (ICFP, 2025), en contrôle budgétaire performant (Institut Forhom, La Rochelle, France, 2023), ainsi qu’en langue anglaise au Congo American Language Institute (CALI, 2022, 2023 et 2024).",
+            1, now()))
+
     for role_key, role_label in ROLE_LABELS.items():
         for perm in default_permissions:
             allowed = 1 if role_key == 'super_admin' else 0
@@ -3024,8 +3069,8 @@ def _member_card_scope(member):
     is_national = coordination == "national" or (coordination != "provincial" and "national" in _plain_text(position))
     if is_national:
         return "NATIONAL", "COORDINATION NATIONALE"
-    province_label = province.upper() if province else "NON RENSEIGNÉE"
-    return "PROVINCE:" + _plain_text(province or "inconnue").replace(" ", "-"), f"COORDINATION PROVINCIALE DE {province_label}"
+    province_form = PROVINCE_COORDINATION_FORMS.get(province, f"DE {(province or 'PROVINCE NON RENSEIGNÉE').upper()}")
+    return "PROVINCE:" + _plain_text(province or "inconnue").replace(" ", "-"), f"COORDINATION PROVINCIALE {province_form}"
 
 
 def _preferred_card_sequence(member, scope_key):
@@ -3105,17 +3150,14 @@ def _official_contact_urls(settings):
 
 
 def _add_card_contact_links(document, settings, x, y, card_w, card_h):
-    """Ajoute six zones cliquables sur les deux lignes de contacts de la carte PDF."""
+    """Ajoute les quatre zones cliquables du pied de carte épuré."""
     urls = _official_contact_urls(settings)
-    row_two_bottom, row_two_top = y + card_h*.045, y + card_h*.102
-    row_three_bottom, row_three_top = y + card_h*.004, y + card_h*.048
+    footer_bottom, footer_top = y + card_h*.006, y + card_h*.075
     link_boxes = [
-        ("phone", 0.00, 0.36, row_two_bottom, row_two_top),
-        ("whatsapp", 0.36, 0.69, row_two_bottom, row_two_top),
-        ("email", 0.69, 1.00, row_two_bottom, row_two_top),
-        ("facebook", 0.00, 0.34, row_three_bottom, row_three_top),
-        ("youtube", 0.34, 0.67, row_three_bottom, row_three_top),
-        ("site", 0.67, 1.00, row_three_bottom, row_three_top),
+        ("phone", 0.00, 0.25, footer_bottom, footer_top),
+        ("whatsapp", 0.25, 0.49, footer_bottom, footer_top),
+        ("email", 0.49, 0.76, footer_bottom, footer_top),
+        ("site", 0.76, 1.00, footer_bottom, footer_top),
     ]
     for key, left_ratio, right_ratio, bottom, top in link_boxes:
         document.linkURL(urls[key], (x+card_w*left_ratio, bottom, x+card_w*right_ratio, top), relative=0, thickness=0)
@@ -3134,7 +3176,7 @@ def _add_member_email_link(document, member, x, y, card_w, card_h):
 
 
 def generate_member_card_assets(member):
-    """Génère le modèle V78 paysage, exact PVC 85,6 × 54 mm."""
+    """Génère le modèle V80 paysage épuré, exact PVC 85,6 × 54 mm."""
     settings = get_settings()
     internal_code = member["code"] or create_member_code(member["id"], member["province"] or "NAT")
     card_number, adhesion_number, coordination_label = _member_document_numbers(member)
@@ -3143,8 +3185,8 @@ def generate_member_card_assets(member):
     width, height = 1011, 638
     navy, blue, cyan, gold = (5, 61, 102), (6, 94, 147), (28, 177, 215), (247, 198, 48)
     dark, muted, pale, line = (11, 40, 65), (79, 101, 120), (246, 250, 253), (184, 212, 228)
-    logo = _open_contained(_static_or_upload_path(settings.get("logo_path", "")), (205, 82))
     emblem_path = settings.get("emblem_path") or "img/fobak_embleme_officiel_v79.png"
+    header_emblem = _open_contained(_static_or_upload_path(emblem_path), (120, 120))
     emblem = _open_contained(_static_or_upload_path(emblem_path), (420, 300))
     watermark = emblem or _open_contained(_static_or_upload_path(settings.get("logo_watermark_path") or settings.get("logo_path", "")), (420, 300))
     flag = _open_contained(RDC_FLAG_ABS, (100, 62), False)
@@ -3180,7 +3222,7 @@ def generate_member_card_assets(member):
         draw.rounded_rectangle((5, 5, width-5, height-5), radius=28, fill="white", outline=navy, width=5)
         draw.rounded_rectangle((5, 5, width-5, 166), radius=28, fill=navy)
         draw.rectangle((5, 115, width-5, 166), fill=navy)
-        if logo: image.paste(logo, (24, 22), logo)
+        if header_emblem: image.paste(header_emblem, (29, 19), header_emblem)
         else: draw.text((125, 62), "FOBAK", font=_card_font(34, True), anchor="mm", fill="white")
         if flag: image.paste(flag.convert("RGB"), (882, 24))
         draw.text((width//2, 29), "RÉPUBLIQUE DÉMOCRATIQUE DU CONGO", font=_card_font(22, True), anchor="mm", fill="white")
@@ -3190,44 +3232,49 @@ def generate_member_card_assets(member):
         draw.rectangle((5, 158, width-5, 166), fill=gold)
         return image, draw
 
-    def draw_footer(draw, lead):
-        draw.rectangle((5, 550, width-5, height-5), fill=navy)
-        draw.rectangle((5, 550, width-5, 555), fill=gold)
-        draw.text((width//2, 570), _fit_text(draw, lead, _card_font(16, True), 960, 150), font=_card_font(16, True), anchor="mm", fill="white")
-        contact = f"☎ {settings.get('contact_phones','')}  |  WhatsApp {settings.get('whatsapp','+243 81 45 70 392')}  |  ✉ {settings.get('contact_email','fondationbakitani@gmail.com')}"
-        draw.text((width//2, 596), contact, font=fitted_font(draw, contact, 15, 12, 965), anchor="mm", fill=(235, 247, 253))
-        social = f"Facebook : {settings.get('facebook_label','Fondation Bakitani')}  |  YouTube : {settings.get('youtube_label','Fondation Bakitani TV')}  |  Site : {settings.get('site_label','www.fondationbakitani.org')}"
-        draw.text((width//2, 621), social, font=fitted_font(draw, social, 15, 12, 965), anchor="mm", fill=gold)
+    def draw_footer(draw):
+        draw.rectangle((5, 590, width-5, height-5), fill=navy)
+        draw.rectangle((5, 590, width-5, 595), fill=gold)
+        contact = (
+            f"☎ {settings.get('contact_phones','')}  |  WhatsApp {settings.get('whatsapp','+243 81 45 70 392')}"
+            f"  |  ✉ {settings.get('contact_email','fondationbakitani@gmail.com')}"
+            f"  |  Site : {settings.get('site_label','www.fondationbakitani.org')}"
+        )
+        contact_font = fitted_font(draw, contact, 16, 11, 965)
+        draw.text((width//2, 616), contact, font=contact_font, anchor="mm", fill="white")
 
     front, draw = base_card(); add_watermark(front, (425, 360), .055)
-    draw.rounded_rectangle((32, 181, 725, 535), radius=20, fill=(255,255,255), outline=line, width=3)
+    draw.rounded_rectangle((32, 181, 725, 575), radius=20, fill=(255,255,255), outline=line, width=3)
     draw.rounded_rectangle((40, 188, 238, 229), radius=15, fill=navy)
     draw.text((139, 209), f"Nº : {card_number}", font=_card_font(23, True), anchor="mm", fill="white")
     fields = [
         ("NOM", member["last_name"]), ("POSTNOM", post_name), ("PRÉNOM", member["first_name"]),
         ("FONCTION", role), ("ADRESSE", member["physical_address"] or member["province"] or "—"),
     ]
-    y = 252
+    y = 248
     for label, value in fields:
         draw.text((52, y), label, font=_card_font(20, True), fill=blue)
-        value_font = fitted_font(draw, value, 24, 16, 315)
-        draw.text((218, y), _fit_text(draw, value or "—", value_font, 315, 70), font=value_font, fill=dark)
-        draw.line((52, y+29, 690, y+29), fill=line, width=2)
-        y += 54
+        value_font = fitted_font(draw, value, 24, 16, 325)
+        draw.text((218, y), _fit_text(draw, value or "—", value_font, 325, 70), font=value_font, fill=dark)
+        draw.line((52, y+28, 535, y+28), fill=line, width=2)
+        y += 49
     qr = make_scannable_qr(short_verification_url(member["id"]), 164)
-    draw.rounded_rectangle((548, 359, 724, 535), radius=12, fill="white", outline=blue, width=3)
-    front.paste(qr, (554, 365))
+    draw.rounded_rectangle((548, 184, 724, 360), radius=12, fill="white", outline=blue, width=3)
+    front.paste(qr, (554, 190))
+    validity = f"{status.upper()}  –  Valable jusqu’au {(member['expires_at'] or '')[:10] or '—'}"
+    status_fill = (12, 145, 82) if status.lower() in {"active", "actif", "active"} else blue
+    draw.rounded_rectangle((52, 505, 528, 548), radius=15, fill=status_fill)
+    draw.text((290, 527), validity, font=fitted_font(draw, validity, 19, 14, 445), anchor="mm", fill="white")
     draw.rounded_rectangle((755, 181, 980, 430), radius=19, fill=pale, outline=cyan, width=4)
     if photo: front.paste(photo, (759, 187))
     else: draw.text((868, 305), "PHOTO", font=_card_font(30, True), anchor="mm", fill=muted)
-    draw.text((868, 446), f"{member['first_name'] or ''} {member['last_name'] or ''} {post_name if post_name != '—' else ''}".strip(), font=fitted_font(draw, f"{member['first_name']} {member['last_name']}", 17, 13, 220), anchor="mm", fill=navy)
-    draw.text((868, 470), role, font=fitted_font(draw, role, 15, 12, 220), anchor="mm", fill=blue)
-    if signature: front.paste(signature, (760, 479), signature)
-    else: draw.text((810, 508), "SIGNATURE", font=_card_font(11, True), anchor="mm", fill=muted)
-    if stamp: front.paste(stamp, (879, 472), stamp)
-    else: draw.text((924, 508), "CACHET", font=_card_font(11, True), anchor="mm", fill=muted)
-    draw.text((868, 538), secretary_name, font=fitted_font(draw, secretary_name, 13, 10, 220), anchor="mm", fill=dark)
-    draw_footer(draw, f"Nº {card_number}  •  {status}  •  Valide jusqu’au {(member['expires_at'] or '')[:10] or '—'}")
+    draw.text((810, 451), "SIGNATURE", font=_card_font(11, True), anchor="mm", fill=muted)
+    draw.text((924, 451), "CACHET", font=_card_font(11, True), anchor="mm", fill=muted)
+    if signature: front.paste(signature, (760, 462), signature)
+    if stamp: front.paste(stamp, (879, 455), stamp)
+    draw.text((868, 536), secretary_name, font=fitted_font(draw, secretary_name, 13, 10, 220), anchor="mm", fill=dark)
+    draw.text((868, 557), secretary_function, font=fitted_font(draw, secretary_function, 12, 9, 220), anchor="mm", fill=blue)
+    draw_footer(draw)
 
     back, draw = base_card(); add_watermark(back, (505, 350), .10)
     draw.rounded_rectangle((252, 181, 759, 240), radius=20, fill=gold, outline=navy, width=3)
@@ -3239,7 +3286,7 @@ def generate_member_card_assets(member):
     lines = wrap_text(notice, 72)[:3]
     for index, text_line in enumerate(lines):
         draw.text((width//2, 433 + index*31), text_line, font=_card_font(22, index == 0), anchor="mm", fill=dark)
-    draw_footer(draw, f"Document personnel et incessible  •  Nº {card_number}  •  {coordination_label}")
+    draw_footer(draw)
 
     paths = {}
     for side, image in (("recto", front), ("verso", back)):
@@ -3270,7 +3317,7 @@ def generate_member_card_assets(member):
         for key, path in paths.items():
             if key != "pdf":
                 archive.write(path, os.path.basename(path))
-        archive.writestr("LISEZ_MOI.txt", "Modèle officiel FOBAK paysage V78, format PVC-ID1 exact 85,6 x 54 mm. Numérotation indépendante par coordination, QR au recto, signature et cachet remplaçables.\n")
+        archive.writestr("LISEZ_MOI.txt", "Modèle officiel FOBAK paysage V80, format PVC-ID1 exact 85,6 x 54 mm. Pied épuré, numérotation indépendante par coordination, QR au recto, signature et cachet remplaçables.\n")
     paths["zip"] = zip_path
     Path(os.path.join(cards_dir, ".card_template_version")).write_text(CARD_TEMPLATE_VERSION, encoding="utf-8")
     return paths
@@ -3944,8 +3991,9 @@ def index():
     carousel = con.execute("SELECT * FROM carousel_images WHERE active=1 ORDER BY created_at DESC LIMIT 8").fetchall()
     docs = con.execute("SELECT * FROM documents WHERE public=1 ORDER BY created_at DESC LIMIT 4").fetchall()
     projects = con.execute("SELECT * FROM projects ORDER BY created_at DESC LIMIT 4").fetchall()
+    biography = con.execute("SELECT * FROM president_biography WHERE active=1 ORDER BY id DESC LIMIT 1").fetchone()
     con.close()
-    return render_template("index.html", activities=activities, videos=videos, carousel=carousel, docs=docs, projects=projects, youtube_embed=youtube_embed)
+    return render_template("index.html", activities=activities, videos=videos, carousel=carousel, docs=docs, projects=projects, biography=biography, youtube_embed=youtube_embed)
 
 
 @app.route("/fiche-vierge")
@@ -6711,6 +6759,77 @@ def activate_statute_document(document_id):
 @role_required("super_admin", "president", "secretary", "national_secretary")
 def delete_statute_document(document_id):
     con=db(); con.execute("UPDATE official_documents SET active=0,deleted_at=? WHERE id=?", (now(), document_id)); con.commit(); con.close(); flash("Version retirée de l'application.", "warning"); return redirect(url_for("manage_statutes"))
+
+
+def _extract_biography_import(file_storage):
+    """Extrait du texte depuis un fichier TXT ou DOCX sans dépendance externe."""
+    if not file_storage or not getattr(file_storage, "filename", ""):
+        return ""
+    filename = secure_filename(file_storage.filename)
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    raw = file_storage.read()
+    file_storage.stream.seek(0)
+    if ext == "txt":
+        return raw.decode("utf-8", errors="replace").strip()
+    if ext == "docx":
+        try:
+            with zipfile.ZipFile(BytesIO(raw)) as archive:
+                xml_data = archive.read("word/document.xml")
+            root = ET.fromstring(xml_data)
+            ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+            paragraphs = []
+            for paragraph in root.findall(".//w:p", ns):
+                text = "".join(node.text or "" for node in paragraph.findall(".//w:t", ns)).strip()
+                if text:
+                    paragraphs.append(text)
+            return "\n\n".join(paragraphs)
+        except Exception:
+            logging.exception("Import DOCX de la biographie impossible")
+    return ""
+
+
+@app.route("/admin/biographie-president", methods=["GET", "POST"])
+@login_required
+@role_required("super_admin", "president")
+def manage_president_biography():
+    con = db()
+    biography = con.execute("SELECT * FROM president_biography ORDER BY id DESC LIMIT 1").fetchone()
+    if request.method == "POST":
+        imported_text = _extract_biography_import(request.files.get("biography_file"))
+        photo_path = save_upload(request.files.get("photo"), "biography")
+        values = {
+            "full_name": request.form.get("full_name", "Sam Bienvenu MAYAGA").strip(),
+            "public_title": request.form.get("public_title", "Président National").strip(),
+            "introduction": request.form.get("introduction", "").strip(),
+            "education": request.form.get("education", "").strip(),
+            "career": request.form.get("career", "").strip(),
+            "engagement": request.form.get("engagement", "").strip(),
+            "training": request.form.get("training", "").strip(),
+        }
+        if imported_text:
+            values["introduction"] = imported_text
+        if biography:
+            con.execute("""UPDATE president_biography SET full_name=?,public_title=?,introduction=?,education=?,career=?,engagement=?,training=?,photo_path=COALESCE(NULLIF(?,''),photo_path),active=1,updated_at=?,updated_by=? WHERE id=?""",
+                        (values["full_name"],values["public_title"],values["introduction"],values["education"],values["career"],values["engagement"],values["training"],photo_path,now(),current_user()["id"],biography["id"]))
+        else:
+            con.execute("""INSERT INTO president_biography(full_name,public_title,introduction,education,career,engagement,training,photo_path,active,updated_at,updated_by) VALUES(?,?,?,?,?,?,?,?,1,?,?)""",
+                        (values["full_name"],values["public_title"],values["introduction"],values["education"],values["career"],values["engagement"],values["training"],photo_path,now(),current_user()["id"]))
+        con.commit(); con.close()
+        flash("Biographie publique du Président national mise à jour.", "success")
+        return redirect(url_for("manage_president_biography"))
+    con.close()
+    return render_template("president_biography_admin.html", biography=biography)
+
+
+@app.route("/admin/biographie-president/supprimer", methods=["POST"])
+@login_required
+@role_required("super_admin", "president")
+def delete_president_biography():
+    con = db()
+    con.execute("UPDATE president_biography SET active=0,updated_at=?,updated_by=?", (now(), current_user()["id"]))
+    con.commit(); con.close()
+    flash("La biographie a été retirée de la page publique. Elle reste réactivable par une nouvelle modification.", "warning")
+    return redirect(url_for("manage_president_biography"))
 
 
 @app.route("/admin/settings", methods=["GET", "POST"])
