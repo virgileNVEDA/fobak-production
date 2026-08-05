@@ -123,7 +123,7 @@
               <a href="{{ url_for('audit_center') }}">Journal d’audit</a>
               <a href="{{ url_for('diagnostic_center') }}">Diagnostic</a>
               <a href="{{ url_for('year_closure') }}">Clôture d’exercice</a>
-              {% if session.role in ['super_admin','president'] %}<a href="{{ url_for('manage_president_biography') }}">Biographie du Président</a>{% endif %}
+              {% if session.role in ['super_admin','president'] %}<a href="{{ url_for('manage_president_biography') }}">Biographie du Président</a>{% endif %}{% if session.role in ['super_admin','president','provincial_president'] %}<a href="{{ url_for('leaders_admin') }}">Responsables et dirigeants</a>{% endif %}
               {% if session.role == 'super_admin' %}<a href="{{ url_for('settings_page') }}">Paramètres généraux</a>{% endif %}
             </div>
           </details>
@@ -164,7 +164,7 @@
         <a href="{{ url_for('diagnostic_center') }}" class="{{ 'active' if request.endpoint == 'diagnostic_center' else '' }}"><span>🩺</span> Diagnostic général <b>›</b></a>
         {% if session.role == 'super_admin' %}<a href="{{ url_for('setup_wizard') }}" class="{{ 'active' if request.endpoint == 'setup_wizard' else '' }}"><span>🧭</span> Assistant démarrage <b>›</b></a>{% endif %}
         {% if session.role in ['super_admin','president','secretary','national_secretary'] %}<a href="{{ url_for('executive_numbers_page') }}" class="{{ 'active' if request.endpoint == 'executive_numbers_page' else '' }}"><span>🔢</span> Numéros hauts cadres <b>›</b></a>{% endif %}
-        {% if session.role in ['super_admin','president'] %}<a href="{{ url_for('manage_president_biography') }}" class="{{ 'active' if request.endpoint == 'manage_president_biography' else '' }}"><span>👤</span> Biographie du Président <b>›</b></a>{% endif %}
+        {% if session.role in ['super_admin','president'] %}<a href="{{ url_for('manage_president_biography') }}" class="{{ 'active' if request.endpoint == 'manage_president_biography' else '' }}"><span>👤</span> Biographie du Président <b>›</b></a>{% endif %}{% if session.role in ['super_admin','president','provincial_president'] %}<a href="{{ url_for('leaders_admin') }}" class="{{ 'active' if request.endpoint in ['leaders_admin','leader_form'] else '' }}"><span>🏛️</span> Responsables et dirigeants <b>›</b></a>{% endif %}
         {% if session.role == 'super_admin' %}<a href="{{ url_for('settings_page') }}" class="{{ 'active' if request.endpoint == 'settings_page' else '' }}"><span>⚙️</span> Paramètres <b>›</b></a>{% endif %}
         {% endif %}
         {% else %}

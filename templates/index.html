@@ -223,4 +223,16 @@
     <p><strong>Contact :</strong> <a href="tel:{{ settings.contact_phones.split(';')[0]|replace(' ','') }}">{{ settings.contact_phones }}</a></p>
   </article>
 </section>
+{% if leaders %}
+<section class="public-leaders-section" id="responsables">
+  <div class="section-heading"><div><span class="eyebrow">Gouvernance</span><h2>Nos responsables</h2><p>Découvrez les responsables nationaux et provinciaux de la Fondation.</p></div>{% if session.get('role') in ['super_admin','president','provincial_president'] %}<a class="btn small" href="{{ url_for('leaders_admin') }}">Gérer les responsables</a>{% endif %}</div>
+  <div class="public-leaders-grid">
+  {% for leader in leaders %}<article class="public-leader-card {{ 'is-featured' if leader.featured else '' }}">
+    <div class="public-leader-photo">{% if leader.photo_path %}<img src="{{ url_for('static', filename=leader.photo_path) }}" alt="{{ leader.full_name }}">{% else %}<span>{{ leader.full_name[:1] }}</span>{% endif %}</div>
+    <div class="public-leader-body"><span class="leader-level">{{ leader.province or 'Coordination nationale' }}</span><h3>{{ leader.full_name }}</h3><strong>{{ leader.function_title }}</strong>{% if leader.biography %}<p>{{ leader.biography[:260] }}{% if leader.biography|length > 260 %}…{% endif %}</p>{% endif %}{% if leader.contacts %}<small>{{ leader.contacts }}</small>{% endif %}</div>
+  </article>{% endfor %}
+  </div>
+</section>
+{% endif %}
+
 {% endblock %}

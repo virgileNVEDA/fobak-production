@@ -60,7 +60,7 @@ UPLOAD_ROOT = os.environ.get("UPLOAD_ROOT", os.path.join(STATIC_DIR, "uploads"))
 RDC_FLAG_REL = "img/drapeau_rdc.jpg"
 RDC_FLAG_ABS = os.path.join(STATIC_DIR, RDC_FLAG_REL)
 ALLOWED_IMAGE_EXT = {"png", "jpg", "jpeg", "webp", "pdf", "doc", "docx", "xls", "xlsx"}
-APP_VERSION = "80.0.0"
+APP_VERSION = "82.0.0"
 APP_RELEASE_NAME = "FOBAK Manager Pro — interface et cartes épurées V80"
 CARD_TEMPLATE_VERSION = "paysage-v80-epure-embleme"
 
@@ -545,6 +545,24 @@ def init_db():
         training TEXT,
         photo_path TEXT,
         active INTEGER DEFAULT 1,
+        updated_at TEXT NOT NULL,
+        updated_by INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS organizational_leaders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        full_name TEXT NOT NULL,
+        function_title TEXT NOT NULL,
+        level TEXT DEFAULT 'national',
+        province TEXT,
+        biography TEXT,
+        education TEXT,
+        career TEXT,
+        contacts TEXT,
+        photo_path TEXT,
+        display_order INTEGER DEFAULT 100,
+        featured INTEGER DEFAULT 0,
+        active INTEGER DEFAULT 1,
+        created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         updated_by INTEGER
     );
@@ -3992,8 +4010,9 @@ def index():
     docs = con.execute("SELECT * FROM documents WHERE public=1 ORDER BY created_at DESC LIMIT 4").fetchall()
     projects = con.execute("SELECT * FROM projects ORDER BY created_at DESC LIMIT 4").fetchall()
     biography = con.execute("SELECT * FROM president_biography WHERE active=1 ORDER BY id DESC LIMIT 1").fetchone()
+    leaders = con.execute("SELECT * FROM organizational_leaders WHERE active=1 ORDER BY featured DESC, display_order ASC, full_name ASC").fetchall()
     con.close()
-    return render_template("index.html", activities=activities, videos=videos, carousel=carousel, docs=docs, projects=projects, biography=biography, youtube_embed=youtube_embed)
+    return render_template("index.html", activities=activities, videos=videos, carousel=carousel, docs=docs, projects=projects, biography=biography, leaders=leaders, youtube_embed=youtube_embed)
 
 
 @app.route("/fiche-vierge")
@@ -6830,6 +6849,84 @@ def delete_president_biography():
     con.commit(); con.close()
     flash("La biographie a été retirée de la page publique. Elle reste réactivable par une nouvelle modification.", "warning")
     return redirect(url_for("manage_president_biography"))
+
+
+def _can_manage_leader(user, leader=None, requested_province=""):
+    if not user:
+        return False
+    if user["role"] in {"super_admin", "president"}:
+        return True
+    if user["role"] == "provincial_president":
+        province = (leader["province"] if leader else requested_province) or ""
+        return bool(province and province == (user["province"] or ""))
+    return False
+
+
+@app.route("/admin/responsables")
+@login_required
+def leaders_admin():
+    user = current_user()
+    if user["role"] not in {"super_admin", "president", "provincial_president"}:
+        abort(403)
+    con = db()
+    if user["role"] == "provincial_president":
+        leaders = con.execute("SELECT * FROM organizational_leaders WHERE province=? ORDER BY display_order,full_name", (user["province"] or "",)).fetchall()
+    else:
+        leaders = con.execute("SELECT * FROM organizational_leaders ORDER BY featured DESC,display_order,full_name").fetchall()
+    con.close()
+    return render_template("leaders_admin.html", leaders=leaders, editing=None)
+
+
+@app.route("/admin/responsables/nouveau", methods=["GET", "POST"])
+@app.route("/admin/responsables/<int:leader_id>/modifier", methods=["GET", "POST"])
+@login_required
+def leader_form(leader_id=None):
+    user = current_user(); con = db()
+    leader = con.execute("SELECT * FROM organizational_leaders WHERE id=?", (leader_id,)).fetchone() if leader_id else None
+    if leader_id and not leader:
+        con.close(); abort(404)
+    if request.method == "POST":
+        province = request.form.get("province", "").strip()
+        level = request.form.get("level", "national").strip()
+        if level == "national": province = ""
+        if user["role"] == "provincial_president":
+            province = user["province"] or ""; level = "provincial"
+        if not _can_manage_leader(user, leader, province):
+            con.close(); abort(403)
+        imported = _extract_biography_import(request.files.get("biography_file"))
+        biography_text = imported or request.form.get("biography", "").strip()
+        photo_path = save_upload(request.files.get("photo"), "leaders")
+        values = (
+            request.form.get("full_name", "").strip(), request.form.get("function_title", "").strip(),
+            level, province, biography_text, request.form.get("education", "").strip(),
+            request.form.get("career", "").strip(), request.form.get("contacts", "").strip(),
+            int(request.form.get("display_order") or 100), 1 if request.form.get("featured") else 0,
+            1 if request.form.get("active") else 0,
+        )
+        if not values[0] or not values[1]:
+            flash("Le nom et la fonction sont obligatoires.", "danger")
+        elif leader:
+            con.execute("""UPDATE organizational_leaders SET full_name=?,function_title=?,level=?,province=?,biography=?,education=?,career=?,contacts=?,photo_path=COALESCE(NULLIF(?,''),photo_path),display_order=?,featured=?,active=?,updated_at=?,updated_by=? WHERE id=?""",
+                        values[:8] + (photo_path,) + values[8:] + (now(), user["id"], leader_id))
+            con.commit(); con.close(); flash("Profil du responsable mis à jour.", "success"); return redirect(url_for("leaders_admin"))
+        else:
+            con.execute("""INSERT INTO organizational_leaders(full_name,function_title,level,province,biography,education,career,contacts,photo_path,display_order,featured,active,created_at,updated_at,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        values[:8] + (photo_path,) + values[8:] + (now(), now(), user["id"]))
+            con.commit(); con.close(); flash("Responsable ajouté.", "success"); return redirect(url_for("leaders_admin"))
+    if not _can_manage_leader(user, leader, user["province"] or ""):
+        con.close(); abort(403)
+    con.close()
+    return render_template("leaders_admin.html", leaders=None, editing=leader)
+
+
+@app.route("/admin/responsables/<int:leader_id>/supprimer", methods=["POST"])
+@login_required
+def delete_leader(leader_id):
+    user=current_user(); con=db(); leader=con.execute("SELECT * FROM organizational_leaders WHERE id=?",(leader_id,)).fetchone()
+    if not leader: con.close(); abort(404)
+    if not _can_manage_leader(user, leader): con.close(); abort(403)
+    con.execute("DELETE FROM organizational_leaders WHERE id=?", (leader_id,)); con.commit(); con.close()
+    flash("Profil supprimé.", "warning"); return redirect(url_for("leaders_admin"))
 
 
 @app.route("/admin/settings", methods=["GET", "POST"])

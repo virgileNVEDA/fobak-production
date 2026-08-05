@@ -1,0 +1,41 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-heading">
+  <div><span class="eyebrow">Gouvernance</span><h1>Responsables et dirigeants</h1><p>Gérez les responsables nationaux et provinciaux, leurs photos et leurs biographies publiques.</p></div>
+  {% if leaders is not none %}<a class="btn primary" href="{{ url_for('leader_form') }}">➕ Ajouter un responsable</a>{% endif %}
+</section>
+
+{% if leaders is not none %}
+<section class="panel leaders-admin-list">
+  {% if leaders %}
+  <div class="table-wrap"><table><thead><tr><th>Photo</th><th>Responsable</th><th>Niveau</th><th>Province</th><th>Affichage</th><th>Actions</th></tr></thead><tbody>
+  {% for leader in leaders %}<tr>
+    <td>{% if leader.photo_path %}<img class="leader-admin-thumb" src="{{ url_for('static', filename=leader.photo_path) }}" alt="Photo">{% else %}<span class="leader-admin-avatar">{{ leader.full_name[:1] }}</span>{% endif %}</td>
+    <td><strong>{{ leader.full_name }}</strong><small>{{ leader.function_title }}</small></td>
+    <td>{{ 'National' if leader.level == 'national' else 'Provincial' if leader.level == 'provincial' else leader.level|capitalize }}</td>
+    <td>{{ leader.province or '—' }}</td><td>{{ 'Publié' if leader.active else 'Masqué' }}{% if leader.featured %} · À la une{% endif %}</td>
+    <td><div class="inline-actions"><a class="btn small" href="{{ url_for('leader_form', leader_id=leader.id) }}">Modifier</a><form method="post" action="{{ url_for('delete_leader', leader_id=leader.id) }}" onsubmit="return confirm('Supprimer définitivement ce profil ?')"><button class="btn small danger">Supprimer</button></form></div></td>
+  </tr>{% endfor %}
+  </tbody></table></div>
+  {% else %}<div class="empty-state"><strong>Aucun responsable enregistré</strong><p>Ajoutez le premier profil public.</p></div>{% endif %}
+</section>
+{% else %}
+<section class="panel leader-editor-panel">
+  <form method="post" enctype="multipart/form-data" class="form-grid leader-editor-form">
+    <div class="field"><label>Nom complet *</label><input name="full_name" required value="{{ editing.full_name if editing else '' }}"></div>
+    <div class="field"><label>Fonction *</label><input name="function_title" required placeholder="Ex. Président provincial" value="{{ editing.function_title if editing else '' }}"></div>
+    <div class="field"><label>Niveau</label><select name="level"><option value="national" {{ 'selected' if not editing or editing.level=='national' else '' }}>National</option><option value="provincial" {{ 'selected' if editing and editing.level=='provincial' else '' }}>Provincial</option><option value="territorial" {{ 'selected' if editing and editing.level=='territorial' else '' }}>Territorial / local</option></select></div>
+    <div class="field"><label>Province</label><select name="province"><option value="">National / aucune</option>{% for province in provinces %}<option value="{{ province }}" {{ 'selected' if editing and editing.province==province else '' }}>{{ province }}</option>{% endfor %}</select></div>
+    <div class="field"><label>Photo officielle</label><input type="file" name="photo" accept="image/*"><small>Portrait JPG ou PNG, cadrage vertical conseillé.</small></div>
+    <div class="field"><label>Importer la biographie</label><input type="file" name="biography_file" accept=".txt,.docx"><small>TXT ou Word DOCX. L’import remplace le champ biographie.</small></div>
+    <div class="field full"><label>Biographie / présentation</label><textarea name="biography" rows="7">{{ editing.biography if editing else '' }}</textarea></div>
+    <div class="field full"><label>Formation</label><textarea name="education" rows="4">{{ editing.education if editing else '' }}</textarea></div>
+    <div class="field full"><label>Parcours professionnel</label><textarea name="career" rows="4">{{ editing.career if editing else '' }}</textarea></div>
+    <div class="field full"><label>Contacts officiels</label><textarea name="contacts" rows="3">{{ editing.contacts if editing else '' }}</textarea></div>
+    <div class="field"><label>Ordre d’affichage</label><input type="number" name="display_order" value="{{ editing.display_order if editing else 100 }}"></div>
+    <div class="field leader-checks"><label><input type="checkbox" name="featured" {{ 'checked' if editing and editing.featured else '' }}> Mettre à la une</label><label><input type="checkbox" name="active" {{ 'checked' if not editing or editing.active else '' }}> Publier sur le site</label></div>
+    <div class="form-actions full"><button class="btn primary">Enregistrer</button><a class="btn light" href="{{ url_for('leaders_admin') }}">Annuler</a></div>
+  </form>
+</section>
+{% endif %}
+{% endblock %}
