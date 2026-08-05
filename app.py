@@ -60,8 +60,8 @@ UPLOAD_ROOT = os.environ.get("UPLOAD_ROOT", os.path.join(STATIC_DIR, "uploads"))
 RDC_FLAG_REL = "img/drapeau_rdc.jpg"
 RDC_FLAG_ABS = os.path.join(STATIC_DIR, RDC_FLAG_REL)
 ALLOWED_IMAGE_EXT = {"png", "jpg", "jpeg", "webp", "pdf", "doc", "docx", "xls", "xlsx"}
-APP_VERSION = "82.0.0"
-APP_RELEASE_NAME = "FOBAK Manager Pro — interface et cartes épurées V80"
+APP_VERSION = "83.0.0"
+APP_RELEASE_NAME = "FOBAK Manager Pro V83 — admission, notifications et chat"
 CARD_TEMPLATE_VERSION = "paysage-v80-epure-embleme"
 
 # Numérotation protocolaire nationale. Le numéro de cadre reste distinct du
@@ -4518,7 +4518,15 @@ def accept_application(app_id):
     con.close()
     generate_member_card_pdf(member)
     generate_adhesion_form_pdf(member)
-    flash(f"Adhésion acceptée. Identifiant: {a['email']} ou {a['phone']}. Mot de passe initial: numéro de téléphone.", "success")
+    # V83 : notification automatique avec modèle administrable.
+    con2=db(); tpl=con2.execute("SELECT * FROM message_templates WHERE code='application_accepted' AND active=1").fetchone(); con2.close()
+    if tpl and a['email']:
+        activation_link=request.url_root.rstrip('/')+url_for('login')
+        values={'NOM_COMPLE':f"{a['first_name']} {a['last_name']}",'IDENTIFIANT':a['email'],'LIEN_ACTIVATION':activation_link,'LIEN_CONNEXION':activation_link}
+        subject=render_message_template(tpl['subject'] or '',values); body=render_message_template(tpl['body'],values)
+        ok,detail=queue_and_send('email',a['email'],a['phone'],subject,body,tpl['code'],values['NOM_COMPLE'],user_id,reviewer['id'])
+        flash('E-mail d’acceptation envoyé.' if ok else 'Compte créé, mais e-mail non envoyé : '+detail, 'success' if ok else 'warning')
+    flash(f"Adhésion acceptée. Identifiant: {a['email']} ou {a['phone']}. Changement du mot de passe obligatoire à la première connexion.", "success")
     flash(f"Le membre figure maintenant dans la liste numérotée de la province {a['province']}.", "info")
     return redirect(url_for("members", province=a["province"], focus=member_id) + f"#member-{member_id}")
 
@@ -7859,6 +7867,161 @@ def audit_center():
 def diagnostic_center():
     return render_template('diagnostic_center.html',status=production_health_status(),readiness=release_readiness_status())
 
+
+# ==================== V83 : Admission, notifications et chat ====================
+import smtplib, socket
+from email.message import EmailMessage
+from urllib import request as urllib_request
+
+def init_v83_schema():
+    for sub in ['chat','chat/images','chat/videos','chat/documents','chat/audio']:
+        os.makedirs(os.path.join(UPLOAD_ROOT, sub), exist_ok=True)
+    con=db(); cur=con.cursor()
+    cur.executescript('''
+    CREATE TABLE IF NOT EXISTS message_templates(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT UNIQUE NOT NULL, name TEXT NOT NULL,
+      subject TEXT, body TEXT NOT NULL, channel TEXT DEFAULT 'email', active INTEGER DEFAULT 1,
+      updated_at TEXT NOT NULL, updated_by INTEGER);
+    CREATE TABLE IF NOT EXISTS outbound_messages(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, recipient_user_id INTEGER, recipient_name TEXT,
+      email TEXT, phone TEXT, channel TEXT NOT NULL, template_code TEXT, subject TEXT, body TEXT NOT NULL,
+      status TEXT DEFAULT 'queued', provider_response TEXT, created_at TEXT NOT NULL, sent_at TEXT, created_by INTEGER);
+    CREATE TABLE IF NOT EXISTS email_verifications(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, email TEXT NOT NULL, token TEXT UNIQUE NOT NULL,
+      expires_at TEXT NOT NULL, verified_at TEXT, created_at TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS chat_conversations(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, conversation_type TEXT DEFAULT 'private',
+      province TEXT, created_by INTEGER NOT NULL, created_at TEXT NOT NULL, active INTEGER DEFAULT 1);
+    CREATE TABLE IF NOT EXISTS chat_participants(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, conversation_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
+      joined_at TEXT NOT NULL, role TEXT DEFAULT 'member', muted INTEGER DEFAULT 0,
+      UNIQUE(conversation_id,user_id));
+    CREATE TABLE IF NOT EXISTS chat_messages(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, conversation_id INTEGER NOT NULL, sender_id INTEGER NOT NULL,
+      body TEXT, attachment_path TEXT, attachment_type TEXT, original_name TEXT, file_size INTEGER DEFAULT 0,
+      created_at TEXT NOT NULL, edited_at TEXT, deleted_at TEXT);
+    CREATE TABLE IF NOT EXISTS chat_reads(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, conversation_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
+      last_read_message_id INTEGER DEFAULT 0, read_at TEXT NOT NULL, UNIQUE(conversation_id,user_id));
+    CREATE INDEX IF NOT EXISTS idx_chat_messages_conversation ON chat_messages(conversation_id,id);
+    CREATE INDEX IF NOT EXISTS idx_outbound_status ON outbound_messages(status,created_at);
+    ''')
+    defaults=[
+      ('application_accepted','Demande acceptée','Votre demande FOBAK a été acceptée','Bonjour [NOM_COMPLE],\n\nVotre demande a été acceptée. Votre identifiant est [IDENTIFIANT]. Utilisez le lien [LIEN_ACTIVATION] pour définir votre mot de passe.\n\nFondation BAKITANI','email'),
+      ('existing_member_welcome','Bienvenue sur la plateforme','Votre accès à la plateforme FOBAK','Bonjour [NOM_COMPLE],\n\nVotre profil existe déjà sur la plateforme FOBAK. Votre identifiant est [IDENTIFIANT]. Connectez-vous ici : [LIEN_CONNEXION].\n\nFondation BAKITANI','email'),
+      ('email_verification','Vérification de votre adresse e-mail','Confirmez votre adresse e-mail FOBAK','Bonjour [NOM_COMPLE],\n\nCliquez sur ce lien pour confirmer votre adresse : [LIEN_VERIFICATION]. Ce lien expire dans 48 heures.','email'),
+      ('application_rejected','Demande non retenue','Décision concernant votre demande FOBAK','Bonjour [NOM_COMPLE],\n\nVotre demande n’a pas été retenue. Motif : [MOTIF].','email'),
+    ]
+    for code,name,subject,body,channel in defaults:
+        cur.execute('INSERT OR IGNORE INTO message_templates(code,name,subject,body,channel,active,updated_at) VALUES(?,?,?,?,?,1,?)',(code,name,subject,body,channel,now()))
+    con.commit(); con.close()
+
+
+def validate_email_address(email):
+    email=(email or '').strip().lower()
+    if not re.fullmatch(r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+",email):
+        return False,'Format incorrect'
+    domain=email.rsplit('@',1)[1]
+    try:
+        socket.getaddrinfo(domain,25)
+    except OSError:
+        try: socket.getaddrinfo(domain,443)
+        except OSError: return False,'Domaine introuvable ou inaccessible'
+    return True,'Format et domaine valides. Une confirmation par lien reste nécessaire.'
+
+
+def render_message_template(text, values):
+    for key,value in values.items(): text=text.replace('['+key+']',str(value or ''))
+    return text
+
+
+def send_email_message(to_email, subject, body):
+    settings=get_settings(); host=settings.get('smtp_host','').strip()
+    if not host: return False,'SMTP non configuré'
+    port=int(settings.get('smtp_port','587') or 587); username=settings.get('smtp_username',''); password=settings.get('smtp_password','')
+    msg=EmailMessage(); msg['Subject']=subject; msg['From']=settings.get('smtp_from') or username; msg['To']=to_email; msg.set_content(body)
+    try:
+        with smtplib.SMTP(host,port,timeout=20) as server:
+            if settings.get('smtp_tls','1')=='1': server.starttls()
+            if username: server.login(username,password)
+            server.send_message(msg)
+        return True,'Envoyé'
+    except Exception as exc: return False,str(exc)[:300]
+
+
+def queue_and_send(channel,email,phone,subject,body,template_code='',recipient_name='',recipient_user_id=None,created_by=None):
+    con=db(); con.execute('INSERT INTO outbound_messages(recipient_user_id,recipient_name,email,phone,channel,template_code,subject,body,status,created_at,created_by) VALUES(?,?,?,?,?,?,?,?,?,?,?)',(recipient_user_id,recipient_name,email,phone,channel,template_code,subject,body,'queued',now(),created_by)); mid=con.execute('SELECT last_insert_rowid() id').fetchone()['id']; con.commit(); con.close()
+    if channel=='email': ok,response=send_email_message(email,subject,body)
+    else:
+        ok=False; response='Passerelle SMS non configurée'
+        webhook=get_settings().get('sms_webhook_url','').strip()
+        if webhook:
+            try:
+                payload=json.dumps({'to':phone,'message':body}).encode(); req=urllib_request.Request(webhook,data=payload,headers={'Content-Type':'application/json'},method='POST');
+                with urllib_request.urlopen(req,timeout=20) as r: response=f'HTTP {r.status}'; ok=200<=r.status<300
+            except Exception as exc: response=str(exc)[:300]
+    con=db(); con.execute('UPDATE outbound_messages SET status=?,provider_response=?,sent_at=? WHERE id=?',('sent' if ok else 'failed',response,now() if ok else None,mid)); con.commit(); con.close(); return ok,response
+
+@app.route('/api/email/validate')
+@login_required
+def api_validate_email():
+    ok,message=validate_email_address(request.args.get('email','')); return jsonify({'ok':ok,'message':message})
+
+@app.route('/admin/communication/templates',methods=['GET','POST'])
+@login_required
+@role_required('super_admin','president','secretary','national_secretary')
+def communication_templates():
+    user=current_user(); con=db()
+    if request.method=='POST':
+        code=request.form.get('code','').strip(); row=con.execute('SELECT id FROM message_templates WHERE code=?',(code,)).fetchone()
+        if row: con.execute('UPDATE message_templates SET name=?,subject=?,body=?,channel=?,active=?,updated_at=?,updated_by=? WHERE code=?',(request.form.get('name',''),request.form.get('subject',''),request.form.get('body',''),request.form.get('channel','email'),1 if request.form.get('active') else 0,now(),user['id'],code))
+        else: con.execute('INSERT INTO message_templates(code,name,subject,body,channel,active,updated_at,updated_by) VALUES(?,?,?,?,?,?,?,?)',(code,request.form.get('name',''),request.form.get('subject',''),request.form.get('body',''),request.form.get('channel','email'),1,now(),user['id']))
+        con.commit(); flash('Modèle enregistré.','success')
+    rows=con.execute('SELECT * FROM message_templates ORDER BY name').fetchall(); con.close(); return render_template('communication_templates.html',rows=rows)
+
+@app.route('/admin/communication/campaign',methods=['GET','POST'])
+@login_required
+@role_required('super_admin','president','secretary','national_secretary')
+def communication_campaign():
+    user=current_user(); con=db()
+    if request.method=='POST':
+        template=con.execute('SELECT * FROM message_templates WHERE code=?',(request.form.get('template_code'),)).fetchone(); province=request.form.get('province',''); params=[]; where="m.deleted_at IS NULL AND trim(COALESCE(m.email,''))<>''"
+        if province: where+=' AND m.province=?'; params.append(province)
+        members=con.execute(f'SELECT m.*,u.id user_id FROM members m LEFT JOIN users u ON u.id=m.user_id WHERE {where}',params).fetchall(); sent=failed=0
+        for m in members:
+            values={'NOM_COMPLE':f"{m['first_name']} {m['last_name']}",'IDENTIFIANT':m['email'],'LIEN_CONNEXION':request.url_root.rstrip('/')+url_for('login')}
+            subject=render_message_template(template['subject'] or '',values); body=render_message_template(template['body'],values); ok,_=queue_and_send('email',m['email'],m['phone'],subject,body,template['code'],values['NOM_COMPLE'],m['user_id'],user['id']); sent+=int(ok); failed+=int(not ok)
+        con.close(); flash(f'Campagne terminée : {sent} envoyé(s), {failed} échec(s).','success' if not failed else 'warning'); return redirect(url_for('communication_campaign'))
+    templates=con.execute("SELECT * FROM message_templates WHERE active=1 AND channel='email' ORDER BY name").fetchall(); history=con.execute('SELECT * FROM outbound_messages ORDER BY created_at DESC LIMIT 100').fetchall(); con.close(); return render_template('communication_campaign.html',templates=templates,history=history)
+
+@app.route('/chat',methods=['GET','POST'])
+@login_required
+def chat_home():
+    user=current_user(); con=db()
+    if request.method=='POST':
+        other_id=request.form.get('user_id',type=int); existing=con.execute("SELECT c.id FROM chat_conversations c JOIN chat_participants p1 ON p1.conversation_id=c.id AND p1.user_id=? JOIN chat_participants p2 ON p2.conversation_id=c.id AND p2.user_id=? WHERE c.conversation_type='private'",(user['id'],other_id)).fetchone()
+        if existing: cid=existing['id']
+        else:
+            con.execute("INSERT INTO chat_conversations(title,conversation_type,created_by,created_at) VALUES('Discussion privée','private',?,?)",(user['id'],now())); cid=con.execute('SELECT last_insert_rowid() id').fetchone()['id']; con.executemany('INSERT INTO chat_participants(conversation_id,user_id,joined_at) VALUES(?,?,?)',[(cid,user['id'],now()),(cid,other_id,now())]); con.commit()
+        con.close(); return redirect(url_for('chat_conversation',conversation_id=cid))
+    conversations=con.execute('''SELECT c.*,MAX(m.created_at) last_message_at,COUNT(m.id) message_count FROM chat_conversations c JOIN chat_participants p ON p.conversation_id=c.id LEFT JOIN chat_messages m ON m.conversation_id=c.id AND m.deleted_at IS NULL WHERE p.user_id=? AND c.active=1 GROUP BY c.id ORDER BY COALESCE(last_message_at,c.created_at) DESC''',(user['id'],)).fetchall(); users=con.execute('SELECT id,first_name,last_name,email,role,province FROM users WHERE active=1 AND deleted_at IS NULL AND id<>? ORDER BY first_name,last_name,email',(user['id'],)).fetchall(); con.close(); return render_template('chat_home.html',conversations=conversations,users=users)
+
+@app.route('/chat/<int:conversation_id>',methods=['GET','POST'])
+@login_required
+def chat_conversation(conversation_id):
+    user=current_user(); con=db(); participant=con.execute('SELECT 1 FROM chat_participants WHERE conversation_id=? AND user_id=?',(conversation_id,user['id'])).fetchone()
+    if not participant: con.close(); abort(403)
+    if request.method=='POST':
+        body=request.form.get('body','').strip(); f=request.files.get('attachment'); path=atype=original=''; size=0
+        if f and f.filename:
+            ext=f.filename.rsplit('.',1)[-1].lower() if '.' in f.filename else ''; allowed={'jpg':'image','jpeg':'image','png':'image','webp':'image','mp4':'video','webm':'video','mov':'video','pdf':'document','doc':'document','docx':'document','xls':'document','xlsx':'document','mp3':'audio','wav':'audio','m4a':'audio'}
+            if ext not in allowed: con.close(); flash('Format de fichier non autorisé.','danger'); return redirect(url_for('chat_conversation',conversation_id=conversation_id))
+            atype=allowed[ext]; original=secure_filename(f.filename); folder={'image':'chat/images','video':'chat/videos','document':'chat/documents','audio':'chat/audio'}[atype]; path=save_upload(f,folder); size=request.content_length or 0
+        if body or path: con.execute('INSERT INTO chat_messages(conversation_id,sender_id,body,attachment_path,attachment_type,original_name,file_size,created_at) VALUES(?,?,?,?,?,?,?,?)',(conversation_id,user['id'],body,path,atype,original,size,now())); con.commit()
+        con.close(); return redirect(url_for('chat_conversation',conversation_id=conversation_id))
+    messages=con.execute('''SELECT m.*,u.first_name,u.last_name,u.email FROM chat_messages m JOIN users u ON u.id=m.sender_id WHERE m.conversation_id=? AND m.deleted_at IS NULL ORDER BY m.id ASC LIMIT 500''',(conversation_id,)).fetchall(); info=con.execute('SELECT * FROM chat_conversations WHERE id=?',(conversation_id,)).fetchone(); con.close(); return render_template('chat_conversation.html',messages=messages,conversation=info)
+
+init_v83_schema()
 
 ensure_daily_backup()
 

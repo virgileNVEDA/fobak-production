@@ -75,7 +75,9 @@
           <details class="side-menu-group" {{ 'open' if request.endpoint in ['notifications','alerts_page','support_tickets_page','support_ticket_detail'] else '' }}>
             <summary><span>📣</span> Communication <b>⌄</b></summary>
             <div class="side-submenu">
-              {% if module_allowed('notifications','voir') %}<a href="{{ url_for('notifications') }}"><span>🔔</span> Notifications {% if unread_notification_count %}<small class="menu-badge">{{ unread_notification_count }}</small>{% endif %}</a>{% endif %}
+              {% if module_allowed('notifications','voir') %}<a href="{{ url_for('notifications') }}"><span>🔔</span> Notifications {% if unread_notification_count %}<small class="menu-badge">{{ unread_notification_count }}</small>{% endif %}</a>
+              <a href="{{ url_for('chat_home') }}"><span>💬</span> Messagerie</a>
+              {% if session.role in ['super_admin','president','secretary','national_secretary'] %}<a href="{{ url_for('communication_campaign') }}"><span>📨</span> Campagnes e-mail</a><a href="{{ url_for('communication_templates') }}"><span>✉️</span> Modèles de messages</a>{% endif %}{% endif %}
               {% if module_allowed('alertes','voir') %}<a href="{{ url_for('alerts_page') }}"><span>🚨</span> Alertes importantes</a>{% endif %}
               {% if module_allowed('support','voir') %}<a href="{{ url_for('support_tickets_page') }}"><span>🛟</span> Messages et support</a>{% endif %}
               <a href="{{ url_for('report_problem') }}"><span>✉️</span> Signaler un problème</a>
@@ -149,6 +151,7 @@
         <a href="{{ url_for('documents_page') }}" class="{{ 'active' if request.endpoint == 'documents_page' else '' }}"><span>📁</span> Documents <b>›</b></a>
         <a href="{{ url_for('manage_statutes') }}" class="{{ 'active' if request.endpoint in ['manage_statutes','update_statute_section','add_statute_section'] else '' }}"><span>📘</span> Statuts & règlement <b>›</b></a>
         <a href="{{ url_for('notifications') }}" class="{{ 'active' if request.endpoint == 'notifications' else '' }}"><span>🔔</span> {{ _("Notifications") }} {% if unread_notification_count %}<small class="menu-badge">{{ unread_notification_count }}</small>{% else %}<b>›</b>{% endif %}</a>
+        <a href="{{ url_for('chat_home') }}" class="{{ 'active' if request.endpoint in ['chat_home','chat_conversation'] else '' }}"><span>💬</span> Messagerie <b>›</b></a>
         <a href="{{ url_for('support_tickets_page') }}" class="{{ 'active' if request.endpoint in ['support_tickets_page','support_ticket_detail'] else '' }}"><span>🛟</span> Support / tickets <b>›</b></a>
         <a href="{{ url_for('anniversaries_page') }}" class="{{ 'active' if request.endpoint == 'anniversaries_page' else '' }}"><span>🎂</span> Anniversaires <b>›</b></a>
         {% if session.role in ['super_admin','president','secretary','national_secretary'] %}
