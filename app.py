@@ -61,7 +61,7 @@ RDC_FLAG_REL = "img/drapeau_rdc.jpg"
 RDC_FLAG_ABS = os.path.join(STATIC_DIR, RDC_FLAG_REL)
 ALLOWED_IMAGE_EXT = {"png", "jpg", "jpeg", "webp", "pdf", "doc", "docx", "xls", "xlsx"}
 APP_VERSION = "83.0.0"
-APP_RELEASE_NAME = "FOBAK Manager Pro V83 — admission, notifications et chat"
+APP_RELEASE_NAME = "FOBAK Manager Pro V84 — formulaire durable et chat instantané"
 CARD_TEMPLATE_VERSION = "paysage-v80-epure-embleme"
 
 # Numérotation protocolaire nationale. Le numéro de cadre reste distinct du
@@ -151,7 +151,7 @@ def inject_csrf_helper():
     return {"csrf_token": csrf_token}
 
 
-PUBLIC_CHALLENGE_TTL_SECONDS = 30 * 60
+PUBLIC_CHALLENGE_TTL_SECONDS = 6 * 60 * 60
 PUBLIC_CHALLENGE_MIN_SECONDS = 1
 PUBLIC_FORM_MAX_ATTEMPTS = 10
 PUBLIC_FORM_ATTEMPT_WINDOW = 10 * 60
@@ -7903,6 +7903,24 @@ def init_v83_schema():
     CREATE TABLE IF NOT EXISTS chat_reads(
       id INTEGER PRIMARY KEY AUTOINCREMENT, conversation_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
       last_read_message_id INTEGER DEFAULT 0, read_at TEXT NOT NULL, UNIQUE(conversation_id,user_id));
+    CREATE TABLE IF NOT EXISTS chat_user_settings(
+      user_id INTEGER PRIMARY KEY, sounds_enabled INTEGER DEFAULT 1, incoming_sound INTEGER DEFAULT 1,
+      outgoing_sound INTEGER DEFAULT 1, error_sound INTEGER DEFAULT 1, call_sound INTEGER DEFAULT 1,
+      volume INTEGER DEFAULT 65, browser_notifications INTEGER DEFAULT 0, updated_at TEXT);
+    CREATE TABLE IF NOT EXISTS chat_reactions(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, message_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
+      reaction TEXT NOT NULL, created_at TEXT NOT NULL, UNIQUE(message_id,user_id,reaction));
+    CREATE TABLE IF NOT EXISTS chat_reports(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, message_id INTEGER, conversation_id INTEGER NOT NULL,
+      reporter_id INTEGER NOT NULL, reason TEXT NOT NULL, details TEXT, status TEXT DEFAULT 'open',
+      created_at TEXT NOT NULL, reviewed_at TEXT, reviewed_by INTEGER);
+    CREATE TABLE IF NOT EXISTS chat_blocks(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, blocker_id INTEGER NOT NULL, blocked_id INTEGER NOT NULL,
+      created_at TEXT NOT NULL, UNIQUE(blocker_id,blocked_id));
+    CREATE TABLE IF NOT EXISTS chat_privacy(
+      user_id INTEGER PRIMARY KEY, who_can_message TEXT DEFAULT 'members', who_can_call TEXT DEFAULT 'members',
+      show_last_seen INTEGER DEFAULT 1, show_photo INTEGER DEFAULT 1, allow_group_add INTEGER DEFAULT 1,
+      allow_files INTEGER DEFAULT 1, updated_at TEXT);
     CREATE INDEX IF NOT EXISTS idx_chat_messages_conversation ON chat_messages(conversation_id,id);
     CREATE INDEX IF NOT EXISTS idx_outbound_status ON outbound_messages(status,created_at);
     ''')
@@ -7914,6 +7932,25 @@ def init_v83_schema():
     ]
     for code,name,subject,body,channel in defaults:
         cur.execute('INSERT OR IGNORE INTO message_templates(code,name,subject,body,channel,active,updated_at) VALUES(?,?,?,?,?,1,?)',(code,name,subject,body,channel,now()))
+    # Migrations évolutives du chat (compatibles avec les anciennes bases).
+    for statement in [
+        "ALTER TABLE chat_participants ADD COLUMN hidden_at TEXT",
+        "ALTER TABLE chat_participants ADD COLUMN archived INTEGER DEFAULT 0",
+        "ALTER TABLE chat_participants ADD COLUMN pinned INTEGER DEFAULT 0",
+        "ALTER TABLE chat_participants ADD COLUMN last_seen_at TEXT",
+        "ALTER TABLE chat_participants ADD COLUMN typing_at TEXT",
+        "ALTER TABLE chat_messages ADD COLUMN message_kind TEXT DEFAULT 'text'",
+        "ALTER TABLE chat_messages ADD COLUMN reply_to_id INTEGER",
+        "ALTER TABLE chat_messages ADD COLUMN deleted_for_all INTEGER DEFAULT 0",
+        "ALTER TABLE chat_messages ADD COLUMN forwarded_from_id INTEGER",
+        "ALTER TABLE chat_messages ADD COLUMN delivery_status TEXT DEFAULT 'sent'",
+        "ALTER TABLE chat_conversations ADD COLUMN description TEXT",
+        "ALTER TABLE chat_conversations ADD COLUMN photo_path TEXT"
+    ]:
+        try:
+            cur.execute(statement)
+        except Exception:
+            pass
     con.commit(); con.close()
 
 
@@ -7999,27 +8036,215 @@ def communication_campaign():
 def chat_home():
     user=current_user(); con=db()
     if request.method=='POST':
-        other_id=request.form.get('user_id',type=int); existing=con.execute("SELECT c.id FROM chat_conversations c JOIN chat_participants p1 ON p1.conversation_id=c.id AND p1.user_id=? JOIN chat_participants p2 ON p2.conversation_id=c.id AND p2.user_id=? WHERE c.conversation_type='private'",(user['id'],other_id)).fetchone()
-        if existing: cid=existing['id']
+        mode=request.form.get('mode','private')
+        if mode=='group':
+            title=request.form.get('title','').strip()[:120]
+            member_ids=sorted({int(x) for x in request.form.getlist('member_ids') if str(x).isdigit() and int(x)!=user['id']})
+            if not title or not member_ids:
+                con.close(); flash('Donnez un nom au groupe et choisissez au moins un participant.','warning'); return redirect(url_for('chat_home'))
+            con.execute("INSERT INTO chat_conversations(title,conversation_type,created_by,created_at) VALUES(?, 'group', ?, ?)",(title,user['id'],now())); cid=con.execute('SELECT last_insert_rowid() id').fetchone()['id']
+            con.execute("INSERT INTO chat_participants(conversation_id,user_id,joined_at,role) VALUES(?,?,?,'admin')",(cid,user['id'],now()))
+            for uid in member_ids: con.execute("INSERT OR IGNORE INTO chat_participants(conversation_id,user_id,joined_at) VALUES(?,?,?)",(cid,uid,now()))
+            con.commit(); con.close(); return redirect(url_for('chat_conversation',conversation_id=cid))
+        other_id=request.form.get('user_id',type=int)
+        if not other_id or other_id==user['id']:
+            con.close(); flash('Choisissez un utilisateur valide.','warning'); return redirect(url_for('chat_home'))
+        existing=con.execute("SELECT c.id FROM chat_conversations c JOIN chat_participants p1 ON p1.conversation_id=c.id AND p1.user_id=? JOIN chat_participants p2 ON p2.conversation_id=c.id AND p2.user_id=? WHERE c.conversation_type='private'",(user['id'],other_id)).fetchone()
+        if existing:
+            cid=existing['id']; con.execute('UPDATE chat_participants SET hidden_at=NULL,archived=0 WHERE conversation_id=? AND user_id=?',(cid,user['id'])); con.commit()
         else:
             con.execute("INSERT INTO chat_conversations(title,conversation_type,created_by,created_at) VALUES('Discussion privée','private',?,?)",(user['id'],now())); cid=con.execute('SELECT last_insert_rowid() id').fetchone()['id']; con.executemany('INSERT INTO chat_participants(conversation_id,user_id,joined_at) VALUES(?,?,?)',[(cid,user['id'],now()),(cid,other_id,now())]); con.commit()
         con.close(); return redirect(url_for('chat_conversation',conversation_id=cid))
-    conversations=con.execute('''SELECT c.*,MAX(m.created_at) last_message_at,COUNT(m.id) message_count FROM chat_conversations c JOIN chat_participants p ON p.conversation_id=c.id LEFT JOIN chat_messages m ON m.conversation_id=c.id AND m.deleted_at IS NULL WHERE p.user_id=? AND c.active=1 GROUP BY c.id ORDER BY COALESCE(last_message_at,c.created_at) DESC''',(user['id'],)).fetchall(); users=con.execute('SELECT id,first_name,last_name,email,role,province FROM users WHERE active=1 AND deleted_at IS NULL AND id<>? ORDER BY first_name,last_name,email',(user['id'],)).fetchall(); con.close(); return render_template('chat_home.html',conversations=conversations,users=users)
+    q=request.args.get('q','').strip(); archived=1 if request.args.get('archived')=='1' else 0
+    params=[user['id'],user['id'],archived]; search=''
+    if q: search=" AND (lower(COALESCE(c.title,'')) LIKE ? OR lower(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')) LIKE ?)"; params += [f'%{q.lower()}%',f'%{q.lower()}%']
+    conversations=con.execute(f'''SELECT c.*,p.pinned,p.archived,MAX(m.created_at) last_message_at,COUNT(DISTINCT m.id) message_count,
+      GROUP_CONCAT(DISTINCT CASE WHEN up.user_id<>? THEN trim(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')) END) other_names,
+      COALESCE((SELECT COUNT(*) FROM chat_messages um WHERE um.conversation_id=c.id AND um.deleted_at IS NULL AND um.id>COALESCE((SELECT last_read_message_id FROM chat_reads WHERE conversation_id=c.id AND user_id=p.user_id),0) AND um.sender_id<>p.user_id),0) unread_count
+      FROM chat_conversations c JOIN chat_participants p ON p.conversation_id=c.id
+      LEFT JOIN chat_participants up ON up.conversation_id=c.id LEFT JOIN users u ON u.id=up.user_id
+      LEFT JOIN chat_messages m ON m.conversation_id=c.id AND m.deleted_at IS NULL
+      WHERE p.user_id=? AND p.hidden_at IS NULL AND c.active=1 AND COALESCE(p.archived,0)=? {search}
+      GROUP BY c.id ORDER BY COALESCE(p.pinned,0) DESC,COALESCE(last_message_at,c.created_at) DESC''',params).fetchall()
+    users=con.execute('SELECT id,first_name,last_name,email,role,province FROM users WHERE active=1 AND deleted_at IS NULL AND id<>? ORDER BY first_name,last_name,email',(user['id'],)).fetchall(); con.close(); return render_template('chat_home.html',conversations=conversations,users=users,q=q,archived=archived)
+
+
+def _chat_participant(con, conversation_id, user_id):
+    return con.execute('SELECT * FROM chat_participants WHERE conversation_id=? AND user_id=?',(conversation_id,user_id)).fetchone()
 
 @app.route('/chat/<int:conversation_id>',methods=['GET','POST'])
 @login_required
 def chat_conversation(conversation_id):
-    user=current_user(); con=db(); participant=con.execute('SELECT 1 FROM chat_participants WHERE conversation_id=? AND user_id=?',(conversation_id,user['id'])).fetchone()
+    user=current_user(); con=db(); participant=_chat_participant(con,conversation_id,user['id'])
     if not participant: con.close(); abort(403)
+    con.execute('UPDATE chat_participants SET last_seen_at=?,hidden_at=NULL WHERE conversation_id=? AND user_id=?',(now(),conversation_id,user['id']))
     if request.method=='POST':
-        body=request.form.get('body','').strip(); f=request.files.get('attachment'); path=atype=original=''; size=0
+        body=request.form.get('body','').strip(); sticker=request.form.get('sticker','').strip(); reply_to=request.form.get('reply_to_id',type=int); f=request.files.get('attachment'); path=atype=original=''; size=0
+        if sticker and len(sticker)<=20: body=sticker; atype='sticker'
         if f and f.filename:
-            ext=f.filename.rsplit('.',1)[-1].lower() if '.' in f.filename else ''; allowed={'jpg':'image','jpeg':'image','png':'image','webp':'image','mp4':'video','webm':'video','mov':'video','pdf':'document','doc':'document','docx':'document','xls':'document','xlsx':'document','mp3':'audio','wav':'audio','m4a':'audio'}
-            if ext not in allowed: con.close(); flash('Format de fichier non autorisé.','danger'); return redirect(url_for('chat_conversation',conversation_id=conversation_id))
+            ext=f.filename.rsplit('.',1)[-1].lower() if '.' in f.filename else ''; allowed={'jpg':'image','jpeg':'image','png':'image','gif':'image','webp':'image','mp4':'video','webm':'video','mov':'video','pdf':'document','doc':'document','docx':'document','xls':'document','xlsx':'document','mp3':'audio','wav':'audio','m4a':'audio','ogg':'audio'}
+            if ext not in allowed:
+                con.close(); return (jsonify({'ok':False,'error':'Format de fichier non autorisé.'}),400) if request.headers.get('X-Requested-With')=='XMLHttpRequest' else redirect(url_for('chat_conversation',conversation_id=conversation_id))
             atype=allowed[ext]; original=secure_filename(f.filename); folder={'image':'chat/images','video':'chat/videos','document':'chat/documents','audio':'chat/audio'}[atype]; path=save_upload(f,folder); size=request.content_length or 0
-        if body or path: con.execute('INSERT INTO chat_messages(conversation_id,sender_id,body,attachment_path,attachment_type,original_name,file_size,created_at) VALUES(?,?,?,?,?,?,?,?)',(conversation_id,user['id'],body,path,atype,original,size,now())); con.commit()
-        con.close(); return redirect(url_for('chat_conversation',conversation_id=conversation_id))
-    messages=con.execute('''SELECT m.*,u.first_name,u.last_name,u.email FROM chat_messages m JOIN users u ON u.id=m.sender_id WHERE m.conversation_id=? AND m.deleted_at IS NULL ORDER BY m.id ASC LIMIT 500''',(conversation_id,)).fetchall(); info=con.execute('SELECT * FROM chat_conversations WHERE id=?',(conversation_id,)).fetchone(); con.close(); return render_template('chat_conversation.html',messages=messages,conversation=info)
+        if body or path:
+            con.execute('INSERT INTO chat_messages(conversation_id,sender_id,body,attachment_path,attachment_type,original_name,file_size,created_at,message_kind,reply_to_id) VALUES(?,?,?,?,?,?,?,?,?,?)',(conversation_id,user['id'],body,path,atype,original,size,now(),atype or 'text',reply_to)); con.execute('UPDATE chat_participants SET hidden_at=NULL,archived=0 WHERE conversation_id=?',(conversation_id,)); con.commit()
+        con.close(); return jsonify({'ok':True}) if request.headers.get('X-Requested-With')=='XMLHttpRequest' else redirect(url_for('chat_conversation',conversation_id=conversation_id))
+    messages=con.execute('''SELECT m.*,u.first_name,u.last_name,u.email,rm.body reply_body,ru.first_name reply_first_name,ru.last_name reply_last_name FROM chat_messages m JOIN users u ON u.id=m.sender_id LEFT JOIN chat_messages rm ON rm.id=m.reply_to_id LEFT JOIN users ru ON ru.id=rm.sender_id WHERE m.conversation_id=? AND m.deleted_at IS NULL ORDER BY m.id ASC LIMIT 500''',(conversation_id,)).fetchall(); info=con.execute('SELECT * FROM chat_conversations WHERE id=?',(conversation_id,)).fetchone(); people=con.execute('''SELECT u.id,u.first_name,u.last_name,u.email,p.role,p.last_seen_at,p.typing_at FROM chat_participants p JOIN users u ON u.id=p.user_id WHERE p.conversation_id=?''',(conversation_id,)).fetchall(); settings=con.execute('SELECT * FROM chat_user_settings WHERE user_id=?',(user['id'],)).fetchone()
+    if messages:
+        con.execute('''INSERT INTO chat_reads(conversation_id,user_id,last_read_message_id,read_at) VALUES(?,?,?,?) ON CONFLICT(conversation_id,user_id) DO UPDATE SET last_read_message_id=excluded.last_read_message_id,read_at=excluded.read_at''',(conversation_id,user['id'],messages[-1]['id'],now()))
+    if not settings: con.execute('INSERT OR IGNORE INTO chat_user_settings(user_id,updated_at) VALUES(?,?)',(user['id'],now())); settings=con.execute('SELECT * FROM chat_user_settings WHERE user_id=?',(user['id'],)).fetchone()
+    con.commit(); con.close(); return render_template('chat_conversation.html',messages=messages,conversation=info,people=people,chat_settings=settings)
+
+@app.route('/api/chat/<int:conversation_id>/messages')
+@login_required
+def chat_messages_api(conversation_id):
+    user=current_user(); con=db()
+    if not _chat_participant(con,conversation_id,user['id']): con.close(); return jsonify({'ok':False}),403
+    after=max(0,request.args.get('after',0,type=int)); rows=con.execute('''SELECT m.*,u.first_name,u.last_name,rm.body reply_body,ru.first_name reply_first_name,ru.last_name reply_last_name FROM chat_messages m JOIN users u ON u.id=m.sender_id LEFT JOIN chat_messages rm ON rm.id=m.reply_to_id LEFT JOIN users ru ON ru.id=rm.sender_id WHERE m.conversation_id=? AND m.deleted_at IS NULL AND m.id>? ORDER BY m.id ASC LIMIT 200''',(conversation_id,after)).fetchall()
+    if rows: con.execute('''INSERT INTO chat_reads(conversation_id,user_id,last_read_message_id,read_at) VALUES(?,?,?,?) ON CONFLICT(conversation_id,user_id) DO UPDATE SET last_read_message_id=excluded.last_read_message_id,read_at=excluded.read_at''',(conversation_id,user['id'],rows[-1]['id'],now()))
+    con.execute('UPDATE chat_participants SET last_seen_at=? WHERE conversation_id=? AND user_id=?',(now(),conversation_id,user['id'])); con.commit(); typing=con.execute("SELECT u.first_name,u.last_name FROM chat_participants p JOIN users u ON u.id=p.user_id WHERE p.conversation_id=? AND p.user_id<>? AND p.typing_at IS NOT NULL AND datetime(p.typing_at)>=datetime('now','-6 seconds')",(conversation_id,user['id'])).fetchall(); con.close()
+    messages=[]
+    for r in rows:
+        d=dict(r); d['mine']=r['sender_id']==user['id']; d['url']=url_for('static',filename=r['attachment_path']) if r['attachment_path'] else ''; messages.append(d)
+    return jsonify({'ok':True,'messages':messages,'typing':[' '.join(filter(None,[x['first_name'],x['last_name']])) for x in typing]})
+
+@app.post('/api/chat/<int:conversation_id>/typing')
+@login_required
+def chat_typing_api(conversation_id):
+    user=current_user(); con=db()
+    if not _chat_participant(con,conversation_id,user['id']): con.close(); abort(403)
+    active=bool((request.get_json(silent=True) or {}).get('active')); con.execute('UPDATE chat_participants SET typing_at=?,last_seen_at=? WHERE conversation_id=? AND user_id=?',(now() if active else None,now(),conversation_id,user['id'])); con.commit(); con.close(); return jsonify({'ok':True})
+
+@app.post('/chat/message/<int:message_id>/edit')
+@login_required
+def chat_edit_message(message_id):
+    user=current_user(); data=request.get_json(silent=True) or request.form; body=(data.get('body') or '').strip(); con=db(); row=con.execute('SELECT * FROM chat_messages WHERE id=?',(message_id,)).fetchone()
+    if not row or row['sender_id']!=user['id'] or not body: con.close(); abort(403)
+    con.execute('UPDATE chat_messages SET body=?,edited_at=? WHERE id=?',(body[:5000],now(),message_id)); con.commit(); con.close(); return jsonify({'ok':True,'body':body[:5000]})
+
+@app.post('/chat/<int:conversation_id>/manage')
+@login_required
+def chat_manage_conversation(conversation_id):
+    user=current_user(); con=db()
+    if not _chat_participant(con,conversation_id,user['id']): con.close(); abort(403)
+    action=request.form.get('action')
+    if action=='pin': con.execute('UPDATE chat_participants SET pinned=CASE WHEN COALESCE(pinned,0)=1 THEN 0 ELSE 1 END WHERE conversation_id=? AND user_id=?',(conversation_id,user['id']))
+    elif action=='archive': con.execute('UPDATE chat_participants SET archived=1 WHERE conversation_id=? AND user_id=?',(conversation_id,user['id']))
+    elif action=='unarchive': con.execute('UPDATE chat_participants SET archived=0 WHERE conversation_id=? AND user_id=?',(conversation_id,user['id']))
+    con.commit(); con.close(); return redirect(url_for('chat_home',archived=1 if action=='archive' else 0))
+
+@app.route('/api/chat/settings',methods=['GET','POST'])
+@login_required
+def chat_settings_api():
+    user=current_user(); con=db()
+    if request.method=='POST':
+        data=request.get_json(silent=True) or request.form
+        def flag(name,default=1): return 1 if str(data.get(name,default)).lower() in ('1','true','on','yes') else 0
+        try: volume=max(0,min(100,int(data.get('volume',65))))
+        except (TypeError,ValueError): volume=65
+        con.execute('''INSERT INTO chat_user_settings(user_id,sounds_enabled,incoming_sound,outgoing_sound,error_sound,call_sound,volume,browser_notifications,updated_at) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET sounds_enabled=excluded.sounds_enabled,incoming_sound=excluded.incoming_sound,outgoing_sound=excluded.outgoing_sound,error_sound=excluded.error_sound,call_sound=excluded.call_sound,volume=excluded.volume,browser_notifications=excluded.browser_notifications,updated_at=excluded.updated_at''',(user['id'],flag('sounds_enabled'),flag('incoming_sound'),flag('outgoing_sound'),flag('error_sound'),flag('call_sound'),volume,flag('browser_notifications',0),now())); con.commit()
+    row=con.execute('SELECT * FROM chat_user_settings WHERE user_id=?',(user['id'],)).fetchone()
+    if not row: con.execute('INSERT INTO chat_user_settings(user_id,updated_at) VALUES(?,?)',(user['id'],now())); con.commit(); row=con.execute('SELECT * FROM chat_user_settings WHERE user_id=?',(user['id'],)).fetchone()
+    result=dict(row); con.close(); return jsonify({'ok':True,'settings':result})
+
+@app.post('/chat/<int:conversation_id>/delete')
+@login_required
+def chat_delete_conversation(conversation_id):
+    user=current_user(); con=db()
+    if not _chat_participant(con,conversation_id,user['id']): con.close(); abort(403)
+    con.execute('UPDATE chat_participants SET hidden_at=? WHERE conversation_id=? AND user_id=?',(now(),conversation_id,user['id'])); con.commit(); con.close(); flash('La discussion a été retirée de votre liste.','success'); return redirect(url_for('chat_home'))
+
+@app.post('/chat/message/<int:message_id>/delete')
+@login_required
+def chat_delete_message(message_id):
+    user=current_user(); con=db(); row=con.execute('SELECT m.* FROM chat_messages m JOIN chat_participants p ON p.conversation_id=m.conversation_id WHERE m.id=? AND p.user_id=?',(message_id,user['id'])).fetchone()
+    if not row: con.close(); abort(403)
+    if row['sender_id']!=user['id'] and user['role'] not in ('super_admin','president'): con.close(); abort(403)
+    con.execute('UPDATE chat_messages SET deleted_at=? WHERE id=?',(now(),message_id)); con.commit(); con.close(); return jsonify({'ok':True})
+
+
+@app.get('/api/chat/message/<int:message_id>/reactions')
+@login_required
+def chat_message_reactions(message_id):
+    user=current_user(); con=db(); row=con.execute('SELECT conversation_id FROM chat_messages WHERE id=?',(message_id,)).fetchone()
+    if not row or not _chat_participant(con,row['conversation_id'],user['id']): con.close(); abort(403)
+    rows=con.execute("""SELECT reaction,COUNT(*) total,GROUP_CONCAT(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,''), ', ') names FROM chat_reactions r JOIN users u ON u.id=r.user_id WHERE r.message_id=? GROUP BY reaction ORDER BY total DESC""",(message_id,)).fetchall(); con.close()
+    return jsonify({'ok':True,'reactions':[dict(x) for x in rows]})
+
+@app.post('/chat/message/<int:message_id>/react')
+@login_required
+def chat_react_message(message_id):
+    user=current_user(); data=request.get_json(silent=True) or request.form; reaction=(data.get('reaction') or '').strip()[:8]
+    if reaction not in ('👍','❤️','😂','😮','😢','🙏'): return jsonify({'ok':False,'error':'Réaction invalide'}),400
+    con=db(); row=con.execute('SELECT conversation_id FROM chat_messages WHERE id=? AND deleted_at IS NULL',(message_id,)).fetchone()
+    if not row or not _chat_participant(con,row['conversation_id'],user['id']): con.close(); abort(403)
+    exists=con.execute('SELECT id FROM chat_reactions WHERE message_id=? AND user_id=? AND reaction=?',(message_id,user['id'],reaction)).fetchone()
+    if exists: con.execute('DELETE FROM chat_reactions WHERE id=?',(exists['id'],))
+    else: con.execute('INSERT INTO chat_reactions(message_id,user_id,reaction,created_at) VALUES(?,?,?,?)',(message_id,user['id'],reaction,now()))
+    con.commit(); rows=con.execute('SELECT reaction,COUNT(*) total FROM chat_reactions WHERE message_id=? GROUP BY reaction',(message_id,)).fetchall(); con.close()
+    return jsonify({'ok':True,'reactions':[dict(x) for x in rows]})
+
+@app.post('/chat/message/<int:message_id>/forward')
+@login_required
+def chat_forward_message(message_id):
+    user=current_user(); data=request.get_json(silent=True) or request.form; target=int(data.get('conversation_id') or 0); con=db()
+    src=con.execute('SELECT * FROM chat_messages WHERE id=? AND deleted_at IS NULL',(message_id,)).fetchone()
+    if not src or not _chat_participant(con,src['conversation_id'],user['id']) or not _chat_participant(con,target,user['id']): con.close(); abort(403)
+    con.execute("""INSERT INTO chat_messages(conversation_id,sender_id,body,attachment_path,attachment_type,original_name,file_size,created_at,message_kind,forwarded_from_id,delivery_status) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",(target,user['id'],src['body'],src['attachment_path'],src['attachment_type'],src['original_name'],src['file_size'],now(),src['message_kind'],message_id,'sent'))
+    con.execute('UPDATE chat_participants SET hidden_at=NULL,archived=0 WHERE conversation_id=?',(target,)); con.commit(); con.close(); return jsonify({'ok':True})
+
+@app.post('/chat/message/<int:message_id>/report')
+@login_required
+def chat_report_message(message_id):
+    user=current_user(); data=request.get_json(silent=True) or request.form; reason=(data.get('reason') or 'Contenu inapproprié').strip()[:100]; details=(data.get('details') or '').strip()[:1000]; con=db()
+    row=con.execute('SELECT conversation_id FROM chat_messages WHERE id=?',(message_id,)).fetchone()
+    if not row or not _chat_participant(con,row['conversation_id'],user['id']): con.close(); abort(403)
+    con.execute('INSERT INTO chat_reports(message_id,conversation_id,reporter_id,reason,details,created_at) VALUES(?,?,?,?,?,?)',(message_id,row['conversation_id'],user['id'],reason,details,now())); con.commit(); con.close(); return jsonify({'ok':True})
+
+@app.post('/chat/user/<int:blocked_id>/block')
+@login_required
+def chat_block_user(blocked_id):
+    user=current_user()
+    if blocked_id==user['id']: abort(400)
+    con=db(); row=con.execute('SELECT id FROM chat_blocks WHERE blocker_id=? AND blocked_id=?',(user['id'],blocked_id)).fetchone()
+    if row: con.execute('DELETE FROM chat_blocks WHERE id=?',(row['id'],)); blocked=False
+    else: con.execute('INSERT INTO chat_blocks(blocker_id,blocked_id,created_at) VALUES(?,?,?)',(user['id'],blocked_id,now())); blocked=True
+    con.commit(); con.close(); return jsonify({'ok':True,'blocked':blocked})
+
+@app.route('/chat/privacy',methods=['GET','POST'])
+@login_required
+def chat_privacy_settings():
+    user=current_user(); con=db()
+    if request.method=='POST':
+        data=request.get_json(silent=True) or request.form
+        def flag(n,d=1): return 1 if str(data.get(n,d)).lower() in ('1','true','on','yes') else 0
+        who_msg=data.get('who_can_message','members') if data.get('who_can_message','members') in ('everyone','members','nobody') else 'members'
+        who_call=data.get('who_can_call','members') if data.get('who_can_call','members') in ('everyone','members','nobody') else 'members'
+        con.execute("""INSERT INTO chat_privacy(user_id,who_can_message,who_can_call,show_last_seen,show_photo,allow_group_add,allow_files,updated_at) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET who_can_message=excluded.who_can_message,who_can_call=excluded.who_can_call,show_last_seen=excluded.show_last_seen,show_photo=excluded.show_photo,allow_group_add=excluded.allow_group_add,allow_files=excluded.allow_files,updated_at=excluded.updated_at""",(user['id'],who_msg,who_call,flag('show_last_seen'),flag('show_photo'),flag('allow_group_add'),flag('allow_files'),now())); con.commit()
+    row=con.execute('SELECT * FROM chat_privacy WHERE user_id=?',(user['id'],)).fetchone()
+    if not row: con.execute('INSERT INTO chat_privacy(user_id,updated_at) VALUES(?,?)',(user['id'],now())); con.commit(); row=con.execute('SELECT * FROM chat_privacy WHERE user_id=?',(user['id'],)).fetchone()
+    result=dict(row); con.close(); return jsonify({'ok':True,'privacy':result})
+
+@app.post('/chat/<int:conversation_id>/group/manage')
+@login_required
+def chat_group_manage(conversation_id):
+    user=current_user(); con=db(); me=_chat_participant(con,conversation_id,user['id']); info=con.execute('SELECT * FROM chat_conversations WHERE id=?',(conversation_id,)).fetchone()
+    if not me or not info or info['conversation_type']!='group' or me['role']!='admin': con.close(); abort(403)
+    action=request.form.get('action'); uid=request.form.get('user_id',type=int)
+    if action=='rename': con.execute('UPDATE chat_conversations SET title=?,description=? WHERE id=?',((request.form.get('title') or '').strip()[:120],(request.form.get('description') or '').strip()[:500],conversation_id))
+    elif action=='add' and uid: con.execute("INSERT OR IGNORE INTO chat_participants(conversation_id,user_id,joined_at,role) VALUES(?,?,?,'member')",(conversation_id,uid,now()))
+    elif action=='remove' and uid and uid!=user['id']: con.execute('DELETE FROM chat_participants WHERE conversation_id=? AND user_id=?',(conversation_id,uid))
+    elif action=='promote' and uid: con.execute("UPDATE chat_participants SET role='admin' WHERE conversation_id=? AND user_id=?",(conversation_id,uid))
+    elif action=='demote' and uid and uid!=user['id']: con.execute("UPDATE chat_participants SET role='member' WHERE conversation_id=? AND user_id=?",(conversation_id,uid))
+    con.commit(); con.close(); return redirect(url_for('chat_conversation',conversation_id=conversation_id))
+
+@app.get('/api/chat/<int:conversation_id>/status')
+@login_required
+def chat_conversation_status(conversation_id):
+    user=current_user(); con=db()
+    if not _chat_participant(con,conversation_id,user['id']): con.close(); abort(403)
+    people=con.execute("""SELECT u.id,u.first_name,u.last_name,p.last_seen_at,p.typing_at,CASE WHEN p.last_seen_at IS NOT NULL AND datetime(p.last_seen_at)>=datetime('now','-90 seconds') THEN 1 ELSE 0 END online FROM chat_participants p JOIN users u ON u.id=p.user_id WHERE p.conversation_id=?""",(conversation_id,)).fetchall()
+    reads=con.execute('SELECT user_id,last_read_message_id,read_at FROM chat_reads WHERE conversation_id=?',(conversation_id,)).fetchall(); con.close(); return jsonify({'ok':True,'people':[dict(x) for x in people],'reads':[dict(x) for x in reads]})
 
 init_v83_schema()
 
