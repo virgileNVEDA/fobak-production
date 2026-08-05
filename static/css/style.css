@@ -2521,3 +2521,9 @@ body.admin-layout.topbar-compact .topbar-action-button{width:40px!important;heig
 
 /* V87 - actions avancées du chat */
 .message-actions{display:flex;gap:.28rem;flex-wrap:wrap;margin-top:.35rem;opacity:.78}.message-actions button{border:0;background:rgba(255,255,255,.75);border-radius:999px;padding:.25rem .42rem;cursor:pointer}.message-actions button:hover{transform:translateY(-1px);opacity:1}.reaction-summary{display:flex;gap:.3rem;flex-wrap:wrap;margin-top:.25rem}.reaction-summary span{background:rgba(0,0,0,.07);border-radius:999px;padding:.16rem .45rem;font-size:.82rem}.chat-message.mine .message-actions button{background:rgba(255,255,255,.9)}
+
+/* V88 — widget anti-robot moderne */
+.human-verification{border:1px solid #d9e5ef;border-radius:16px;padding:18px;background:#f8fbfd}
+.recaptcha-wrap{display:flex;justify-content:flex-start;align-items:center;min-height:82px;margin:10px 0;overflow-x:auto}
+.g-recaptcha{transform-origin:left top}
+@media (max-width:380px){.g-recaptcha{transform:scale(.88);margin-bottom:-10px}}

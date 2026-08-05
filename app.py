@@ -11,7 +11,9 @@ import zipfile
 import xml.etree.ElementTree as ET
 import sqlite3
 from io import StringIO, BytesIO
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlencode
+from urllib.request import Request, urlopen
+from urllib.error import URLError, HTTPError
 import struct
 import html
 import re
@@ -60,8 +62,8 @@ UPLOAD_ROOT = os.environ.get("UPLOAD_ROOT", os.path.join(STATIC_DIR, "uploads"))
 RDC_FLAG_REL = "img/drapeau_rdc.jpg"
 RDC_FLAG_ABS = os.path.join(STATIC_DIR, RDC_FLAG_REL)
 ALLOWED_IMAGE_EXT = {"png", "jpg", "jpeg", "webp", "pdf", "doc", "docx", "xls", "xlsx"}
-APP_VERSION = "83.0.0"
-APP_RELEASE_NAME = "FOBAK Manager Pro V84 — formulaire durable et chat instantané"
+APP_VERSION = "88.0.0"
+APP_RELEASE_NAME = "FOBAK Manager Pro V88 — reCAPTCHA moderne et chat avancé"
 CARD_TEMPLATE_VERSION = "paysage-v80-epure-embleme"
 
 # Numérotation protocolaire nationale. Le numéro de cadre reste distinct du
@@ -148,9 +150,17 @@ def verify_csrf_token():
 
 @app.context_processor
 def inject_csrf_helper():
-    return {"csrf_token": csrf_token}
+    return {
+        "csrf_token": csrf_token,
+        "recaptcha_site_key": os.environ.get("RECAPTCHA_SITE_KEY", "").strip(),
+        "recaptcha_enabled": bool(
+            os.environ.get("RECAPTCHA_SITE_KEY", "").strip()
+            and os.environ.get("RECAPTCHA_SECRET_KEY", "").strip()
+        ),
+    }
 
 
+RECAPTCHA_VERIFY_URL = "https://www.google.com/recaptcha/api/siteverify"
 PUBLIC_CHALLENGE_TTL_SECONDS = 6 * 60 * 60
 PUBLIC_CHALLENGE_MIN_SECONDS = 1
 PUBLIC_FORM_MAX_ATTEMPTS = 10
@@ -181,8 +191,38 @@ def issue_human_challenge(form_name):
     return {"token": token, "question": f"Combien font {left} + {right} ?"}
 
 
+def verify_recaptcha_v2():
+    """Valide le widget Google reCAPTCHA v2 côté serveur."""
+    secret_key = os.environ.get("RECAPTCHA_SECRET_KEY", "").strip()
+    response_token = request.form.get("g-recaptcha-response", "").strip()
+    if not secret_key or not response_token:
+        return False, "Veuillez cocher la case « Je ne suis pas un robot » avant d’envoyer le formulaire."
+
+    payload = {"secret": secret_key, "response": response_token}
+    if request.remote_addr:
+        payload["remoteip"] = request.remote_addr
+    try:
+        req = Request(
+            RECAPTCHA_VERIFY_URL,
+            data=urlencode(payload).encode("utf-8"),
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            method="POST",
+        )
+        with urlopen(req, timeout=8) as response:
+            result = json.loads(response.read().decode("utf-8"))
+    except (HTTPError, URLError, TimeoutError, ValueError, json.JSONDecodeError):
+        return False, "La vérification anti-robot est momentanément indisponible. Vérifiez votre connexion puis réessayez."
+
+    if result.get("success") is True:
+        return True, ""
+    return False, "La vérification anti-robot n’a pas été validée. Recommencez la vérification puis envoyez le formulaire."
+
+
 def verify_human_challenge(form_name):
-    """Vérifie le CAPTCHA local, le champ-piège, le délai et les tentatives."""
+    """Utilise reCAPTCHA v2 quand il est configuré, sinon le contrôle local sécurisé."""
+    if os.environ.get("RECAPTCHA_SITE_KEY", "").strip() and os.environ.get("RECAPTCHA_SECRET_KEY", "").strip():
+        return verify_recaptcha_v2()
+
     safe_name = re.sub(r"[^a-z0-9_-]", "", (form_name or "public").lower()) or "public"
     now_ts = int(datetime.now().timestamp())
     attempts_key = f"_public_attempts_{safe_name}"
@@ -199,22 +239,21 @@ def verify_human_challenge(form_name):
     challenge = challenges.pop(supplied_token, None) if supplied_token else None
     session[challenge_key] = challenges
     session.modified = True
-    # Champ volontairement invisible : un robot qui remplit tous les champs se trahit.
     if request.form.get("company_website", "").strip():
         return False, "La vérification humaine a échoué. Rechargez le formulaire puis recommencez."
     if not challenge:
-        return False, "La vérification humaine a expiré. Rechargez le formulaire puis recommencez."
+        return False, "La vérification humaine a expiré. Rechargez uniquement la vérification puis réessayez."
     if not supplied_token or not secrets.compare_digest(str(challenge.get("token", "")), supplied_token):
-        return False, "La vérification humaine est invalide. Rechargez le formulaire puis recommencez."
+        return False, "La vérification humaine est invalide. Rechargez uniquement la vérification puis réessayez."
     elapsed = now_ts - int(challenge.get("issued_at") or 0)
     if elapsed < PUBLIC_CHALLENGE_MIN_SECONDS or elapsed > PUBLIC_CHALLENGE_TTL_SECONDS:
-        return False, "La vérification humaine a expiré. Rechargez le formulaire puis recommencez."
+        return False, "La vérification humaine a expiré. Rechargez uniquement la vérification puis réessayez."
     try:
         supplied_answer = int(request.form.get("human_challenge_answer", "").strip())
     except (TypeError, ValueError):
         supplied_answer = -1
     if supplied_answer != int(challenge.get("answer") or -2):
-        return False, "La réponse de vérification est incorrecte. Rechargez le formulaire puis réessayez."
+        return False, "La réponse de vérification est incorrecte. Recommencez uniquement la vérification."
     return True, ""
 
 

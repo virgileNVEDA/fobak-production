@@ -1,14 +1,23 @@
 {% if human_check %}
 <fieldset class="human-verification full">
-  <legend>🛡️ Vérification humaine</legend>
-  <p>Cette courte vérification protège la Fondation contre les envois automatiques.</p>
+  <legend>🛡️ Vérification anti-robot</legend>
+  <p>Cette vérification protège la Fondation contre les envois automatiques.</p>
   <label class="bot-trap" aria-hidden="true">Ne remplissez pas ce champ
     <input name="company_website" tabindex="-1" autocomplete="off">
   </label>
-  <input type="hidden" name="human_challenge_token" value="{{ human_check.token }}">
-  <label class="human-question">{{ human_check.question }}
-    <input type="number" name="human_challenge_answer" inputmode="numeric" min="0" max="30" required autocomplete="off" placeholder="Votre réponse">
-  </label>
-  <small>Cette vérification reste valide pendant 6 heures afin de vous laisser le temps de remplir le formulaire.</small>
+
+  {% if recaptcha_enabled %}
+    <div class="recaptcha-wrap">
+      <div class="g-recaptcha" data-sitekey="{{ recaptcha_site_key }}" data-theme="light"></div>
+    </div>
+    <small>Cochez « Je ne suis pas un robot ». Une vérification par images peut apparaître seulement si Google la juge nécessaire.</small>
+    <script src="https://www.google.com/recaptcha/api.js?hl=fr" async defer></script>
+  {% else %}
+    <input type="hidden" name="human_challenge_token" value="{{ human_check.token }}">
+    <label class="human-question">{{ human_check.question }}
+      <input type="number" name="human_challenge_answer" inputmode="numeric" min="0" max="30" required autocomplete="off" placeholder="Votre réponse">
+    </label>
+    <small>Mode local temporaire. Pour afficher la case « Je ne suis pas un robot », configurez les clés reCAPTCHA dans l’hébergement.</small>
+  {% endif %}
 </fieldset>
 {% endif %}
