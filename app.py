@@ -1607,6 +1607,15 @@ def get_settings():
     if not data.get("contact_phones") or data.get("contact_phones") == "Tél. : +243 ...":
         data["contact_phones"] = "+243 81 45 70 392 ; +243 81 44 00 233"
     data.setdefault("secretary_function", "Secrétaire Général")
+    if not data.get("secretary_name"):
+        data["secretary_name"] = "Matthieu ADIKAKA IBOKO"
+    # Ressources officielles livrées avec l’application. Elles restent remplaçables
+    # dans Paramètres, mais empêchent les anciennes cartes de perdre le cachet
+    # et la signature lorsque la base persistante contient encore une valeur vide.
+    if not data.get("secretary_signature_path"):
+        data["secretary_signature_path"] = "signatures/secretary_signature_official.png"
+    if not data.get("official_stamp_path"):
+        data["official_stamp_path"] = "signatures/official_stamp_fobak.png"
     data.setdefault("contact_email", "fondationbakitani@gmail.com")
     data.setdefault("facebook_label", "Fondation Bakitani")
     data.setdefault("youtube_label", "Fondation Bakitani TV")
@@ -3181,20 +3190,16 @@ def _member_card_scope(member):
 
 
 def _preferred_card_sequence(member, scope_key):
-    if scope_key == "NATIONAL":
-        executive = str(member["executive_number"] or "") if "executive_number" in member.keys() else ""
-        if executive.isdigit() and int(executive) > 0:
-            return int(executive)
-        position = str(member["executive_position"] or member["role_label"] or "") if "executive_position" in member.keys() else ""
-        for title, number in EXECUTIVE_POSITION_NUMBERS.items():
-            if _plain_text(title) == _plain_text(position):
-                return int(number)
-    else:
-        position = " ".join(str(member[key] or "") for key in ("executive_position", "role_label", "profession") if key in member.keys())
-        normalized = _plain_text(position)
-        for title, number in PROVINCIAL_POSITION_NUMBERS.items():
-            if title in normalized:
-                return number
+    """Retourne uniquement un numéro de haut cadre attribué explicitement.
+
+    La fonction ou le titre ne réserve plus automatiquement les premiers numéros.
+    Par défaut, chaque coordination commence à 0001 dans l’ordre d’enregistrement.
+    L’administration peut ensuite attribuer volontairement un numéro protocolaire
+    depuis le module « Numéros hauts cadres ».
+    """
+    executive = str(member["executive_number"] or "").strip() if "executive_number" in member.keys() else ""
+    if executive.isdigit() and int(executive) > 0:
+        return int(executive)
     return None
 
 
@@ -3216,10 +3221,9 @@ def ensure_member_card_number(member):
     if current:
         con.execute("DELETE FROM member_card_numbers WHERE member_id=?", (member["id"],))
     used = {int(row["sequence_number"]) for row in con.execute("SELECT sequence_number FROM member_card_numbers WHERE scope_key=?", (scope_key,)).fetchall()}
-    # Les membres ordinaires prennent le premier numéro réellement libre après
-    # la plage protocolaire de leur coordination, sans doublon et sans saut arbitraire.
-    reserved_end = max(int(v) for v in (EXECUTIVE_POSITION_NUMBERS.values() if scope_key == "NATIONAL" else PROVINCIAL_POSITION_NUMBERS.values()))
-    sequence = preferred if preferred and preferred not in used else reserved_end + 1
+    # Chaque coordination commence à 0001 et avance sans saut. Un numéro de
+    # haut cadre n’est prioritaire que lorsqu’il a été attribué explicitement.
+    sequence = preferred if preferred and preferred not in used else 1
     while sequence in used:
         sequence += 1
     con.execute(
@@ -3255,21 +3259,23 @@ def _card_renumber_candidates(scope_filter=""):
         grouped.setdefault((scope_key, scope_label), []).append(member)
     result = []
     for (scope_key, scope_label), members in sorted(grouped.items(), key=lambda item: item[0][1]):
-        reserved_end = max(int(v) for v in (EXECUTIVE_POSITION_NUMBERS.values() if scope_key == "NATIONAL" else PROVINCIAL_POSITION_NUMBERS.values()))
-        ranked = []
-        ordinary = []
-        for member in members:
+        ordered = sorted(
+            members,
+            key=lambda member: ((member["joined_at"] or "9999-12-31"), member["id"]),
+        )
+        explicit = {}
+        for member in ordered:
             preferred = _preferred_card_sequence(member, scope_key)
-            (ranked if preferred else ordinary).append((member, preferred))
-        ranked.sort(key=lambda item: (int(item[1]), str(item[0]["last_name"] or "").lower(), item[0]["id"]))
-        ordinary.sort(key=lambda item: ((item[0]["joined_at"] or "9999"), str(item[0]["last_name"] or "").lower(), str(item[0]["first_name"] or "").lower(), item[0]["id"]))
+            if preferred and preferred not in explicit:
+                explicit[preferred] = member["id"]
         used = set()
-        next_regular = reserved_end + 1
-        for member, preferred in ranked + ordinary:
-            if preferred and int(preferred) not in used:
-                number = int(preferred)
+        next_regular = 1
+        for member in ordered:
+            preferred = _preferred_card_sequence(member, scope_key)
+            if preferred and explicit.get(preferred) == member["id"] and preferred not in used:
+                number = preferred
             else:
-                while next_regular in used:
+                while next_regular in used or next_regular in explicit:
                     next_regular += 1
                 number = next_regular
                 next_regular += 1
@@ -3279,6 +3285,44 @@ def _card_renumber_candidates(scope_filter=""):
                 "number": number, "position": str(member["executive_position"] or member["role_label"] or member["profession"] or "Membre")
             })
     return result
+
+
+def ensure_v100_card_numbering_and_assets():
+    """Corrige une seule fois les anciennes séries 0013+ et force les cartes à jour.
+
+    La migration est sans perte : seules la table de numérotation dérivée et les
+    fichiers de cartes générés sont reconstruits. Les membres, photos, paiements,
+    fiches et historiques restent inchangés.
+    """
+    con = db()
+    marker = con.execute("SELECT 1 FROM db_migrations WHERE name=?", ("2026_v100_card_order_signature_stamp",)).fetchone()
+    if marker:
+        con.close()
+        return
+    preview = _card_renumber_candidates("")
+    try:
+        con.execute("BEGIN")
+        con.execute("DELETE FROM member_card_numbers")
+        for item in preview:
+            member = item["member"]
+            con.execute(
+                """INSERT INTO member_card_numbers
+                   (member_id,scope_key,scope_label,sequence_number,position_name,assigned_at,updated_at)
+                   VALUES(?,?,?,?,?,?,?)""",
+                (member["id"], item["scope_key"], item["scope_label"], item["number"], item["position"], now(), now()),
+            )
+        con.execute(
+            "INSERT INTO db_migrations(name,applied_at,details) VALUES(?,?,?)",
+            ("2026_v100_card_order_signature_stamp", now(), "Numérotation par ordre d’enregistrement à partir de 0001 par coordination; cachet et signature officiels par défaut"),
+        )
+        con.commit()
+    except Exception:
+        con.rollback()
+        con.close()
+        raise
+    con.close()
+    for item in preview:
+        _invalidate_member_card_assets(item["member"])
 
 
 def _invalidate_member_card_assets(member):
@@ -3404,10 +3448,16 @@ def generate_member_card_assets(member):
         con = db(); office = con.execute("SELECT * FROM provincial_offices WHERE province=?", (member["province"],)).fetchone(); con.close()
     secretary_name = (office["secretary_name"] if office and office["secretary_name"] else settings.get("secretary_name")) or "Matthieu ADIKAKA IBOKO"
     secretary_function = (office["secretary_function"] if office and office["secretary_function"] else settings.get("secretary_function")) or "Secrétaire Général"
-    signature_rel = office["secretary_signature_path"] if office and office["secretary_signature_path"] else settings.get("secretary_signature_path", "")
-    stamp_rel = office["official_stamp_path"] if office and "official_stamp_path" in office.keys() and office["official_stamp_path"] else settings.get("official_stamp_path", "")
-    signature = _open_contained(_static_or_upload_path(signature_rel), (102, 58))
-    stamp = _open_contained(_static_or_upload_path(stamp_rel), (84, 70))
+    signature_rel = office["secretary_signature_path"] if office and office["secretary_signature_path"] else settings.get("secretary_signature_path", "signatures/secretary_signature_official.png")
+    stamp_rel = office["official_stamp_path"] if office and "official_stamp_path" in office.keys() and office["official_stamp_path"] else settings.get("official_stamp_path", "signatures/official_stamp_fobak.png")
+    signature_path = _static_or_upload_path(signature_rel)
+    stamp_path = _static_or_upload_path(stamp_rel)
+    if not os.path.isfile(signature_path):
+        signature_path = _static_or_upload_path("signatures/secretary_signature_official.png")
+    if not os.path.isfile(stamp_path):
+        stamp_path = _static_or_upload_path("signatures/official_stamp_fobak.png")
+    signature = _open_contained(signature_path, (138, 82))
+    stamp = _open_contained(stamp_path, (105, 92))
 
     def fitted_font(draw, value, start, minimum, max_width, bold=True):
         size = start
@@ -3475,10 +3525,12 @@ def generate_member_card_assets(member):
     else:
         draw.text(((photo_area[0]+photo_area[2])//2, (photo_area[1]+photo_area[3])//2), "PHOTO", font=_card_font(30, True), anchor="mm", fill=muted)
     # Signature et cachet placés directement, sans libellé ni encadrement.
-    if signature: front.paste(signature, (744, 447), signature)
-    if stamp: front.paste(stamp, (872, 442), stamp)
-    draw.text((868, 536), secretary_name, font=fitted_font(draw, secretary_name, 13, 10, 220), anchor="mm", fill=dark)
-    draw.text((868, 557), secretary_function, font=fitted_font(draw, secretary_function, 12, 9, 220), anchor="mm", fill=blue)
+    if signature:
+        front.paste(signature, (726, 430), signature)
+    if stamp:
+        front.paste(stamp, (866, 427), stamp)
+    draw.text((868, 536), secretary_name, font=fitted_font(draw, secretary_name, 13, 10, 225), anchor="mm", fill=dark)
+    draw.text((868, 557), secretary_function, font=fitted_font(draw, secretary_function, 12, 9, 225), anchor="mm", fill=blue)
     draw_footer(draw)
 
     back, draw = base_card(); add_watermark(back, (505, 355), .055)
@@ -8769,6 +8821,7 @@ def chat_conversation_status(conversation_id):
     reads=con.execute('SELECT user_id,last_read_message_id,read_at FROM chat_reads WHERE conversation_id=?',(conversation_id,)).fetchall(); con.close(); return jsonify({'ok':True,'people':[dict(x) for x in people],'reads':[dict(x) for x in reads]})
 
 init_v83_schema()
+ensure_v100_card_numbering_and_assets()
 start_outbound_worker()
 
 ensure_daily_backup()
