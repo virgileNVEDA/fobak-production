@@ -63,9 +63,9 @@ UPLOAD_ROOT = os.environ.get("UPLOAD_ROOT", os.path.join(STATIC_DIR, "uploads"))
 RDC_FLAG_REL = "img/drapeau_rdc.jpg"
 RDC_FLAG_ABS = os.path.join(STATIC_DIR, RDC_FLAG_REL)
 ALLOWED_IMAGE_EXT = {"png", "jpg", "jpeg", "webp", "pdf", "doc", "docx", "xls", "xlsx"}
-APP_VERSION = "91.0.0"
-APP_RELEASE_NAME = "FOBAK Manager Pro V91 — reCAPTCHA corrigé et sessions multi-onglets"
-CARD_TEMPLATE_VERSION = "paysage-v80-epure-embleme"
+APP_VERSION = "96.0.0"
+APP_RELEASE_NAME = "FOBAK Manager Pro V96 — numérotation hiérarchique et connexion professionnelle"
+CARD_TEMPLATE_VERSION = "paysage-v99-photo-adaptative-pied-adresse-verso-aere"
 
 # Numérotation protocolaire nationale. Le numéro de cadre reste distinct du
 # code unique de la carte afin de conserver la traçabilité des anciens membres.
@@ -1477,7 +1477,7 @@ def init_db():
         "payment_confirmation_instructions": "Après paiement, saisissez la référence de transaction afin que le Bureau compétent puisse vérifier et valider la cotisation.",
         "history": "La Fondation Bakitani œuvre pour le développement intégral, la solidarité, l'organisation des membres et la promotion des initiatives communautaires.",
         "president_name": "Présidence nationale",
-        "secretary_name": "Secrétaire du Bureau National",
+        "secretary_name": "Matthieu ADIKAKA IBOKO",
         "secretary_function": "Secrétaire Général",
         "contact_email": "fondationbakitani@gmail.com",
         "facebook_label": "Fondation Bakitani",
@@ -2875,6 +2875,24 @@ def _contain_photo(path, size, background=(239, 247, 252)):
         return None
 
 
+def _card_photo_adaptive(path, max_size=(218, 238)):
+    """Prépare la photo sans cadre ni fond artificiel, en respectant ses proportions réelles."""
+    if not path or not os.path.exists(path):
+        return None
+    try:
+        with Image.open(path) as source:
+            image = ImageOps.exif_transpose(source).convert("RGBA")
+            image.thumbnail(max_size, Image.Resampling.LANCZOS)
+            # Coins légèrement adoucis directement sur la photo, sans ajouter de cadre.
+            radius = max(8, min(image.size) // 14)
+            mask = Image.new("L", image.size, 0)
+            ImageDraw.Draw(mask).rounded_rectangle((0, 0, image.width-1, image.height-1), radius=radius, fill=255)
+            image.putalpha(mask)
+            return image
+    except Exception:
+        return None
+
+
 def _portrait_card_svg(member, side, settings):
     """Source vectorielle verticale simple, modifiable par un graphiste."""
     esc = lambda value: html.escape(str(value or ""))
@@ -3198,7 +3216,10 @@ def ensure_member_card_number(member):
     if current:
         con.execute("DELETE FROM member_card_numbers WHERE member_id=?", (member["id"],))
     used = {int(row["sequence_number"]) for row in con.execute("SELECT sequence_number FROM member_card_numbers WHERE scope_key=?", (scope_key,)).fetchall()}
-    sequence = preferred if preferred and preferred not in used else 13
+    # Les membres ordinaires prennent le premier numéro réellement libre après
+    # la plage protocolaire de leur coordination, sans doublon et sans saut arbitraire.
+    reserved_end = max(int(v) for v in (EXECUTIVE_POSITION_NUMBERS.values() if scope_key == "NATIONAL" else PROVINCIAL_POSITION_NUMBERS.values()))
+    sequence = preferred if preferred and preferred not in used else reserved_end + 1
     while sequence in used:
         sequence += 1
     con.execute(
@@ -3214,6 +3235,100 @@ def _member_document_numbers(member):
     joined = (member["joined_at"] or today())[:10]
     adhesion_number = member["adhesion_number"] if "adhesion_number" in member.keys() and member["adhesion_number"] else create_adhesion_number(member["id"], joined)
     return str(sequence).zfill(4), adhesion_number, scope_label
+
+
+
+def _card_renumber_candidates(scope_filter=""):
+    """Construit une numérotation hiérarchique déterministe sans modifier la base."""
+    con = db()
+    rows = con.execute("""
+        SELECT * FROM members
+        WHERE deleted_at IS NULL AND COALESCE(is_administrative,0)=0
+        ORDER BY joined_at ASC, id ASC
+    """).fetchall()
+    con.close()
+    grouped = {}
+    for member in rows:
+        scope_key, scope_label = _member_card_scope(member)
+        if scope_filter and scope_key != scope_filter:
+            continue
+        grouped.setdefault((scope_key, scope_label), []).append(member)
+    result = []
+    for (scope_key, scope_label), members in sorted(grouped.items(), key=lambda item: item[0][1]):
+        reserved_end = max(int(v) for v in (EXECUTIVE_POSITION_NUMBERS.values() if scope_key == "NATIONAL" else PROVINCIAL_POSITION_NUMBERS.values()))
+        ranked = []
+        ordinary = []
+        for member in members:
+            preferred = _preferred_card_sequence(member, scope_key)
+            (ranked if preferred else ordinary).append((member, preferred))
+        ranked.sort(key=lambda item: (int(item[1]), str(item[0]["last_name"] or "").lower(), item[0]["id"]))
+        ordinary.sort(key=lambda item: ((item[0]["joined_at"] or "9999"), str(item[0]["last_name"] or "").lower(), str(item[0]["first_name"] or "").lower(), item[0]["id"]))
+        used = set()
+        next_regular = reserved_end + 1
+        for member, preferred in ranked + ordinary:
+            if preferred and int(preferred) not in used:
+                number = int(preferred)
+            else:
+                while next_regular in used:
+                    next_regular += 1
+                number = next_regular
+                next_regular += 1
+            used.add(number)
+            result.append({
+                "member": member, "scope_key": scope_key, "scope_label": scope_label,
+                "number": number, "position": str(member["executive_position"] or member["role_label"] or member["profession"] or "Membre")
+            })
+    return result
+
+
+def _invalidate_member_card_assets(member):
+    """Force la régénération de la carte sans toucher à la fiche, aux paiements ou aux documents."""
+    internal_code = member["code"] or create_member_code(member["id"], member["province"] or "NAT")
+    card_dir = os.path.join(UPLOAD_ROOT, "cards", internal_code)
+    if os.path.isdir(card_dir):
+        shutil.rmtree(card_dir, ignore_errors=True)
+
+
+@app.route("/admin/members/cards/renumber", methods=["GET", "POST"])
+@login_required
+@role_required("super_admin", "president", "secretary", "national_secretary")
+def member_cards_renumber():
+    scope_filter = request.values.get("scope", "").strip()
+    preview = _card_renumber_candidates(scope_filter)
+    if request.method == "POST":
+        action = request.form.get("action", "apply")
+        if action != "apply":
+            return redirect(url_for("member_cards_renumber", scope=scope_filter))
+        con = db()
+        try:
+            con.execute("BEGIN")
+            if scope_filter:
+                con.execute("DELETE FROM member_card_numbers WHERE scope_key=?", (scope_filter,))
+            else:
+                con.execute("DELETE FROM member_card_numbers")
+            for item in preview:
+                member = item["member"]
+                con.execute(
+                    """INSERT INTO member_card_numbers
+                       (member_id,scope_key,scope_label,sequence_number,position_name,assigned_at,updated_at)
+                       VALUES(?,?,?,?,?,?,?)""",
+                    (member["id"], item["scope_key"], item["scope_label"], item["number"], item["position"], now(), now()),
+                )
+            con.commit()
+        except Exception:
+            con.rollback(); con.close(); raise
+        con.close()
+        for item in preview:
+            _invalidate_member_card_assets(item["member"])
+        log_action(current_user()["id"], f"Réorganisation numérotation cartes ({scope_filter or 'toutes coordinations'})", "member_card_numbers", None)
+        flash(f"Numérotation réorganisée pour {len(preview)} membres. Les cartes seront régénérées avec la signature et le cachet lors de leur prochaine ouverture ou impression.", "success")
+        return redirect(url_for("member_cards_renumber", scope=scope_filter))
+    scopes = []
+    seen = set()
+    for item in _card_renumber_candidates(""):
+        if item["scope_key"] not in seen:
+            seen.add(item["scope_key"]); scopes.append((item["scope_key"], item["scope_label"]))
+    return render_template("member_cards_renumber.html", preview=preview, scopes=scopes, selected_scope=scope_filter)
 
 
 def _official_contact_urls(settings):
@@ -3279,7 +3394,7 @@ def generate_member_card_assets(member):
     emblem = _open_contained(_static_or_upload_path(emblem_path), (420, 300))
     watermark = emblem or _open_contained(_static_or_upload_path(settings.get("logo_watermark_path") or settings.get("logo_path", "")), (420, 300))
     flag = _open_contained(RDC_FLAG_ABS, (100, 62), False)
-    photo = _contain_photo(_static_or_upload_path(member["photo_path"]), (218, 238)) if member["photo_path"] else None
+    photo = _card_photo_adaptive(_static_or_upload_path(member["photo_path"]), (218, 238)) if member["photo_path"] else None
     status, _ = _card_status(member)
     role = member["executive_position"] if "executive_position" in member.keys() and member["executive_position"] else (member["role_label"] or member["profession"] or "Membre")
     post_name = member["post_name"] if "post_name" in member.keys() and member["post_name"] else "—"
@@ -3287,7 +3402,7 @@ def generate_member_card_assets(member):
     office = None
     if coordination_label != "COORDINATION NATIONALE" and member["province"]:
         con = db(); office = con.execute("SELECT * FROM provincial_offices WHERE province=?", (member["province"],)).fetchone(); con.close()
-    secretary_name = (office["secretary_name"] if office and office["secretary_name"] else settings.get("secretary_name")) or "Secrétaire Général"
+    secretary_name = (office["secretary_name"] if office and office["secretary_name"] else settings.get("secretary_name")) or "Matthieu ADIKAKA IBOKO"
     secretary_function = (office["secretary_function"] if office and office["secretary_function"] else settings.get("secretary_function")) or "Secrétaire Général"
     signature_rel = office["secretary_signature_path"] if office and office["secretary_signature_path"] else settings.get("secretary_signature_path", "")
     stamp_rel = office["official_stamp_path"] if office and "official_stamp_path" in office.keys() and office["official_stamp_path"] else settings.get("official_stamp_path", "")
@@ -3322,15 +3437,12 @@ def generate_member_card_assets(member):
         return image, draw
 
     def draw_footer(draw):
+        # Pied de carte volontairement épuré : uniquement l'adresse officielle de la Fondation.
         draw.rectangle((5, 590, width-5, height-5), fill=navy)
         draw.rectangle((5, 590, width-5, 595), fill=gold)
-        contact = (
-            f"☎ {settings.get('contact_phones','')}  |  WhatsApp {settings.get('whatsapp','+243 81 45 70 392')}"
-            f"  |  ✉ {settings.get('contact_email','fondationbakitani@gmail.com')}"
-            f"  |  Site : {settings.get('site_label','www.fondationbakitani.org')}"
-        )
-        contact_font = fitted_font(draw, contact, 16, 11, 965)
-        draw.text((width//2, 616), contact, font=contact_font, anchor="mm", fill="white")
+        address = (settings.get("headquarters") or settings.get("structure_address") or "Kinshasa, République Démocratique du Congo").strip()
+        address_font = fitted_font(draw, address, 16, 11, 950)
+        draw.text((width//2, 616), address, font=address_font, anchor="mm", fill="white")
 
     front, draw = base_card(); add_watermark(front, (425, 360), .055)
     draw.rounded_rectangle((32, 181, 725, 575), radius=20, fill=(255,255,255), outline=line, width=3)
@@ -3354,9 +3466,14 @@ def generate_member_card_assets(member):
     status_fill = (12, 145, 82) if status.lower() in {"active", "actif", "active"} else blue
     draw.rounded_rectangle((52, 505, 528, 548), radius=15, fill=status_fill)
     draw.text((290, 527), validity, font=fitted_font(draw, validity, 19, 14, 445), anchor="mm", fill="white")
-    draw.rounded_rectangle((755, 181, 980, 430), radius=19, fill=pale, outline=cyan, width=4)
-    if photo: front.paste(photo, (759, 187))
-    else: draw.text((868, 305), "PHOTO", font=_card_font(30, True), anchor="mm", fill=muted)
+    # Photo sans cadre : sa zone se conforme à ses proportions réelles.
+    photo_area = (748, 181, 988, 430)
+    if photo:
+        photo_x = photo_area[0] + (photo_area[2]-photo_area[0]-photo.width)//2
+        photo_y = photo_area[1] + (photo_area[3]-photo_area[1]-photo.height)//2
+        front.paste(photo, (photo_x, photo_y), photo)
+    else:
+        draw.text(((photo_area[0]+photo_area[2])//2, (photo_area[1]+photo_area[3])//2), "PHOTO", font=_card_font(30, True), anchor="mm", fill=muted)
     # Signature et cachet placés directement, sans libellé ni encadrement.
     if signature: front.paste(signature, (744, 447), signature)
     if stamp: front.paste(stamp, (872, 442), stamp)
@@ -3364,16 +3481,18 @@ def generate_member_card_assets(member):
     draw.text((868, 557), secretary_function, font=fitted_font(draw, secretary_function, 12, 9, 220), anchor="mm", fill=blue)
     draw_footer(draw)
 
-    back, draw = base_card(); add_watermark(back, (505, 350), .10)
+    back, draw = base_card(); add_watermark(back, (505, 355), .055)
     draw.rounded_rectangle((252, 181, 759, 240), radius=20, fill=gold, outline=navy, width=3)
     draw.text((width//2, 211), "CARTE DE MEMBRE", font=_card_font(35, True), anchor="mm", fill=navy)
-    large_logo = _open_contained(_static_or_upload_path(emblem_path), (170, 170))
-    if large_logo: back.paste(large_logo, ((width-large_logo.width)//2, 236), large_logo)
+    # Logo central agrandi et mieux espacé entre le titre et le texte inférieur.
+    large_logo = _open_contained(_static_or_upload_path(emblem_path), (205, 175))
+    if large_logo:
+        back.paste(large_logo, ((width-large_logo.width)//2, 255), large_logo)
     notice = settings.get("card_notice", "Les autorités tant civiles, militaires que policières sont priées d’apporter leur assistance au porteur de la présente carte en cas de nécessité.")
-    draw.rounded_rectangle((73, 402, 938, 525), radius=20, fill=(255,255,255), outline=gold, width=3)
+    draw.rounded_rectangle((73, 444, 938, 566), radius=20, fill=(255,255,255), outline=gold, width=3)
     lines = wrap_text(notice, 72)[:3]
     for index, text_line in enumerate(lines):
-        draw.text((width//2, 433 + index*31), text_line, font=_card_font(22, index == 0), anchor="mm", fill=dark)
+        draw.text((width//2, 474 + index*30), text_line, font=_card_font(21, index == 0), anchor="mm", fill=dark)
     draw_footer(draw)
 
     paths = {}
@@ -3396,7 +3515,6 @@ def generate_member_card_assets(member):
     document = canvas.Canvas(pdf_path, pagesize=(85.6*mm, 54*mm))
     for side in ("recto", "verso"):
         document.drawImage(paths[side + "_png"], 0, 0, 85.6*mm, 54*mm, preserveAspectRatio=False, mask="auto")
-        _add_card_contact_links(document, settings, 0, 0, 85.6*mm, 54*mm)
         document.showPage()
     document.save()
     paths["pdf"] = pdf_path
@@ -3405,7 +3523,7 @@ def generate_member_card_assets(member):
         for key, path in paths.items():
             if key != "pdf":
                 archive.write(path, os.path.basename(path))
-        archive.writestr("LISEZ_MOI.txt", "Modèle officiel FOBAK paysage V80, format PVC-ID1 exact 85,6 x 54 mm. Pied épuré, numérotation indépendante par coordination, QR au recto, signature et cachet remplaçables.\n")
+        archive.writestr("LISEZ_MOI.txt", "Modèle officiel FOBAK paysage V99, format PVC-ID1 exact 85,6 x 54 mm. Photo sans cadre et adaptative, pied limité à l’adresse officielle, logo verso agrandi, signature et cachet intégrés.\n")
     paths["zip"] = zip_path
     Path(os.path.join(cards_dir, ".card_template_version")).write_text(CARD_TEMPLATE_VERSION, encoding="utf-8")
     return paths
@@ -3865,7 +3983,7 @@ def generate_adhesion_form_pdf(member=None, blank=False):
 
     def section(number, label, y):
         document.setFillColor(blue_pdf)
-        document.setFont("Helvetica-Bold", 12)
+        document.setFont("Helvetica-Bold", 13)
         document.drawString(content_left, y, f"{number}.  {label}")
         document.setStrokeColor(cyan_pdf)
         document.setLineWidth(1.2)
@@ -3874,7 +3992,10 @@ def generate_adhesion_form_pdf(member=None, blank=False):
 
     def field(label, value, y, label_width=58*mm):
         document.setFillColor(colors.HexColor("#263746"))
-        document.setFont("Helvetica-Bold", 10.2)
+        document.setFillColor(colors.HexColor("#F4F9FC"))
+        document.roundRect(content_left+1*mm, y-4.5*mm, content_right-content_left-2*mm, 7.5*mm, 1.5*mm, fill=1, stroke=0)
+        document.setFillColor(colors.HexColor("#263746"))
+        document.setFont("Helvetica-Bold", 11.2)
         document.drawString(content_left+4*mm, y, label)
         value_x = content_left+label_width
         document.setStrokeColor(colors.HexColor("#AEBCC7"))
@@ -3882,8 +4003,8 @@ def generate_adhesion_form_pdf(member=None, blank=False):
         document.line(value_x, y-2, content_right, y-2)
         if value:
             document.setFillColor(colors.HexColor("#0C2D45"))
-            document.setFont("Helvetica", 10.2)
-            document.drawString(value_x+2*mm, y, str(value)[:68])
+            document.setFont("Helvetica", 11)
+            document.drawString(value_x+2*mm, y, str(value)[:64])
         return y-8*mm
 
     # Page 1
@@ -3954,8 +4075,8 @@ def generate_adhesion_form_pdf(member=None, blank=False):
         "Par la présente, j'adhère librement à la FONDATION BAKITANI (FOBAK) et je m'engage à respecter "
         "ses statuts, son règlement intérieur ainsi que les décisions de ses instances dirigeantes."
     )
-    document.setFont("Helvetica", 10.5)
-    for line_text in wrap_text(declaration, 100):
+    document.setFont("Helvetica", 11)
+    for line_text in wrap_text(declaration, 94):
         document.drawString(content_left+3*mm, y, line_text)
         y -= 6*mm
     y -= 7*mm
@@ -3976,7 +4097,7 @@ def generate_adhesion_form_pdf(member=None, blank=False):
         draw_contained_pdf_image(document, stamp_path, content_left+46*mm, 55*mm, 27*mm, 21*mm)
     document.setFillColor(colors.HexColor("#263746"))
     document.setFont("Helvetica-Bold", 8.5)
-    document.drawCentredString(content_left+42*mm, 46*mm, (settings.get("secretary_name") or "Secrétaire du Bureau National")[:42])
+    document.drawCentredString(content_left+42*mm, 46*mm, (settings.get("secretary_name") or "Matthieu ADIKAKA IBOKO")[:42])
     document.setFont("Helvetica", 8)
     document.drawCentredString(content_left+42*mm, 42*mm, settings.get("secretary_function", "Secrétaire Général"))
     document.showPage()
@@ -4304,27 +4425,13 @@ def set_language(code):
 @app.route("/mon-profil")
 @login_required
 def my_profile():
-    user = current_user()
-    con = db()
-    member = con.execute("SELECT * FROM members WHERE user_id=? AND deleted_at IS NULL ORDER BY is_administrative DESC, id DESC LIMIT 1", (user["id"],)).fetchone()
-    payments = []
-    notes = []
-    internal_notes = con.execute("""SELECT * FROM internal_notifications
-        WHERE (user_id=? OR user_id IS NULL)
-          AND (role IS NULL OR role=? OR role='all')
-          AND (province IS NULL OR province='' OR province=?)
-        ORDER BY created_at DESC LIMIT 10""", (user["id"], user["role"], user["province"] or "")).fetchall()
-    if member:
-        payments = con.execute("SELECT * FROM payments WHERE member_id=? ORDER BY created_at DESC", (member["id"],)).fetchall()
-        notes = con.execute("SELECT * FROM notifications WHERE target_scope IN ('all','members') OR province=? ORDER BY created_at DESC LIMIT 10", (member["province"],)).fetchall()
-    total_paid=sum(float(p['amount'] or 0) for p in payments if (p['status'] or '').lower() in ('paid','payé','paye','confirmed','confirmé'))
-    unread_notes=sum(1 for n in internal_notes if not n['read_at'])
-    completeness=0
-    if member:
-        fields=['first_name','last_name','gender','email','phone','province','localite','physical_address','birth_date','profession','photo_path']
-        completeness=round(100*sum(1 for f in fields if member[f])/len(fields))
-    con.close()
-    return render_template("member_dashboard.html", member=member, payments=payments, notes=notes, internal_notes=internal_notes, profile_title="Mon profil", total_paid=total_paid, unread_notes=unread_notes, completeness=completeness)
+    """Point d’entrée unique vers l’espace personnel.
+
+    L’ancienne implémentation rendait le même modèle sans toutes les données
+    nécessaires (account_user, chat_recent, upcoming_meetings), ce qui causait
+    une erreur 500. On réutilise désormais le tableau de bord membre complet.
+    """
+    return redirect(url_for("member_dashboard"))
 
 
 @app.route("/recherche")
@@ -7996,7 +8103,7 @@ def diagnostic_center():
 
 
 # ==================== V83 : Admission, notifications et chat ====================
-import smtplib, socket, threading, time
+import smtplib, socket, threading, time, mimetypes
 from email.message import EmailMessage
 from urllib import request as urllib_request
 
@@ -8071,13 +8178,28 @@ def init_v83_schema():
     ]
     for code,name,subject,body,channel in defaults:
         cur.execute('INSERT OR IGNORE INTO message_templates(code,name,subject,body,channel,active,updated_at) VALUES(?,?,?,?,?,1,?)',(code,name,subject,body,channel,now()))
+    # Amélioration V98 : identité officielle et message explicite avec fiche PDF.
+    cur.execute("UPDATE message_templates SET subject=?, body=?, updated_at=? WHERE code='member_account_created'", (
+        'Confirmation de votre adhésion à la Fondation BAKITANI ASBL',
+        "Bonjour [NOM_COMPLE],\n\nNous avons le plaisir de vous confirmer votre adhésion à la Fondation BAKITANI ASBL.\n\nVotre espace personnel est disponible sur notre plateforme officielle.\n\nLien de connexion : [LIEN_CONNEXION]\nIdentifiant : [IDENTIFIANT]\nMot de passe temporaire : [MOT_DE_PASSE_TEMPORAIRE]\n\nLors de votre première connexion, vous devrez obligatoirement modifier ce mot de passe. Pour votre sécurité, ne communiquez jamais vos informations de connexion.\n\nVotre fiche d’adhésion officielle est jointe à ce message au format PDF. Veuillez vérifier les informations qui y figurent et signaler toute correction à l’administration.\n\nBienvenue au sein de la Fondation BAKITANI ASBL.\n\nLa Coordination nationale\nFondation BAKITANI ASBL",
+        now()))
+    # Inscrit automatiquement le nom officiel du Secrétaire Général sans écraser une autre valeur réelle.
+    try:
+        current_secretary = cur.execute("SELECT value FROM settings WHERE key='secretary_name'").fetchone()
+        if not current_secretary or not (current_secretary[0] or '').strip() or current_secretary[0] in ('Secrétaire du Bureau National','Secrétaire Général'):
+            cur.execute("INSERT INTO settings(key,value) VALUES('secretary_name','Matthieu ADIKAKA IBOKO') ON CONFLICT(key) DO UPDATE SET value=excluded.value")
+        cur.execute("INSERT INTO settings(key,value) VALUES('secretary_function','Secrétaire Général') ON CONFLICT(key) DO UPDATE SET value=excluded.value")
+    except Exception:
+        pass
     # Migration de la file d'envoi asynchrone (compatible avec les anciennes bases).
     for statement in [
         "ALTER TABLE outbound_messages ADD COLUMN attempts INTEGER DEFAULT 0",
         "ALTER TABLE outbound_messages ADD COLUMN last_attempt_at TEXT",
         "ALTER TABLE outbound_messages ADD COLUMN next_attempt_at TEXT",
         "ALTER TABLE outbound_messages ADD COLUMN locked_at TEXT",
-        "ALTER TABLE outbound_messages ADD COLUMN locked_by TEXT"
+        "ALTER TABLE outbound_messages ADD COLUMN locked_by TEXT",
+        "ALTER TABLE outbound_messages ADD COLUMN attachment_path TEXT",
+        "ALTER TABLE outbound_messages ADD COLUMN attachment_name TEXT"
     ]:
         try:
             cur.execute(statement)
@@ -8161,10 +8283,25 @@ def send_member_access_email(member_email, member_phone, full_name, identifier, 
     }
     subject = render_message_template(template['subject'] or '', values)
     body = render_message_template(template['body'] or '', values)
-    return queue_and_send('email', email, member_phone, subject, body, template_code, full_name, recipient_user_id, created_by)
+    attachment_path = ''
+    attachment_name = ''
+    try:
+        member_row = con = None
+        con = db()
+        member_row = con.execute("SELECT * FROM members WHERE user_id=? AND deleted_at IS NULL ORDER BY id DESC LIMIT 1", (recipient_user_id,)).fetchone()
+        con.close()
+        if member_row:
+            attachment_path = generate_adhesion_form_pdf(member_row)
+            attachment_name = f"Fiche_adhesion_FOBAK_{member_row['code']}.pdf"
+    except Exception:
+        try:
+            if con: con.close()
+        except Exception:
+            pass
+    return queue_and_send('email', email, member_phone, subject, body, template_code, full_name, recipient_user_id, created_by, attachment_path, attachment_name)
 
 
-def send_email_message(to_email, subject, body):
+def send_email_message(to_email, subject, body, attachment_path='', attachment_name=''):
     """Envoie un seul e-mail avec un délai court et sans faire tomber le worker web."""
     settings=get_settings()
     host=(os.environ.get('SMTP_HOST') or settings.get('smtp_host','')).strip()
@@ -8183,6 +8320,11 @@ def send_email_message(to_email, subject, body):
     except (TypeError,ValueError):
         timeout=10
     msg=EmailMessage(); msg['Subject']=subject; msg['From']=smtp_from; msg['To']=to_email; msg.set_content(body)
+    if attachment_path and os.path.isfile(attachment_path):
+        content_type, _ = mimetypes.guess_type(attachment_path)
+        maintype, subtype = (content_type or 'application/pdf').split('/', 1)
+        with open(attachment_path, 'rb') as attachment_file:
+            msg.add_attachment(attachment_file.read(), maintype=maintype, subtype=subtype, filename=attachment_name or os.path.basename(attachment_path))
     try:
         smtp_cls=smtplib.SMTP_SSL if ssl_value in {'1','true','yes','on'} else smtplib.SMTP
         with smtp_cls(host,port,timeout=timeout) as server:
@@ -8198,16 +8340,16 @@ def send_email_message(to_email, subject, body):
         return False,f'{type(exc).__name__}: {str(exc)}'[:500]
 
 
-def _queue_message(channel,email,phone,subject,body,template_code='',recipient_name='',recipient_user_id=None,created_by=None):
+def _queue_message(channel,email,phone,subject,body,template_code='',recipient_name='',recipient_user_id=None,created_by=None,attachment_path='',attachment_name=''):
     con=db()
-    con.execute("INSERT INTO outbound_messages(recipient_user_id,recipient_name,email,phone,channel,template_code,subject,body,status,created_at,created_by,attempts) VALUES(?,?,?,?,?,?,?,?,?,?,?,0)",(recipient_user_id,recipient_name,email,phone,channel,template_code,subject,body,'queued',now(),created_by))
+    con.execute("INSERT INTO outbound_messages(recipient_user_id,recipient_name,email,phone,channel,template_code,subject,body,status,created_at,created_by,attempts,attachment_path,attachment_name) VALUES(?,?,?,?,?,?,?,?,?,?,?,0,?,?)",(recipient_user_id,recipient_name,email,phone,channel,template_code,subject,body,'queued',now(),created_by,attachment_path,attachment_name))
     mid=con.execute('SELECT last_insert_rowid() id').fetchone()['id']; con.commit(); con.close()
     return mid
 
 
-def queue_and_send(channel,email,phone,subject,body,template_code='',recipient_name='',recipient_user_id=None,created_by=None):
+def queue_and_send(channel,email,phone,subject,body,template_code='',recipient_name='',recipient_user_id=None,created_by=None,attachment_path='',attachment_name=''):
     """Met le message en file et rend immédiatement la main à la page web."""
-    _queue_message(channel,email,phone,subject,body,template_code,recipient_name,recipient_user_id,created_by)
+    _queue_message(channel,email,phone,subject,body,template_code,recipient_name,recipient_user_id,created_by,attachment_path,attachment_name)
     return True,'Mis en file d’attente pour envoi automatique.'
 
 
@@ -8251,7 +8393,7 @@ def process_one_outbound_message(worker_id='email-worker'):
     if not item: return False
     attempts=int(item.get('attempts') or 0)+1
     if item.get('channel')=='email':
-        ok,response=send_email_message(item.get('email',''),item.get('subject',''),item.get('body',''))
+        ok,response=send_email_message(item.get('email',''),item.get('subject',''),item.get('body',''),item.get('attachment_path',''),item.get('attachment_name',''))
     else:
         ok=False; response='Passerelle SMS non configurée'
         webhook=get_settings().get('sms_webhook_url','').strip()
@@ -8311,7 +8453,15 @@ def communication_campaign():
         members=con.execute(f'SELECT m.*,u.id user_id FROM members m LEFT JOIN users u ON u.id=m.user_id WHERE {where}',params).fetchall(); queued=0
         for m in members:
             values={'NOM_COMPLE':f"{m['first_name']} {m['last_name']}",'IDENTIFIANT':m['email'],'LIEN_CONNEXION':request.url_root.rstrip('/')+url_for('login')}
-            subject=render_message_template(template['subject'] or '',values); body=render_message_template(template['body'],values); queue_and_send('email',m['email'],m['phone'],subject,body,template['code'],values['NOM_COMPLE'],m['user_id'],user['id']); queued+=1
+            subject=render_message_template(template['subject'] or '',values); body=render_message_template(template['body'],values)
+            attachment_path=''; attachment_name=''
+            if request.form.get('attach_adhesion_pdf'):
+                try:
+                    attachment_path=generate_adhesion_form_pdf(m)
+                    attachment_name=f"Fiche_adhesion_FOBAK_{m['code']}.pdf"
+                except Exception:
+                    attachment_path=''; attachment_name=''
+            queue_and_send('email',m['email'],m['phone'],subject,body,template['code'],values['NOM_COMPLE'],m['user_id'],user['id'],attachment_path,attachment_name); queued+=1
         con.close(); flash(f'Campagne enregistrée : {queued} message(s) placé(s) en file d’attente. L’envoi continue en arrière-plan.','success'); return redirect(url_for('communication_campaign'))
     templates=con.execute("SELECT * FROM message_templates WHERE active=1 AND channel='email' ORDER BY name").fetchall(); history=con.execute('SELECT * FROM outbound_messages ORDER BY created_at DESC LIMIT 100').fetchall(); con.close(); return render_template('communication_campaign.html',templates=templates,history=history)
 

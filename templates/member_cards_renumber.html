@@ -1,0 +1,12 @@
+{% extends 'base.html' %}{% block content %}
+<p><a class="btn secondary" href="{{ url_for('executive_numbers_page') }}">← Retour aux numéros des hauts cadres</a></p>
+<section class="page-head"><div><span class="eyebrow">Administration des cartes</span><h1>Réorganiser la numérotation</h1><p>Prévisualisez puis appliquez une numérotation hiérarchique unique dans chaque coordination.</p></div></section>
+<section class="card renumber-toolbar">
+  <form method="get" class="inline-form">
+    <label>Coordination<select name="scope" onchange="this.form.submit()"><option value="">Toutes les coordinations</option>{% for key,label in scopes %}<option value="{{ key }}" {{ 'selected' if selected_scope==key }}>{{ label }}</option>{% endfor %}</select></label>
+  </form>
+  <div class="renumber-rules"><strong>Règles appliquées</strong><span>Cadres selon l’ordre protocolaire</span><span>Membres ordinaires à la suite</span><span>Aucun doublon dans une même coordination</span><span>Comptes techniques exclus</span></div>
+</section>
+<section class="card"><div class="table-wrap"><table class="professional-table"><thead><tr><th>Coordination</th><th>Nouveau numéro</th><th>Membre</th><th>Fonction</th><th>Province</th></tr></thead><tbody>{% for item in preview %}<tr><td>{{ item.scope_label }}</td><td><strong class="number-pill">{{ '%04d'|format(item.number) }}</strong></td><td>{{ item.member.last_name }} {{ item.member.post_name or '' }} {{ item.member.first_name }}</td><td>{{ item.position }}</td><td>{{ item.member.province or 'National' }}</td></tr>{% else %}<tr><td colspan="5">Aucun membre à traiter.</td></tr>{% endfor %}</tbody></table></div></section>
+<section class="card renumber-confirm"><div><h2>Appliquer cette numérotation</h2><p>Les membres, paiements, photos et historiques restent intacts. Les anciennes cartes seront seulement invalidées puis régénérées avec les nouveaux numéros, la signature et le cachet officiels.</p></div><form method="post" onsubmit="return confirm('Confirmer la réorganisation des numéros de carte ?');"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="scope" value="{{ selected_scope }}"><input type="hidden" name="action" value="apply"><button class="btn primary">Appliquer à {{ preview|length }} membre(s)</button></form></section>
+{% endblock %}
