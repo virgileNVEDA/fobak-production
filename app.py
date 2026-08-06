@@ -4168,6 +4168,10 @@ def change_password():
     return render_template("change_password.html")
 
 
+@app.route('/logout-tab')
+def logout_tab():
+    return render_template('logout_tab.html')
+
 @app.route("/logout")
 def logout():
     token = session.get("session_token")
@@ -4176,7 +4180,7 @@ def logout():
         con.execute("UPDATE active_sessions SET active=0, logout_at=?, last_seen=? WHERE session_token=?", (now(), now(), token))
         con.commit(); con.close()
     session.clear()
-    flash("Vous êtes déconnecté.", "info")
+    flash("Vous êtes déconnecté de tous les onglets.", "info")
     return redirect(url_for("index"))
 
 
@@ -7999,6 +8003,17 @@ def init_v83_schema():
     CREATE TABLE IF NOT EXISTS chat_blocks(
       id INTEGER PRIMARY KEY AUTOINCREMENT, blocker_id INTEGER NOT NULL, blocked_id INTEGER NOT NULL,
       created_at TEXT NOT NULL, UNIQUE(blocker_id,blocked_id));
+    CREATE TABLE IF NOT EXISTS chat_meetings(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        conversation_id INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        description TEXT,
+        meeting_at TEXT NOT NULL,
+        location TEXT,
+        created_by INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        email_status TEXT DEFAULT 'queued'
+    );
     CREATE TABLE IF NOT EXISTS chat_privacy(
       user_id INTEGER PRIMARY KEY, who_can_message TEXT DEFAULT 'members', who_can_call TEXT DEFAULT 'members',
       show_last_seen INTEGER DEFAULT 1, show_photo INTEGER DEFAULT 1, allow_group_add INTEGER DEFAULT 1,
@@ -8344,11 +8359,22 @@ def chat_conversation(conversation_id):
         if body or path:
             con.execute('INSERT INTO chat_messages(conversation_id,sender_id,body,attachment_path,attachment_type,original_name,file_size,created_at,message_kind,reply_to_id) VALUES(?,?,?,?,?,?,?,?,?,?)',(conversation_id,user['id'],body,path,atype,original,size,now(),atype or 'text',reply_to)); con.execute('UPDATE chat_participants SET hidden_at=NULL,archived=0 WHERE conversation_id=?',(conversation_id,)); con.commit()
         con.close(); return jsonify({'ok':True}) if request.headers.get('X-Requested-With')=='XMLHttpRequest' else redirect(url_for('chat_conversation',conversation_id=conversation_id))
-    messages=con.execute('''SELECT m.*,u.first_name,u.last_name,u.email,rm.body reply_body,ru.first_name reply_first_name,ru.last_name reply_last_name FROM chat_messages m JOIN users u ON u.id=m.sender_id LEFT JOIN chat_messages rm ON rm.id=m.reply_to_id LEFT JOIN users ru ON ru.id=rm.sender_id WHERE m.conversation_id=? AND m.deleted_at IS NULL ORDER BY m.id ASC LIMIT 500''',(conversation_id,)).fetchall(); info=con.execute('SELECT * FROM chat_conversations WHERE id=?',(conversation_id,)).fetchone(); people=con.execute('''SELECT u.id,u.first_name,u.last_name,u.email,p.role,p.last_seen_at,p.typing_at FROM chat_participants p JOIN users u ON u.id=p.user_id WHERE p.conversation_id=?''',(conversation_id,)).fetchall(); settings=con.execute('SELECT * FROM chat_user_settings WHERE user_id=?',(user['id'],)).fetchone()
+    messages=con.execute('''SELECT m.*,u.first_name,u.last_name,u.email,rm.body reply_body,ru.first_name reply_first_name,ru.last_name reply_last_name FROM chat_messages m JOIN users u ON u.id=m.sender_id LEFT JOIN chat_messages rm ON rm.id=m.reply_to_id LEFT JOIN users ru ON ru.id=rm.sender_id WHERE m.conversation_id=? AND m.deleted_at IS NULL ORDER BY m.id ASC LIMIT 500''',(conversation_id,)).fetchall(); info=con.execute('SELECT * FROM chat_conversations WHERE id=?',(conversation_id,)).fetchone(); people=con.execute('''SELECT u.id,u.first_name,u.last_name,u.email,u.province,p.role,p.last_seen_at,p.typing_at FROM chat_participants p JOIN users u ON u.id=p.user_id WHERE p.conversation_id=? ORDER BY u.first_name,u.last_name,u.email''',(conversation_id,)).fetchall(); settings=con.execute('SELECT * FROM chat_user_settings WHERE user_id=?',(user['id'],)).fetchone()
+    other_people=[p for p in people if p['id']!=user['id']]
+    if info['conversation_type']=='group':
+        conversation_title=(info['title'] or 'Groupe FOBAK').strip()
+    else:
+        names=[]
+        for p in other_people:
+            name=' '.join(x for x in [(p['first_name'] or '').strip(),(p['last_name'] or '').strip()] if x)
+            names.append(name or p['email'] or 'Membre FOBAK')
+        conversation_title=', '.join(names) or 'Discussion privée'
+    available_users=con.execute('''SELECT id,first_name,last_name,email,province FROM users WHERE active=1 AND deleted_at IS NULL AND id<>? AND id NOT IN (SELECT user_id FROM chat_participants WHERE conversation_id=?) ORDER BY first_name,last_name,email''',(user['id'],conversation_id)).fetchall()
+    meetings=con.execute('SELECT * FROM chat_meetings WHERE conversation_id=? ORDER BY meeting_at DESC LIMIT 10',(conversation_id,)).fetchall()
     if messages:
         con.execute('''INSERT INTO chat_reads(conversation_id,user_id,last_read_message_id,read_at) VALUES(?,?,?,?) ON CONFLICT(conversation_id,user_id) DO UPDATE SET last_read_message_id=excluded.last_read_message_id,read_at=excluded.read_at''',(conversation_id,user['id'],messages[-1]['id'],now()))
     if not settings: con.execute('INSERT OR IGNORE INTO chat_user_settings(user_id,updated_at) VALUES(?,?)',(user['id'],now())); settings=con.execute('SELECT * FROM chat_user_settings WHERE user_id=?',(user['id'],)).fetchone()
-    con.commit(); con.close(); return render_template('chat_conversation.html',messages=messages,conversation=info,people=people,chat_settings=settings)
+    con.commit(); con.close(); return render_template('chat_conversation.html',messages=messages,conversation=info,people=people,chat_settings=settings,conversation_title=conversation_title,available_users=available_users,meetings=meetings)
 
 @app.route('/api/chat/<int:conversation_id>/messages')
 @login_required
@@ -8387,6 +8413,56 @@ def chat_manage_conversation(conversation_id):
     elif action=='archive': con.execute('UPDATE chat_participants SET archived=1 WHERE conversation_id=? AND user_id=?',(conversation_id,user['id']))
     elif action=='unarchive': con.execute('UPDATE chat_participants SET archived=0 WHERE conversation_id=? AND user_id=?',(conversation_id,user['id']))
     con.commit(); con.close(); return redirect(url_for('chat_home',archived=1 if action=='archive' else 0))
+
+@app.post('/chat/<int:conversation_id>/members/add')
+@login_required
+def chat_add_members(conversation_id):
+    user=current_user(); con=db(); participant=_chat_participant(con,conversation_id,user['id'])
+    info=con.execute('SELECT * FROM chat_conversations WHERE id=?',(conversation_id,)).fetchone()
+    if not participant or not info or info['conversation_type']!='group': con.close(); abort(403)
+    ids=request.form.getlist('member_ids')
+    added=0
+    for raw in ids:
+        try: uid=int(raw)
+        except (TypeError,ValueError): continue
+        valid=con.execute('SELECT id FROM users WHERE id=? AND active=1 AND deleted_at IS NULL',(uid,)).fetchone()
+        if valid:
+            cur=con.execute("INSERT OR IGNORE INTO chat_participants(conversation_id,user_id,joined_at,role) VALUES(?,?,?,'member')",(conversation_id,uid,now()))
+            added += cur.rowcount
+    con.commit(); con.close(); flash(f'{added} membre(s) ajouté(s) au groupe.','success'); return redirect(url_for('chat_conversation',conversation_id=conversation_id))
+
+@app.post('/chat/<int:conversation_id>/meeting')
+@login_required
+def chat_create_meeting(conversation_id):
+    user=current_user(); con=db()
+    if not _chat_participant(con,conversation_id,user['id']): con.close(); abort(403)
+    title=(request.form.get('title') or '').strip(); meeting_at=(request.form.get('meeting_at') or '').strip(); description=(request.form.get('description') or '').strip(); location=(request.form.get('location') or '').strip()
+    if not title or not meeting_at:
+        con.close(); flash('Indiquez le titre et la date du rendez-vous.','warning'); return redirect(url_for('chat_conversation',conversation_id=conversation_id))
+    con.execute('INSERT INTO chat_meetings(conversation_id,title,description,meeting_at,location,created_by,created_at) VALUES(?,?,?,?,?,?,?)',(conversation_id,title,description,meeting_at,location,user['id'],now()))
+    people=con.execute('''SELECT u.id,u.first_name,u.last_name,u.email,u.phone FROM chat_participants p JOIN users u ON u.id=p.user_id WHERE p.conversation_id=? AND u.active=1''',(conversation_id,)).fetchall()
+    con.commit(); con.close()
+    sent=0
+    site=os.environ.get('PUBLIC_BASE_URL','https://app.fondationbakitani.org').rstrip('/')
+    subject=f'Rendez-vous FOBAK : {title}'
+    for person in people:
+        if not (person['email'] or '').strip(): continue
+        name=' '.join(x for x in [(person['first_name'] or '').strip(),(person['last_name'] or '').strip()] if x) or 'Membre FOBAK'
+        body=f"""Bonjour {name},
+
+Un rendez-vous FOBAK vous concerne.
+
+Objet : {title}
+Date et heure : {meeting_at}
+Lieu / lien : {location or 'À préciser'}
+
+{description}
+
+Accéder à la discussion : {site}/chat/{conversation_id}
+
+Fondation BAKITANI ASBL"""
+        queue_and_send('email',person['email'],person['phone'],subject,body,'chat_meeting',name,person['id'],user['id']); sent+=1
+    flash(f'Rendez-vous enregistré. {sent} notification(s) e-mail mise(s) en file d’attente.','success'); return redirect(url_for('chat_conversation',conversation_id=conversation_id))
 
 @app.route('/api/chat/settings',methods=['GET','POST'])
 @login_required
