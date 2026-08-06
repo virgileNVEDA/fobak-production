@@ -7918,7 +7918,7 @@ def diagnostic_center():
 
 
 # ==================== V83 : Admission, notifications et chat ====================
-import smtplib, socket
+import smtplib, socket, threading, time
 from email.message import EmailMessage
 from urllib import request as urllib_request
 
@@ -7982,6 +7982,23 @@ def init_v83_schema():
     ]
     for code,name,subject,body,channel in defaults:
         cur.execute('INSERT OR IGNORE INTO message_templates(code,name,subject,body,channel,active,updated_at) VALUES(?,?,?,?,?,1,?)',(code,name,subject,body,channel,now()))
+    # Migration de la file d'envoi asynchrone (compatible avec les anciennes bases).
+    for statement in [
+        "ALTER TABLE outbound_messages ADD COLUMN attempts INTEGER DEFAULT 0",
+        "ALTER TABLE outbound_messages ADD COLUMN last_attempt_at TEXT",
+        "ALTER TABLE outbound_messages ADD COLUMN next_attempt_at TEXT",
+        "ALTER TABLE outbound_messages ADD COLUMN locked_at TEXT",
+        "ALTER TABLE outbound_messages ADD COLUMN locked_by TEXT"
+    ]:
+        try:
+            cur.execute(statement)
+        except Exception:
+            pass
+    try:
+        cur.execute("UPDATE outbound_messages SET status='queued',locked_at=NULL,locked_by=NULL WHERE status='processing'")
+    except Exception:
+        pass
+
     # Migrations évolutives du chat (compatibles avec les anciennes bases).
     for statement in [
         "ALTER TABLE chat_participants ADD COLUMN hidden_at TEXT",
@@ -8057,36 +8074,123 @@ def send_member_access_email(member_email, member_phone, full_name, identifier, 
 
 
 def send_email_message(to_email, subject, body):
+    """Envoie un seul e-mail avec un délai court et sans faire tomber le worker web."""
     settings=get_settings()
     host=(os.environ.get('SMTP_HOST') or settings.get('smtp_host','')).strip()
     if not host: return False,'SMTP non configuré'
-    port=int(os.environ.get('SMTP_PORT') or settings.get('smtp_port','587') or 587)
-    username=os.environ.get('SMTP_USERNAME') or settings.get('smtp_username','')
+    try:
+        port=int(os.environ.get('SMTP_PORT') or settings.get('smtp_port','587') or 587)
+    except (TypeError, ValueError):
+        port=587
+    username=(os.environ.get('SMTP_USERNAME') or settings.get('smtp_username','')).strip()
     password=os.environ.get('SMTP_PASSWORD') or settings.get('smtp_password','')
-    smtp_from=os.environ.get('SMTP_FROM') or settings.get('smtp_from') or username
+    smtp_from=(os.environ.get('SMTP_FROM') or settings.get('smtp_from') or username).strip()
     tls_value=(os.environ.get('SMTP_TLS') or settings.get('smtp_tls','1')).strip().lower()
+    ssl_value=(os.environ.get('SMTP_SSL') or '0').strip().lower()
+    try:
+        timeout=max(5,min(30,int(os.environ.get('SMTP_TIMEOUT','10'))))
+    except (TypeError,ValueError):
+        timeout=10
     msg=EmailMessage(); msg['Subject']=subject; msg['From']=smtp_from; msg['To']=to_email; msg.set_content(body)
     try:
-        with smtplib.SMTP(host,port,timeout=20) as server:
-            if tls_value in {'1','true','yes','on'}: server.starttls()
+        smtp_cls=smtplib.SMTP_SSL if ssl_value in {'1','true','yes','on'} else smtplib.SMTP
+        with smtp_cls(host,port,timeout=timeout) as server:
+            server.ehlo()
+            if smtp_cls is smtplib.SMTP and tls_value in {'1','true','yes','on'}:
+                server.starttls(); server.ehlo()
             if username: server.login(username,password)
             server.send_message(msg)
         return True,'Envoyé'
-    except Exception as exc: return False,str(exc)[:300]
+    except (TimeoutError, socket.timeout, OSError, smtplib.SMTPException) as exc:
+        return False,f'{type(exc).__name__}: {str(exc)}'[:500]
+    except Exception as exc:
+        return False,f'{type(exc).__name__}: {str(exc)}'[:500]
+
+
+def _queue_message(channel,email,phone,subject,body,template_code='',recipient_name='',recipient_user_id=None,created_by=None):
+    con=db()
+    con.execute("INSERT INTO outbound_messages(recipient_user_id,recipient_name,email,phone,channel,template_code,subject,body,status,created_at,created_by,attempts) VALUES(?,?,?,?,?,?,?,?,?,?,?,0)",(recipient_user_id,recipient_name,email,phone,channel,template_code,subject,body,'queued',now(),created_by))
+    mid=con.execute('SELECT last_insert_rowid() id').fetchone()['id']; con.commit(); con.close()
+    return mid
 
 
 def queue_and_send(channel,email,phone,subject,body,template_code='',recipient_name='',recipient_user_id=None,created_by=None):
-    con=db(); con.execute('INSERT INTO outbound_messages(recipient_user_id,recipient_name,email,phone,channel,template_code,subject,body,status,created_at,created_by) VALUES(?,?,?,?,?,?,?,?,?,?,?)',(recipient_user_id,recipient_name,email,phone,channel,template_code,subject,body,'queued',now(),created_by)); mid=con.execute('SELECT last_insert_rowid() id').fetchone()['id']; con.commit(); con.close()
-    if channel=='email': ok,response=send_email_message(email,subject,body)
+    """Met le message en file et rend immédiatement la main à la page web."""
+    _queue_message(channel,email,phone,subject,body,template_code,recipient_name,recipient_user_id,created_by)
+    return True,'Mis en file d’attente pour envoi automatique.'
+
+
+def _claim_next_outbound_message(worker_id):
+    """Réserve atomiquement un message afin d'éviter les doublons entre workers Gunicorn."""
+    con=db()
+    try:
+        con.execute('BEGIN IMMEDIATE')
+        row=con.execute("SELECT * FROM outbound_messages WHERE status='queued' AND COALESCE(attempts,0)<3 AND (next_attempt_at IS NULL OR datetime(next_attempt_at)<=datetime('now')) ORDER BY id LIMIT 1").fetchone()
+        if not row:
+            con.commit(); return None
+        changed=con.execute("UPDATE outbound_messages SET status='processing',locked_at=?,locked_by=?,last_attempt_at=?,attempts=COALESCE(attempts,0)+1 WHERE id=? AND status='queued'",(now(),worker_id,now(),row['id'])).rowcount
+        con.commit()
+        if not changed: return None
+        return dict(row)
+    except Exception:
+        try: con.rollback()
+        except Exception: pass
+        return None
+    finally:
+        con.close()
+
+
+def _finish_outbound_message(message_id, ok, response, attempts):
+    con=db()
+    try:
+        if ok:
+            con.execute("UPDATE outbound_messages SET status='sent',provider_response=?,sent_at=?,locked_at=NULL,locked_by=NULL,next_attempt_at=NULL WHERE id=?",(response,now(),message_id))
+        elif attempts < 3:
+            delay_minutes=2 if attempts <= 1 else 5
+            con.execute("UPDATE outbound_messages SET status='queued',provider_response=?,locked_at=NULL,locked_by=NULL,next_attempt_at=datetime('now', ?) WHERE id=?",(response,f'+{delay_minutes} minutes',message_id))
+        else:
+            con.execute("UPDATE outbound_messages SET status='failed',provider_response=?,locked_at=NULL,locked_by=NULL WHERE id=?",(response,message_id))
+        con.commit()
+    finally:
+        con.close()
+
+
+def process_one_outbound_message(worker_id='email-worker'):
+    item=_claim_next_outbound_message(worker_id)
+    if not item: return False
+    attempts=int(item.get('attempts') or 0)+1
+    if item.get('channel')=='email':
+        ok,response=send_email_message(item.get('email',''),item.get('subject',''),item.get('body',''))
     else:
         ok=False; response='Passerelle SMS non configurée'
         webhook=get_settings().get('sms_webhook_url','').strip()
         if webhook:
             try:
-                payload=json.dumps({'to':phone,'message':body}).encode(); req=urllib_request.Request(webhook,data=payload,headers={'Content-Type':'application/json'},method='POST');
-                with urllib_request.urlopen(req,timeout=20) as r: response=f'HTTP {r.status}'; ok=200<=r.status<300
-            except Exception as exc: response=str(exc)[:300]
-    con=db(); con.execute('UPDATE outbound_messages SET status=?,provider_response=?,sent_at=? WHERE id=?',('sent' if ok else 'failed',response,now() if ok else None,mid)); con.commit(); con.close(); return ok,response
+                payload=json.dumps({'to':item.get('phone',''),'message':item.get('body','')}).encode()
+                req=urllib_request.Request(webhook,data=payload,headers={'Content-Type':'application/json'},method='POST')
+                with urllib_request.urlopen(req,timeout=10) as r:
+                    response=f'HTTP {r.status}'; ok=200<=r.status<300
+            except Exception as exc:
+                response=f'{type(exc).__name__}: {str(exc)}'[:500]
+    _finish_outbound_message(item['id'],ok,response,attempts)
+    return True
+
+
+def _outbound_worker_loop():
+    worker_id=f'{os.getpid()}-{secrets.token_hex(3)}'
+    while True:
+        try:
+            worked=process_one_outbound_message(worker_id)
+            time.sleep(0.5 if worked else 3)
+        except Exception:
+            time.sleep(5)
+
+
+def start_outbound_worker():
+    enabled=(os.environ.get('EMAIL_WORKER_ENABLED','1')).strip().lower() in {'1','true','yes','on'}
+    if not enabled: return
+    thread=threading.Thread(target=_outbound_worker_loop,name='fobak-email-worker',daemon=True)
+    thread.start()
 
 @app.route('/api/email/validate')
 @login_required
@@ -8113,11 +8217,11 @@ def communication_campaign():
     if request.method=='POST':
         template=con.execute('SELECT * FROM message_templates WHERE code=?',(request.form.get('template_code'),)).fetchone(); province=request.form.get('province',''); params=[]; where="m.deleted_at IS NULL AND trim(COALESCE(m.email,''))<>''"
         if province: where+=' AND m.province=?'; params.append(province)
-        members=con.execute(f'SELECT m.*,u.id user_id FROM members m LEFT JOIN users u ON u.id=m.user_id WHERE {where}',params).fetchall(); sent=failed=0
+        members=con.execute(f'SELECT m.*,u.id user_id FROM members m LEFT JOIN users u ON u.id=m.user_id WHERE {where}',params).fetchall(); queued=0
         for m in members:
             values={'NOM_COMPLE':f"{m['first_name']} {m['last_name']}",'IDENTIFIANT':m['email'],'LIEN_CONNEXION':request.url_root.rstrip('/')+url_for('login')}
-            subject=render_message_template(template['subject'] or '',values); body=render_message_template(template['body'],values); ok,_=queue_and_send('email',m['email'],m['phone'],subject,body,template['code'],values['NOM_COMPLE'],m['user_id'],user['id']); sent+=int(ok); failed+=int(not ok)
-        con.close(); flash(f'Campagne terminée : {sent} envoyé(s), {failed} échec(s).','success' if not failed else 'warning'); return redirect(url_for('communication_campaign'))
+            subject=render_message_template(template['subject'] or '',values); body=render_message_template(template['body'],values); queue_and_send('email',m['email'],m['phone'],subject,body,template['code'],values['NOM_COMPLE'],m['user_id'],user['id']); queued+=1
+        con.close(); flash(f'Campagne enregistrée : {queued} message(s) placé(s) en file d’attente. L’envoi continue en arrière-plan.','success'); return redirect(url_for('communication_campaign'))
     templates=con.execute("SELECT * FROM message_templates WHERE active=1 AND channel='email' ORDER BY name").fetchall(); history=con.execute('SELECT * FROM outbound_messages ORDER BY created_at DESC LIMIT 100').fetchall(); con.close(); return render_template('communication_campaign.html',templates=templates,history=history)
 
 @app.route('/chat',methods=['GET','POST'])
@@ -8336,6 +8440,7 @@ def chat_conversation_status(conversation_id):
     reads=con.execute('SELECT user_id,last_read_message_id,read_at FROM chat_reads WHERE conversation_id=?',(conversation_id,)).fetchall(); con.close(); return jsonify({'ok':True,'people':[dict(x) for x in people],'reads':[dict(x) for x in reads]})
 
 init_v83_schema()
+start_outbound_worker()
 
 ensure_daily_backup()
 
