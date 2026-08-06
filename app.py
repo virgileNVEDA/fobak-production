@@ -4534,14 +4534,16 @@ def accept_application(app_id):
         con.close(); abort(403)
     if reviewer["role"] == "local_admin" and (a["province"] != reviewer["province"] or a["localite"] != reviewer["localite"]):
         con.close(); abort(403)
+    temporary_password = generate_temporary_member_password()
     try:
         con.execute("INSERT INTO users(email,phone,password_hash,role,province,localite,active,created_at) VALUES(?,?,?,?,?,?,?,?)",
-                    (a["email"], a["phone"], generate_password_hash(a["phone"]), "member", a["province"], a["localite"], 1, now()))
+                    (a["email"], a["phone"], generate_password_hash(temporary_password), "member", a["province"], a["localite"], 1, now()))
         user_id = con.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
     except sqlite3.IntegrityError:
         existing = con.execute("SELECT * FROM users WHERE email=? OR phone=?", (a["email"], a["phone"])).fetchone()
         user_id = existing["id"]
-    con.execute("UPDATE users SET force_password_change=1 WHERE id=?", (user_id,))
+    con.execute("UPDATE users SET password_hash=?, force_password_change=1, password_changed_at=NULL WHERE id=?",
+                (generate_password_hash(temporary_password), user_id))
     joined = today()
     expires = (datetime.now() + timedelta(days=365)).strftime("%Y-%m-%d")
     con.execute('''INSERT INTO members(user_id, code, first_name, last_name, post_name, gender, email, phone, nationality, province, territory, commune, localite, physical_address, birth_date, birth_place, marital_status, profession, education, studies_done, experience, photo_path, custom_fields, adhesion_number, joined_at, expires_at, approved_by, created_by)
@@ -4557,14 +4559,14 @@ def accept_application(app_id):
     con.close()
     generate_member_card_pdf(member)
     generate_adhesion_form_pdf(member)
-    # V83 : notification automatique avec modèle administrable.
-    con2=db(); tpl=con2.execute("SELECT * FROM message_templates WHERE code='application_accepted' AND active=1").fetchone(); con2.close()
-    if tpl and a['email']:
-        activation_link=request.url_root.rstrip('/')+url_for('login')
-        values={'NOM_COMPLE':f"{a['first_name']} {a['last_name']}",'IDENTIFIANT':a['email'],'LIEN_ACTIVATION':activation_link,'LIEN_CONNEXION':activation_link}
-        subject=render_message_template(tpl['subject'] or '',values); body=render_message_template(tpl['body'],values)
-        ok,detail=queue_and_send('email',a['email'],a['phone'],subject,body,tpl['code'],values['NOM_COMPLE'],user_id,reviewer['id'])
-        flash('E-mail d’acceptation envoyé.' if ok else 'Compte créé, mais e-mail non envoyé : '+detail, 'success' if ok else 'warning')
+    # Notification des accès après acceptation de la demande en ligne.
+    full_name = " ".join(part for part in [a['first_name'], a['post_name'], a['last_name']] if part).strip()
+    identifier = a['email'] if a['email'] and not a['email'].endswith('@asbl.local') else a['phone']
+    ok, detail = send_member_access_email(
+        a['email'], a['phone'], full_name, identifier, temporary_password, user_id, reviewer['id']
+    )
+    if a['email']:
+        flash("Le message contenant les accès a été envoyé au membre." if ok else "Compte créé, mais l’e-mail n’a pas été envoyé : " + detail, 'success' if ok else 'warning')
     flash(f"Adhésion acceptée. Identifiant: {a['email']} ou {a['phone']}. Changement du mot de passe obligatoire à la première connexion.", "success")
     flash(f"Le membre figure maintenant dans la liste numérotée de la province {a['province']}.", "info")
     return redirect(url_for("members", province=a["province"], focus=member_id) + f"#member-{member_id}")
@@ -5176,14 +5178,15 @@ def new_member():
         photo_path = save_data_url_image(request.form.get("photo_capture", ""), "photos") or save_upload(request.files.get("photo"), "photos")
         joined = request.form.get("joined_at") or today()
         expires = request.form.get("expires_at") or (datetime.strptime(joined, "%Y-%m-%d") + timedelta(days=365)).strftime("%Y-%m-%d")
+        temporary_password = generate_temporary_member_password()
         con = db()
         try:
-            con.execute("INSERT INTO users(email,phone,password_hash,role,province,localite,active,created_at) VALUES(?,?,?,?,?,?,?,?)", (email, phone, generate_password_hash(phone), "member", province, localite, 1, now()))
+            con.execute("INSERT INTO users(email,phone,password_hash,role,province,localite,active,created_at) VALUES(?,?,?,?,?,?,?,?)", (email, phone, generate_password_hash(temporary_password), "member", province, localite, 1, now()))
             user_id = con.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
         except sqlite3.IntegrityError:
             existing = con.execute("SELECT * FROM users WHERE email=? OR phone=?", (email, phone)).fetchone()
             user_id = existing["id"]
-        con.execute("UPDATE users SET force_password_change=1 WHERE id=?", (user_id,))
+        con.execute("UPDATE users SET password_hash=?, force_password_change=1, password_changed_at=NULL WHERE id=?", (generate_password_hash(temporary_password), user_id))
         sql = """INSERT INTO members(user_id, code, first_name, last_name, post_name, gender, email, phone, nationality, province, territory, commune, localite, physical_address, birth_date, birth_place, marital_status, profession, education, studies_done, experience, photo_path, custom_fields, adhesion_number, joined_at, expires_at, approved_by, created_by, status, updated_at, is_administrative, role_label) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"""
         con.execute(sql, (user_id, "TEMP", first_name, last_name, post_name, request.form.get("gender", ""), email, phone, request.form.get("nationality", "Congolaise"), province, request.form.get("territory", ""), request.form.get("commune", ""), localite, request.form.get("physical_address", ""), request.form.get("birth_date", ""), request.form.get("birth_place", ""), request.form.get("marital_status", ""), request.form.get("profession", ""), request.form.get("education", ""), studies_done, request.form.get("experience", ""), photo_path, custom_fields, "TEMP", joined, expires, user["id"], user["id"], "active", now(), 0, "Membre"))
         member_id = con.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
@@ -5196,7 +5199,14 @@ def new_member():
         generate_member_card_pdf(member)
         generate_adhesion_form_pdf(member)
         log_action(user["id"], "Création locale membre", "member", member_id, code)
-        flash(f"Membre ajouté. Identifiant: {email} ou {phone}. Mot de passe initial: {phone}", "success")
+        full_name = " ".join(part for part in [first_name, post_name, last_name] if part).strip()
+        identifier = email if email and not email.endswith('@asbl.local') else phone
+        email_ok, email_detail = send_member_access_email(
+            email, phone, full_name, identifier, temporary_password, user_id, user['id']
+        )
+        flash(f"Membre ajouté. Identifiant : {identifier}. Le mot de passe temporaire devra être modifié à la première connexion.", "success")
+        if email and not email.endswith('@asbl.local'):
+            flash("Le message contenant les accès a été envoyé au membre." if email_ok else "Le membre a été créé, mais l’e-mail n’a pas été envoyé : " + email_detail, "success" if email_ok else "warning")
         return redirect(url_for("members", province=province, focus=member_id) + f"#member-{member_id}")
     default_province = user["province"] if user["role"] not in NATIONAL_ROLES else ""
     default_localite = user["localite"] if user["role"] == "local_admin" else ""
@@ -7965,6 +7975,7 @@ def init_v83_schema():
     ''')
     defaults=[
       ('application_accepted','Demande acceptée','Votre demande FOBAK a été acceptée','Bonjour [NOM_COMPLE],\n\nVotre demande a été acceptée. Votre identifiant est [IDENTIFIANT]. Utilisez le lien [LIEN_ACTIVATION] pour définir votre mot de passe.\n\nFondation BAKITANI','email'),
+      ('member_account_created','Accès membre créé','Bienvenue à la Fondation BAKITANI ASBL','Bonjour [NOM_COMPLE],\n\nNous avons le plaisir de vous informer que vous êtes désormais membre de la Fondation BAKITANI ASBL.\n\nUn espace personnel a été créé pour vous sur notre plateforme officielle.\n\nLien du site : [LIEN_CONNEXION]\nIdentifiant : [IDENTIFIANT]\nMot de passe temporaire : [MOT_DE_PASSE_TEMPORAIRE]\n\nLors de votre première connexion, vous devrez obligatoirement modifier ce mot de passe. Pour votre sécurité, ne communiquez vos informations de connexion à personne.\n\nBienvenue au sein de la Fondation BAKITANI ASBL.\n\nLa Coordination nationale\nFondation BAKITANI ASBL','email'),
       ('existing_member_welcome','Bienvenue sur la plateforme','Votre accès à la plateforme FOBAK','Bonjour [NOM_COMPLE],\n\nVotre profil existe déjà sur la plateforme FOBAK. Votre identifiant est [IDENTIFIANT]. Connectez-vous ici : [LIEN_CONNEXION].\n\nFondation BAKITANI','email'),
       ('email_verification','Vérification de votre adresse e-mail','Confirmez votre adresse e-mail FOBAK','Bonjour [NOM_COMPLE],\n\nCliquez sur ce lien pour confirmer votre adresse : [LIEN_VERIFICATION]. Ce lien expire dans 48 heures.','email'),
       ('application_rejected','Demande non retenue','Décision concernant votre demande FOBAK','Bonjour [NOM_COMPLE],\n\nVotre demande n’a pas été retenue. Motif : [MOTIF].','email'),
@@ -8011,14 +8022,53 @@ def render_message_template(text, values):
     return text
 
 
+def generate_temporary_member_password():
+    """Crée un mot de passe temporaire lisible mais suffisamment robuste."""
+    alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789'
+    core = ''.join(secrets.choice(alphabet) for _ in range(10))
+    return f"Fobak-{core}!"
+
+
+def send_member_access_email(member_email, member_phone, full_name, identifier, temporary_password, recipient_user_id, created_by, template_code='member_account_created'):
+    """Envoie les accès d'un membre avec un modèle modifiable depuis l'administration."""
+    email = (member_email or '').strip().lower()
+    if not email or email.endswith('@asbl.local'):
+        return False, "Aucune adresse e-mail réelle n'est enregistrée pour ce membre."
+    valid, validation_message = validate_email_address(email)
+    if not valid:
+        return False, validation_message
+    con = db()
+    template = con.execute("SELECT * FROM message_templates WHERE code=? AND active=1", (template_code,)).fetchone()
+    con.close()
+    if not template:
+        return False, "Le modèle de message d'accès est désactivé ou introuvable."
+    login_link = request.url_root.rstrip('/') + url_for('login')
+    values = {
+        'NOM_COMPLE': full_name,
+        'IDENTIFIANT': identifier,
+        'MOT_DE_PASSE_TEMPORAIRE': temporary_password,
+        'LIEN_CONNEXION': login_link,
+        'LIEN_DU_SITE': request.url_root.rstrip('/'),
+        'FONDATION': 'Fondation BAKITANI ASBL',
+    }
+    subject = render_message_template(template['subject'] or '', values)
+    body = render_message_template(template['body'] or '', values)
+    return queue_and_send('email', email, member_phone, subject, body, template_code, full_name, recipient_user_id, created_by)
+
+
 def send_email_message(to_email, subject, body):
-    settings=get_settings(); host=settings.get('smtp_host','').strip()
+    settings=get_settings()
+    host=(os.environ.get('SMTP_HOST') or settings.get('smtp_host','')).strip()
     if not host: return False,'SMTP non configuré'
-    port=int(settings.get('smtp_port','587') or 587); username=settings.get('smtp_username',''); password=settings.get('smtp_password','')
-    msg=EmailMessage(); msg['Subject']=subject; msg['From']=settings.get('smtp_from') or username; msg['To']=to_email; msg.set_content(body)
+    port=int(os.environ.get('SMTP_PORT') or settings.get('smtp_port','587') or 587)
+    username=os.environ.get('SMTP_USERNAME') or settings.get('smtp_username','')
+    password=os.environ.get('SMTP_PASSWORD') or settings.get('smtp_password','')
+    smtp_from=os.environ.get('SMTP_FROM') or settings.get('smtp_from') or username
+    tls_value=(os.environ.get('SMTP_TLS') or settings.get('smtp_tls','1')).strip().lower()
+    msg=EmailMessage(); msg['Subject']=subject; msg['From']=smtp_from; msg['To']=to_email; msg.set_content(body)
     try:
         with smtplib.SMTP(host,port,timeout=20) as server:
-            if settings.get('smtp_tls','1')=='1': server.starttls()
+            if tls_value in {'1','true','yes','on'}: server.starttls()
             if username: server.login(username,password)
             server.send_message(msg)
         return True,'Envoyé'
