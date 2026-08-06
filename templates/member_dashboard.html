@@ -5,6 +5,18 @@
   <div class="member-identity">{% if member.photo_path %}<img class="member-avatar-large" src="{{ url_for('static', filename=member.photo_path) }}" alt="Photo">{% else %}<div class="member-avatar-placeholder">{{ (member.first_name or 'M')[:1] }}{{ (member.last_name or '')[:1] }}</div>{% endif %}<div><span class="eyebrow">Espace personnel sécurisé</span><h1>{{ member.last_name }} {{ member.first_name }}</h1><p>{{ member.code }} · {{ member.province }}{% if member.localite %} · {{ member.localite }}{% endif %}</p><span class="status-pill success">Membre {{ member.status or 'actif' }}</span></div></div>
   <div class="profile-progress"><strong>Profil complété à {{ completeness }}%</strong><div><span style="width:{{ completeness }}%"></span></div><small>Complétez vos coordonnées pour faciliter la communication et la production des documents.</small></div>
 </section>
+
+<section class="member-account-overview card">
+  <div class="panel-head"><div><span class="eyebrow">Compte et accès</span><h2>Mon espace FOBAK</h2></div><span class="status-pill success">Compte actif</span></div>
+  <div class="member-account-grid">
+    <div><small>Adresse e-mail</small><strong>{{ account_user.email or member.email or 'Non renseignée' }}</strong></div>
+    <div><small>Téléphone</small><strong>{{ member.phone or account_user.phone or 'Non renseigné' }}</strong></div>
+    <div><small>Province</small><strong>{{ member.province or account_user.province or 'Non renseignée' }}</strong></div>
+    <div><small>Fonction / qualité</small><strong>{{ member.role_label or 'Membre' }}</strong></div>
+    <div><small>Date d’adhésion</small><strong>{{ member.joined_at or '-' }}</strong></div>
+    <div><small>Validité de la carte</small><strong>{{ member.expires_at or '-' }}</strong></div>
+  </div>
+</section>
 <section class="dashboard-chat-widget member-chat-widget">
   <div class="dashboard-chat-main"><div class="chat-live-icon">💬</div><div><span class="eyebrow">Communication FOBAK</span><h2>Votre messagerie</h2><p>Discutez avec tous les membres, votre province ou un membre en particulier.</p></div></div>
   <div class="dashboard-chat-status"><strong>{{ chat_unread or 0 }}</strong><small>message(s) non lu(s)</small><a class="btn btn-primary" href="{{ url_for('chat_home') }}">Entrer dans le chat</a></div>
@@ -16,6 +28,12 @@
   <a href="{{ url_for('fiche_adhesion', member_id=member.id) }}"><span>📄</span><strong>Ma fiche d’adhésion</strong><small>Consulter ou imprimer</small></a>
   <a href="{{ url_for('notifications') }}"><span>🔔</span><strong>Mes notifications</strong><small>Ouvrir les messages reçus</small></a>
   <a href="{{ url_for('support_tickets_page') }}"><span>🛟</span><strong>Assistance</strong><small>Signaler un problème</small></a>
+  <a href="{{ url_for('chat_home') }}"><span>💬</span><strong>Messagerie</strong><small>Discussions et groupes FOBAK</small></a>
+  <a href="{{ url_for('intelligent_help') }}"><span>💡</span><strong>Guide et aide</strong><small>Trouver rapidement une fonction</small></a>
+</section>
+<section class="card member-meetings-card">
+  <div class="panel-head"><div><span class="eyebrow">Agenda collaboratif</span><h2>Mes prochains rendez-vous</h2></div><a href="{{ url_for('chat_home') }}">Ouvrir la messagerie</a></div>
+  <div class="member-meeting-list">{% for meeting in upcoming_meetings %}<a href="{{ url_for('chat_conversation', conversation_id=meeting.conversation_id) }}"><span>📅</span><div><strong>{{ meeting.title }}</strong><small>{{ meeting.meeting_at }}{% if meeting.location %} · {{ meeting.location }}{% endif %}</small><p>{{ meeting.description or 'Rendez-vous FOBAK' }}</p></div><b>›</b></a>{% else %}<p>Aucun rendez-vous programmé pour le moment.</p>{% endfor %}</div>
 </section>
 <section class="grid two">
   <article class="card"><div class="panel-head"><h2>Modifier mon profil</h2><span>Informations personnelles</span></div><form method="post" enctype="multipart/form-data" action="{{ url_for('update_profile') }}" class="form-grid adhesion-inspired-form"><label>Changer la photo<input type="file" name="photo" accept="image/*"></label><label>Téléphone<input name="phone" value="{{ member.phone }}"></label><label>Profession<input name="profession" value="{{ member.profession or '' }}"></label><label class="full">Adresse physique<input name="physical_address" value="{{ member.physical_address or '' }}"></label><label class="full">Nouveau mot de passe<input type="password" name="new_password" minlength="6" placeholder="Laisser vide pour conserver le mot de passe actuel"></label><button class="btn primary">Mettre à jour mon profil</button></form></article>

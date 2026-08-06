@@ -1444,8 +1444,16 @@ def init_db():
                     allowed = 1
                 if role_key in PROVINCIAL_ROLES and action in ['voir','ajouter','modifier','imprimer','exporter'] and module not in ['parametres','roles']:
                     allowed = 1
-                if role_key == 'member' and module == 'dashboard' and action == 'voir':
-                    allowed = 1
+                if role_key == 'member':
+                    member_defaults = {
+                        'dashboard': {'voir'}, 'espace_membre': {'voir','modifier'}, 'profil': {'voir','modifier'},
+                        'chat': {'voir','ajouter','modifier'}, 'groupes_chat': {'voir','ajouter'},
+                        'rendez_vous_chat': {'voir','ajouter'}, 'fichiers_chat': {'voir','ajouter'},
+                        'notifications': {'voir'}, 'support': {'voir','ajouter'},
+                        'activites': {'voir'}, 'documents': {'voir'}, 'statuts': {'voir'}, 'guide': {'voir'}
+                    }
+                    if action in member_defaults.get(module, set()):
+                        allowed = 1
                 cur.execute("INSERT OR IGNORE INTO role_permissions(role_key,role_label,permission_key,allowed,updated_at) VALUES(?,?,?,?,?)", (role_key,role_label,pkey,allowed,now()))
 
     cur.execute("INSERT OR IGNORE INTO app_setup(id,completed) VALUES(1,0)")
@@ -3022,19 +3030,13 @@ def _generate_member_card_assets_portrait_legacy(member):
     draw.rounded_rectangle((34, 554, 276, 796), radius=18, fill="white", outline=blue, width=4)
     back.paste(qr_image, (46, 566))
     draw.text((155, 824), "SCAN DE VÉRIFICATION", font=_card_font(17, True), anchor="mm", fill=blue)
-    draw.text((449, 558), "SIGNATURE ET CACHET", font=_card_font(21, True), anchor="mm", fill=blue)
-    draw.rounded_rectangle((304, 590, 439, 707), radius=12, fill=(249, 252, 254), outline=line, width=2)
-    draw.rounded_rectangle((454, 590, 589, 707), radius=12, fill=(249, 252, 254), outline=line, width=2)
-    signature = _open_contained(_static_or_upload_path(settings.get("secretary_signature_path", "")), (119, 90))
-    stamp = _open_contained(_static_or_upload_path(settings.get("official_stamp_path", "")), (119, 90))
+    # Signature et cachet officiels sans cadre afin de conserver un rendu naturel et professionnel.
+    signature = _open_contained(_static_or_upload_path(settings.get("secretary_signature_path", "")), (150, 104))
+    stamp = _open_contained(_static_or_upload_path(settings.get("official_stamp_path", "")), (142, 104))
     if signature:
-        back.paste(signature, (312, 602), signature)
-    else:
-        draw.text((371, 646), "SIGNATURE", font=_card_font(15, True), anchor="mm", fill=muted)
+        back.paste(signature, (292, 585), signature)
     if stamp:
-        back.paste(stamp, (462, 602), stamp)
-    else:
-        draw.text((521, 646), "CACHET", font=_card_font(15, True), anchor="mm", fill=muted)
+        back.paste(stamp, (448, 582), stamp)
     secretary_name = settings.get("secretary_name") or "Secrétaire du Bureau National"
     secretary_function = settings.get("secretary_function") or "Secrétaire Général"
     draw.text((447, 745), _fit_text(draw, secretary_name, _card_font(16, True), 290, 48), font=_card_font(16, True), anchor="mm", fill=dark)
@@ -3355,10 +3357,9 @@ def generate_member_card_assets(member):
     draw.rounded_rectangle((755, 181, 980, 430), radius=19, fill=pale, outline=cyan, width=4)
     if photo: front.paste(photo, (759, 187))
     else: draw.text((868, 305), "PHOTO", font=_card_font(30, True), anchor="mm", fill=muted)
-    draw.text((810, 451), "SIGNATURE", font=_card_font(11, True), anchor="mm", fill=muted)
-    draw.text((924, 451), "CACHET", font=_card_font(11, True), anchor="mm", fill=muted)
-    if signature: front.paste(signature, (760, 462), signature)
-    if stamp: front.paste(stamp, (879, 455), stamp)
+    # Signature et cachet placés directement, sans libellé ni encadrement.
+    if signature: front.paste(signature, (744, 447), signature)
+    if stamp: front.paste(stamp, (872, 442), stamp)
     draw.text((868, 536), secretary_name, font=fitted_font(draw, secretary_name, 13, 10, 220), anchor="mm", fill=dark)
     draw.text((868, 557), secretary_function, font=fitted_font(draw, secretary_function, 12, 9, 220), anchor="mm", fill=blue)
     draw_footer(draw)
@@ -4712,9 +4713,25 @@ def member_dashboard():
               AND (role IS NULL OR role='member' OR role='all')
               AND (province IS NULL OR province='' OR province=?)
             ORDER BY created_at DESC LIMIT 10""", (user["id"], member["province"] or "")).fetchall()
+    total_paid = sum(float(p["amount"] or 0) for p in payments if (p["status"] or "").lower() in ("paid","payé","paye","confirmed","confirmé"))
+    unread_notes = sum(1 for n in internal_notes if not n["read_at"])
+    completeness = 0
+    upcoming_meetings = []
+    if member:
+        profile_fields = ["first_name","last_name","gender","email","phone","province","localite","physical_address","birth_date","profession","photo_path"]
+        completeness = round(100 * sum(1 for field in profile_fields if member[field]) / len(profile_fields))
+        upcoming_meetings = con.execute("""SELECT cm.*,cc.title AS conversation_title
+            FROM chat_meetings cm
+            JOIN chat_conversations cc ON cc.id=cm.conversation_id
+            JOIN chat_participants cp ON cp.conversation_id=cm.conversation_id
+            WHERE cp.user_id=? AND datetime(cm.meeting_at)>=datetime('now','-1 day')
+            ORDER BY datetime(cm.meeting_at) ASC LIMIT 8""", (user["id"],)).fetchall()
     con.close()
     chat_unread, chat_recent = chat_dashboard_summary(user)
-    return render_template("member_dashboard.html", member=member, payments=payments, notes=notes, internal_notes=internal_notes, profile_title="Mon espace membre", chat_unread=chat_unread, chat_recent=chat_recent)
+    return render_template("member_dashboard.html", member=member, payments=payments, notes=notes, internal_notes=internal_notes,
+                           profile_title="Mon espace membre", chat_unread=chat_unread, chat_recent=chat_recent,
+                           total_paid=total_paid, unread_notes=unread_notes, completeness=completeness,
+                           upcoming_meetings=upcoming_meetings, account_user=user)
 
 
 @app.route("/member/profile", methods=["POST"])
@@ -7078,7 +7095,12 @@ PERMISSION_MODULES = {
     'vaccination':'Vaccination','facturation':'Facturation','caisse_sante':'Caisse sanitaire','aide_sociale':'Prise en charge sociale',
     'equipements':'Équipements','fournisseurs':'Fournisseurs','references':'Références et transferts','rapports_sante':'Rapports sanitaires','statistiques':'Statistiques',
     'qualite_donnees':'Qualité des données','modeles_fiches':'Modèles de fiches','profil':'Profil','aide':'Aide intelligente',
-    'guide':'Guide rapide','site_public':'Site public','numerotation_cadres':'Numérotation des hauts cadres','cartes_sanitaires':'Cartes du personnel sanitaire'
+    'guide':'Guide rapide','site_public':'Site public','numerotation_cadres':'Numérotation des hauts cadres','cartes_sanitaires':'Cartes du personnel sanitaire',
+    'espace_membre':'Espace personnel des membres','chat':'Messagerie instantanée','groupes_chat':'Groupes et canaux du chat',
+    'rendez_vous_chat':'Rendez-vous dans le chat','fichiers_chat':'Photos, vidéos, vocaux et documents du chat',
+    'moderation_chat':'Modération et signalements du chat','communication_email':'Campagnes e-mail',
+    'modeles_messages':'Modèles de messages','biographie_president':'Biographie du Président national',
+    'responsables':'Responsables et dirigeants','recaptcha':'Vérification anti-robot'
 }
 PERMISSION_ACTIONS = {'voir':'Voir','ajouter':'Ajouter','modifier':'Modifier','supprimer':'Supprimer','valider':'Valider','imprimer':'Imprimer','exporter':'Exporter','parametrer':'Paramétrer'}
 
@@ -7111,6 +7133,14 @@ BUSINESS_ENDPOINT_MODULES = {
     'notifications':'notifications', 'mark_all_notifications_read':'notifications', 'alerts_page':'alertes',
     'support_tickets_page':'support', 'support_ticket_detail':'support', 'delete_support_ticket':'support', 'anniversaries_page':'anniversaires',
     'users_page':'utilisateurs', 'update_user':'utilisateurs', 'delete_user':'utilisateurs',
+    'member_dashboard':'espace_membre','update_profile':'espace_membre','my_profile':'profil',
+    'chat_home':'chat','chat_conversation':'chat','chat_messages_api':'chat','chat_typing_api':'chat',
+    'chat_edit_message':'chat','chat_delete_message':'chat','chat_react_message':'chat','chat_forward_message':'chat',
+    'chat_manage_conversation':'chat','chat_settings_api':'chat','chat_privacy_settings':'chat',
+    'chat_add_members':'groupes_chat','chat_group_manage':'groupes_chat','chat_delete_conversation':'groupes_chat',
+    'chat_create_meeting':'rendez_vous_chat','chat_report_message':'moderation_chat','chat_block_user':'moderation_chat',
+    'communication_campaign':'communication_email','communication_templates':'modeles_messages',
+    'leaders_admin':'responsables','delete_leader':'responsables','president_biography_admin':'biographie_president'
 }
 
 
@@ -7137,6 +7167,17 @@ def enforce_custom_business_permissions():
     user = current_user()
     if not user or user['role'] == 'super_admin':
         return None
+    # Un membre peut consulter uniquement ses propres documents officiels.
+    if user['role'] == 'member' and request.endpoint in {'card','fiche_adhesion','member_history'}:
+        try:
+            requested_member_id = int((request.view_args or {}).get('member_id') or 0)
+        except (TypeError, ValueError):
+            requested_member_id = 0
+        con = db()
+        own = con.execute('SELECT id FROM members WHERE user_id=? AND deleted_at IS NULL ORDER BY id DESC LIMIT 1',(user['id'],)).fetchone()
+        con.close()
+        if own and requested_member_id == own['id']:
+            return None
     module = BUSINESS_ENDPOINT_MODULES.get(request.endpoint)
     if not module:
         return None
