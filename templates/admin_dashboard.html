@@ -22,6 +22,12 @@
   </div>
 </section>
 
+<section class="dashboard-chat-widget">
+  <div class="dashboard-chat-main"><div class="chat-live-icon">💬</div><div><span class="eyebrow">Messagerie instantanée</span><h2>Discussions FOBAK</h2><p>Accédez aux canaux « Tous les membres », à votre province, aux groupes et aux échanges privés.</p></div></div>
+  <div class="dashboard-chat-status"><strong>{{ chat_unread or 0 }}</strong><small>message(s) non lu(s)</small><a class="btn btn-primary" href="{{ url_for('chat_home') }}">Ouvrir la messagerie</a></div>
+  <div class="dashboard-chat-recent">{% for c in chat_recent %}<a href="{{ url_for('chat_conversation',conversation_id=c.id) }}"><span>{{ '🌍' if c.audience_scope=='all' else ('📍' if c.audience_scope=='province' else ('👥' if c.conversation_type=='group' else '👤')) }}</span><div><strong>{{ c.title }}</strong><small>{{ c.message_count }} message(s)</small></div><b>›</b></a>{% endfor %}</div>
+</section>
+
 <section class="dashboard-stat-section" aria-labelledby="statistics-title">
   <div class="dashboard-section-head">
     <div><span class="eyebrow">Vue d’ensemble</span><h2 id="statistics-title">Statistiques essentielles</h2></div>

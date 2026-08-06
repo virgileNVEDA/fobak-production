@@ -1,7 +1,47 @@
 {% extends 'base.html' %}{% block content %}
-<div class="page-header"><div><h1>💬 Messagerie FOBAK</h1><p>Discussions privées et groupes, pièces jointes, vocaux, stickers et notifications.</p></div><div><a class="btn" href="{{ url_for('chat_home',archived=1 if not archived else 0) }}">{{ 'Conversations actives' if archived else 'Archives' }}</a></div></div>
-<div class="grid-2 chat-home-grid">
-<section class="card"><h2>Nouvelle discussion privée</h2><form method="post" class="chat-start-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="mode" value="private"><label>Choisir un utilisateur</label><select name="user_id" required><option value="">— Sélectionner —</option>{% for u in users %}<option value="{{ u.id }}">{{ (u.first_name or '') }} {{ (u.last_name or '') }} — {{ u.email }} — {{ u.province or 'National' }}</option>{% endfor %}</select><button class="btn btn-primary">Démarrer</button></form>
-<hr><h2>Créer un groupe</h2><form method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="mode" value="group"><label>Nom du groupe</label><input name="title" required maxlength="120"><label>Participants</label><select name="member_ids" multiple size="7" required>{% for u in users %}<option value="{{ u.id }}">{{ (u.first_name or '') }} {{ (u.last_name or '') }} — {{ u.province or 'National' }}</option>{% endfor %}</select><small>Maintenez Ctrl pour sélectionner plusieurs personnes.</small><button class="btn btn-primary">Créer le groupe</button></form></section>
-<section class="card"><div class="chat-list-head"><h2>{{ 'Conversations archivées' if archived else 'Mes conversations' }}</h2><form method="get"><input type="hidden" name="archived" value="{{ archived }}"><input name="q" value="{{ q }}" placeholder="Rechercher..."><button class="btn">🔎</button></form></div>{% for c in conversations %}<div class="chat-list-row"><a class="chat-list-item" href="{{ url_for('chat_conversation',conversation_id=c.id) }}"><strong>{{ c.title if c.conversation_type=='group' else (c.other_names or c.title or 'Discussion') }}</strong><small>{{ c.message_count }} message(s) · {{ c.last_message_at or c.created_at }}{% if c.unread_count %} · <b>{{ c.unread_count }} non lu(s)</b>{% endif %}</small></a><form method="post" action="{{ url_for('chat_manage_conversation',conversation_id=c.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn small" name="action" value="pin" title="Épingler">📌</button><button class="btn small" name="action" value="{{ 'unarchive' if archived else 'archive' }}" title="Archiver">{{ '↩️' if archived else '🗄️' }}</button></form><form method="post" action="{{ url_for('chat_delete_conversation',conversation_id=c.id) }}" onsubmit="return confirm('Retirer cette discussion de votre liste ?');"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn danger small">🗑️</button></form></div>{% else %}<p class="muted">Aucune conversation trouvée.</p>{% endfor %}</section>
+<section class="chat-portal-hero">
+  <div><span class="eyebrow">Communication interne sécurisée</span><h1>💬 Messagerie FOBAK</h1><p>Échangez avec tous les membres, votre province, un groupe de travail ou une personne précise.</p></div>
+  <a class="btn" href="{{ url_for('chat_home',archived=1 if not archived else 0) }}">{{ 'Conversations actives' if archived else 'Archives' }}</a>
+</section>
+
+<section class="chat-channel-grid">
+  {% for c in conversations if c.audience_scope in ['all','province'] %}
+  <a class="chat-channel-card {{ c.audience_scope }}" href="{{ url_for('chat_conversation',conversation_id=c.id) }}">
+    <span class="chat-channel-icon">{{ '🌍' if c.audience_scope=='all' else '📍' }}</span>
+    <div><small>Canal automatique</small><strong>{{ c.title }}</strong><em>{{ c.message_count }} message(s){% if c.unread_count %} · {{ c.unread_count }} non lu(s){% endif %}</em></div><b>›</b>
+  </a>
+  {% endfor %}
+</section>
+
+<div class="chat-layout-professional">
+  <aside class="chat-compose-panel card">
+    <div class="panel-head"><h2>Nouvelle discussion</h2><span>Conversation ciblée</span></div>
+    <form method="post" class="chat-start-form professional-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="mode" value="private">
+      <label>Rechercher un membre</label>
+      <select name="user_id" required><option value="">— Choisir un membre —</option>{% for u in users %}<option value="{{ u.id }}">{{ ((u.first_name or '') ~ ' ' ~ (u.last_name or ''))|trim or u.email }} — {{ u.province or 'National' }}</option>{% endfor %}</select>
+      <button class="btn btn-primary wide">Démarrer la discussion</button>
+    </form>
+    <div class="chat-divider"><span>ou</span></div>
+    <details class="group-creator"><summary>Créer un groupe personnalisé</summary>
+      <form method="post" class="professional-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="mode" value="group">
+        <label>Nom du groupe<input name="title" required maxlength="120" placeholder="Ex. Commission communication"></label>
+        <label>Participants<select name="member_ids" multiple size="8" required>{% for u in users %}<option value="{{ u.id }}">{{ ((u.first_name or '') ~ ' ' ~ (u.last_name or ''))|trim or u.email }} — {{ u.province or 'National' }}</option>{% endfor %}</select></label>
+        <small>Sur ordinateur : maintenez Ctrl. Sur téléphone : touchez les membres à sélectionner.</small>
+        <button class="btn btn-primary wide">Créer le groupe</button>
+      </form>
+    </details>
+  </aside>
+
+  <section class="chat-conversation-panel card">
+    <div class="chat-list-head"><div><h2>{{ 'Conversations archivées' if archived else 'Mes conversations' }}</h2><small>Canaux officiels, groupes et discussions privées</small></div><form method="get" class="chat-search"><input type="hidden" name="archived" value="{{ archived }}"><input name="q" value="{{ q }}" placeholder="Rechercher une conversation"><button class="btn">🔎</button></form></div>
+    <div class="chat-list-professional">
+    {% for c in conversations if c.audience_scope not in ['all','province'] %}
+      <article class="chat-list-row professional">
+        <a class="chat-list-item" href="{{ url_for('chat_conversation',conversation_id=c.id) }}"><span class="chat-avatar">{{ '👥' if c.conversation_type=='group' else '👤' }}</span><span><strong>{{ c.title if c.conversation_type=='group' else (c.other_names or c.title or 'Discussion') }}</strong><small>{{ c.message_count }} message(s) · {{ c.last_message_at or c.created_at }}{% if c.unread_count %}<b class="unread-badge">{{ c.unread_count }}</b>{% endif %}</small></span></a>
+        <div class="chat-row-actions"><form method="post" action="{{ url_for('chat_manage_conversation',conversation_id=c.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="icon-btn" name="action" value="pin" title="Épingler">📌</button><button class="icon-btn" name="action" value="{{ 'unarchive' if archived else 'archive' }}" title="Archiver">{{ '↩️' if archived else '🗄️' }}</button></form><form method="post" action="{{ url_for('chat_delete_conversation',conversation_id=c.id) }}" onsubmit="return confirm('Retirer cette discussion de votre liste ?');"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="icon-btn danger" title="Supprimer">🗑️</button></form></div>
+      </article>
+    {% else %}<div class="chat-empty"><span>💬</span><strong>Aucune discussion ciblée</strong><p>Choisissez un membre à gauche pour commencer.</p></div>{% endfor %}
+    </div>
+  </section>
 </div>{% endblock %}

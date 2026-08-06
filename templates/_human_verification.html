@@ -7,17 +7,40 @@
   </label>
 
   {% if recaptcha_enabled %}
-    <div class="recaptcha-wrap">
-      <div class="g-recaptcha" data-sitekey="{{ recaptcha_site_key }}" data-theme="light"></div>
-    </div>
-    <small>Cochez « Je ne suis pas un robot ». Une vérification par images peut apparaître seulement si Google la juge nécessaire.</small>
-    <script src="https://www.google.com/recaptcha/api.js?hl=fr" async defer></script>
+    <div id="recaptcha-status" class="recaptcha-status">Chargement de la vérification sécurisée…</div>
+    <div id="recaptcha-container" class="recaptcha-wrap"></div>
+    <small>Cochez « Je ne suis pas un robot » juste avant d’envoyer le formulaire. Une vérification par images peut apparaître si Google la juge nécessaire.</small>
+    <noscript><p class="alert danger">JavaScript doit être activé pour effectuer la vérification anti-robot.</p></noscript>
+    <script>
+      window.fobakRecaptchaReady = function () {
+        const status = document.getElementById('recaptcha-status');
+        try {
+          grecaptcha.render('recaptcha-container', {
+            sitekey: {{ recaptcha_site_key|tojson }},
+            theme: 'light',
+            callback: function () { if (status) status.textContent = 'Vérification réussie.'; },
+            'expired-callback': function () { if (status) status.textContent = 'La vérification a expiré. Cochez de nouveau la case.'; },
+            'error-callback': function () { if (status) status.textContent = 'Impossible de charger reCAPTCHA. Rechargez la page ou vérifiez les clés et le domaine.'; }
+          });
+          if (status) status.textContent = '';
+        } catch (error) {
+          if (status) status.textContent = 'La vérification Google n’a pas pu être affichée. Rechargez la page.';
+          console.error('FOBAK reCAPTCHA:', error);
+        }
+      };
+      window.setTimeout(function () {
+        const status = document.getElementById('recaptcha-status');
+        const box = document.querySelector('#recaptcha-container iframe');
+        if (status && !box) status.textContent = 'La vérification ne se charge pas. Vérifiez les deux clés Railway, le domaine autorisé et les bloqueurs du navigateur.';
+      }, 8000);
+    </script>
+    <script src="https://www.google.com/recaptcha/api.js?onload=fobakRecaptchaReady&render=explicit&hl=fr" async defer></script>
   {% else %}
     <input type="hidden" name="human_challenge_token" value="{{ human_check.token }}">
     <label class="human-question">{{ human_check.question }}
       <input type="number" name="human_challenge_answer" inputmode="numeric" min="0" max="30" required autocomplete="off" placeholder="Votre réponse">
     </label>
-    <small>Mode local temporaire. Pour afficher la case « Je ne suis pas un robot », configurez les clés reCAPTCHA dans l’hébergement.</small>
+    <small>Mode local temporaire. Pour afficher la case « Je ne suis pas un robot », configurez les deux clés reCAPTCHA dans Railway.</small>
   {% endif %}
 </fieldset>
 {% endif %}

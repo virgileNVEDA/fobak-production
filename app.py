@@ -26,6 +26,7 @@ from datetime import datetime, timedelta
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
+from werkzeug.middleware.proxy_fix import ProxyFix
 from flask import Flask, render_template, request, redirect, url_for, session, flash, send_file, send_from_directory, Response, abort, has_request_context, jsonify, make_response
 from reportlab.lib.pagesizes import landscape, A5, A4
 from reportlab.lib.units import mm
@@ -62,8 +63,8 @@ UPLOAD_ROOT = os.environ.get("UPLOAD_ROOT", os.path.join(STATIC_DIR, "uploads"))
 RDC_FLAG_REL = "img/drapeau_rdc.jpg"
 RDC_FLAG_ABS = os.path.join(STATIC_DIR, RDC_FLAG_REL)
 ALLOWED_IMAGE_EXT = {"png", "jpg", "jpeg", "webp", "pdf", "doc", "docx", "xls", "xlsx"}
-APP_VERSION = "88.0.0"
-APP_RELEASE_NAME = "FOBAK Manager Pro V88 — reCAPTCHA moderne et chat avancé"
+APP_VERSION = "91.0.0"
+APP_RELEASE_NAME = "FOBAK Manager Pro V91 — reCAPTCHA corrigé et sessions multi-onglets"
 CARD_TEMPLATE_VERSION = "paysage-v80-epure-embleme"
 
 # Numérotation protocolaire nationale. Le numéro de cadre reste distinct du
@@ -87,6 +88,9 @@ os.makedirs(LOG_DIR, exist_ok=True)
 logging.basicConfig(filename=os.path.join(LOG_DIR, "application.log"), level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 app = Flask(__name__, template_folder=TEMPLATE_DIR, static_folder=STATIC_DIR, static_url_path="/static")
+# Railway/Cloudflare terminent HTTPS avant Flask. ProxyFix permet à Flask de
+# reconnaître correctement le protocole et l'hôte publics.
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
 
 @app.route('/static/uploads/<path:filename>')
 def persistent_upload_file(filename):
@@ -102,27 +106,52 @@ def persistent_upload_file(filename):
 
 
 def _persistent_secret_key():
-    configured = os.environ.get("SECRET_KEY", "").strip()
+    """Retourne une clé de session stable entre onglets, workers et redémarrages.
+
+    En production, SECRET_KEY reste la méthode recommandée. En l'absence de
+    variable, le fichier est créé atomiquement près de la base persistante afin
+    d'éviter que deux workers Gunicorn génèrent des clés différentes.
+    """
+    configured = os.environ.get("SECRET_KEY", "").strip() or os.environ.get("SESSION_SECRET", "").strip()
     if configured:
         return configured
-    secret_file = os.path.join(BASE_DIR, ".secret_key")
+
+    secret_dir = os.path.dirname(os.path.abspath(DB_PATH)) or BASE_DIR
+    secret_file = os.path.join(secret_dir, ".fobak_session_secret")
     try:
+        os.makedirs(secret_dir, exist_ok=True)
         if os.path.exists(secret_file):
             value = Path(secret_file).read_text(encoding="utf-8").strip()
             if len(value) >= 32:
                 return value
+
         value = secrets.token_hex(32)
-        Path(secret_file).write_text(value, encoding="utf-8")
-        return value
+        try:
+            fd = os.open(secret_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(value)
+            return value
+        except FileExistsError:
+            # Un autre worker vient de créer le fichier : utiliser exactement sa clé.
+            value = Path(secret_file).read_text(encoding="utf-8").strip()
+            if len(value) >= 32:
+                return value
     except OSError:
-        return secrets.token_hex(32)
+        logging.exception("Impossible de persister la clé de session")
+
+    # Dernier recours pour une installation locale en lecture seule.
+    return secrets.token_hex(32)
+
 
 app.secret_key = _persistent_secret_key()
+production_https = bool(os.environ.get("RAILWAY_ENVIRONMENT") or os.environ.get("RAILWAY_PROJECT_ID"))
 app.config.update(
     MAX_CONTENT_LENGTH=128 * 1024 * 1024,
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
-    SESSION_COOKIE_SECURE=os.environ.get("COOKIE_SECURE", "0") == "1",
+    SESSION_COOKIE_SECURE=os.environ.get("COOKIE_SECURE", "1" if production_https else "0") == "1",
+    SESSION_COOKIE_NAME=os.environ.get("SESSION_COOKIE_NAME", "fobak_session"),
+    PERMANENT_SESSION_LIFETIME=timedelta(hours=int(os.environ.get("SESSION_LIFETIME_HOURS", "12"))),
 )
 
 
@@ -1650,7 +1679,8 @@ def enforce_idle_timeout_and_heartbeat():
     token = session.get("session_token")
     now_ts = int(datetime.now().timestamp())
     last_ts = int(session.get("last_activity_ts") or now_ts)
-    if user_id and now_ts - last_ts >= 600:
+    idle_timeout_seconds = max(900, int(os.environ.get("SESSION_IDLE_MINUTES", "120")) * 60)
+    if user_id and now_ts - last_ts >= idle_timeout_seconds:
         try:
             con = db()
             if token:
@@ -1662,7 +1692,7 @@ def enforce_idle_timeout_and_heartbeat():
         session.clear()
         if request.path.startswith("/api/") or request.is_json:
             return jsonify({"ok": False, "error": "session_expired"}), 401
-        flash("Votre session a été fermée après 10 minutes d’inactivité.", "warning")
+        flash("Votre session a expiré après une longue période d’inactivité.", "warning")
         return redirect(url_for("login"))
     if user_id:
         session["last_activity_ts"] = now_ts
@@ -4069,6 +4099,7 @@ def start_user_session(user, method="password"):
     session["session_token"] = secrets.token_urlsafe(24)
     session["voice_welcome_pending"] = 1
     session["last_activity_ts"] = int(datetime.now().timestamp())
+    session.permanent = True
     con = db()
     # Plusieurs appareils autorisés : chaque connexion reste visible et révocable séparément.
     stale_cutoff = (datetime.now() - timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S")
@@ -4493,7 +4524,8 @@ def admin_dashboard():
     communication_count = len(recent_notifications) + len(support_tickets)
     con.close()
     anniversaries = upcoming_anniversaries(user, 30)[:8]
-    return render_template("admin_dashboard.html", total_members=total_members, active_members=active_members, pending=pending, activities=activities, payments=payments, pending_activities=pending_activities, anniversaries=anniversaries, contribution_total=contribution_total, contribution_currency=contribution_currency, recent_notifications=recent_notifications, support_tickets=support_tickets, service_count=service_count, patient_count=patient_count, payment_pending_count=payment_pending_count, communication_count=communication_count, activity_count=activity_count)
+    chat_unread, chat_recent = chat_dashboard_summary(user)
+    return render_template("admin_dashboard.html", total_members=total_members, active_members=active_members, pending=pending, activities=activities, payments=payments, pending_activities=pending_activities, anniversaries=anniversaries, contribution_total=contribution_total, contribution_currency=contribution_currency, recent_notifications=recent_notifications, support_tickets=support_tickets, service_count=service_count, patient_count=patient_count, payment_pending_count=payment_pending_count, communication_count=communication_count, activity_count=activity_count, chat_unread=chat_unread, chat_recent=chat_recent)
 
 
 @app.route("/admin/applications")
@@ -4677,7 +4709,8 @@ def member_dashboard():
               AND (province IS NULL OR province='' OR province=?)
             ORDER BY created_at DESC LIMIT 10""", (user["id"], member["province"] or "")).fetchall()
     con.close()
-    return render_template("member_dashboard.html", member=member, payments=payments, notes=notes, internal_notes=internal_notes, profile_title="Mon espace membre")
+    chat_unread, chat_recent = chat_dashboard_summary(user)
+    return render_template("member_dashboard.html", member=member, payments=payments, notes=notes, internal_notes=internal_notes, profile_title="Mon espace membre", chat_unread=chat_unread, chat_recent=chat_recent)
 
 
 @app.route("/member/profile", methods=["POST"])
@@ -6041,7 +6074,7 @@ def add_security_headers(response):
     response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
     response.headers.setdefault("Permissions-Policy", "camera=(self), geolocation=(self), microphone=()")
-    response.headers.setdefault("Content-Security-Policy", "default-src 'self'; img-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self'; frame-src 'self' https://www.google.com https://maps.google.com https://www.youtube.com https://youtube.com")
+    response.headers.setdefault("Content-Security-Policy", "default-src 'self'; img-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' https://www.google.com/recaptcha/ https://www.gstatic.com/recaptcha/; font-src 'self' data:; connect-src 'self' https://www.google.com/recaptcha/; frame-src 'self' https://www.google.com/recaptcha/ https://recaptcha.google.com/recaptcha/ https://maps.google.com https://www.youtube.com https://youtube.com")
     if request.is_secure:
         response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
     return response
@@ -8012,7 +8045,9 @@ def init_v83_schema():
         "ALTER TABLE chat_messages ADD COLUMN forwarded_from_id INTEGER",
         "ALTER TABLE chat_messages ADD COLUMN delivery_status TEXT DEFAULT 'sent'",
         "ALTER TABLE chat_conversations ADD COLUMN description TEXT",
-        "ALTER TABLE chat_conversations ADD COLUMN photo_path TEXT"
+        "ALTER TABLE chat_conversations ADD COLUMN photo_path TEXT",
+        "ALTER TABLE chat_conversations ADD COLUMN audience_scope TEXT DEFAULT 'manual'",
+        "ALTER TABLE chat_conversations ADD COLUMN audience_value TEXT"
     ]:
         try:
             cur.execute(statement)
@@ -8224,10 +8259,37 @@ def communication_campaign():
         con.close(); flash(f'Campagne enregistrée : {queued} message(s) placé(s) en file d’attente. L’envoi continue en arrière-plan.','success'); return redirect(url_for('communication_campaign'))
     templates=con.execute("SELECT * FROM message_templates WHERE active=1 AND channel='email' ORDER BY name").fetchall(); history=con.execute('SELECT * FROM outbound_messages ORDER BY created_at DESC LIMIT 100').fetchall(); con.close(); return render_template('communication_campaign.html',templates=templates,history=history)
 
+def _ensure_audience_chat(con, title, scope, value, creator_id):
+    row = con.execute("SELECT id FROM chat_conversations WHERE conversation_type='group' AND audience_scope=? AND COALESCE(audience_value,'')=?", (scope, value or '')).fetchone()
+    if row:
+        return row['id']
+    con.execute("INSERT INTO chat_conversations(title,conversation_type,created_by,created_at,audience_scope,audience_value,description) VALUES(?, 'group', ?, ?, ?, ?, ?)", (title, creator_id, now(), scope, value or '', 'Canal officiel FOBAK mis à jour automatiquement.'))
+    return con.execute('SELECT last_insert_rowid() id').fetchone()['id']
+
+
+def sync_user_audience_chats(con, user):
+    all_id = _ensure_audience_chat(con, 'Tous les membres FOBAK', 'all', '', user['id'])
+    con.execute("INSERT OR IGNORE INTO chat_participants(conversation_id,user_id,joined_at,role) VALUES(?,?,?,'member')", (all_id, user['id'], now()))
+    con.execute("INSERT OR IGNORE INTO chat_participants(conversation_id,user_id,joined_at,role) SELECT ?,id,?,'member' FROM users WHERE active=1 AND deleted_at IS NULL", (all_id, now()))
+    province = (user['province'] or '').strip()
+    if province:
+        province_id = _ensure_audience_chat(con, f'Province — {province}', 'province', province, user['id'])
+        con.execute("INSERT OR IGNORE INTO chat_participants(conversation_id,user_id,joined_at,role) VALUES(?,?,?,'member')", (province_id, user['id'], now()))
+        con.execute("INSERT OR IGNORE INTO chat_participants(conversation_id,user_id,joined_at,role) SELECT ?,id,?,'member' FROM users WHERE active=1 AND deleted_at IS NULL AND province=?", (province_id, now(), province))
+    con.commit()
+
+
+def chat_dashboard_summary(user):
+    con = db(); sync_user_audience_chats(con, user)
+    unread = con.execute("""SELECT COUNT(*) AS n FROM chat_messages m JOIN chat_participants p ON p.conversation_id=m.conversation_id AND p.user_id=? LEFT JOIN chat_reads r ON r.conversation_id=m.conversation_id AND r.user_id=? WHERE m.deleted_at IS NULL AND m.sender_id<>? AND m.id>COALESCE(r.last_read_message_id,0)""", (user['id'],user['id'],user['id'])).fetchone()['n']
+    recent = con.execute("""SELECT c.id,c.title,c.conversation_type,c.audience_scope,MAX(m.created_at) last_message_at,COUNT(m.id) message_count FROM chat_conversations c JOIN chat_participants p ON p.conversation_id=c.id AND p.user_id=? LEFT JOIN chat_messages m ON m.conversation_id=c.id AND m.deleted_at IS NULL WHERE p.hidden_at IS NULL GROUP BY c.id ORDER BY COALESCE(MAX(m.created_at),c.created_at) DESC LIMIT 4""", (user['id'],)).fetchall()
+    con.close(); return unread, recent
+
+
 @app.route('/chat',methods=['GET','POST'])
 @login_required
 def chat_home():
-    user=current_user(); con=db()
+    user=current_user(); con=db(); sync_user_audience_chats(con,user)
     if request.method=='POST':
         mode=request.form.get('mode','private')
         if mode=='group':
