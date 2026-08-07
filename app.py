@@ -63,8 +63,8 @@ UPLOAD_ROOT = os.environ.get("UPLOAD_ROOT", os.path.join(STATIC_DIR, "uploads"))
 RDC_FLAG_REL = "img/drapeau_rdc.jpg"
 RDC_FLAG_ABS = os.path.join(STATIC_DIR, RDC_FLAG_REL)
 ALLOWED_IMAGE_EXT = {"png", "jpg", "jpeg", "webp", "pdf", "doc", "docx", "xls", "xlsx"}
-APP_VERSION = "96.0.0"
-APP_RELEASE_NAME = "FOBAK Manager Pro V96 — numérotation hiérarchique et connexion professionnelle"
+APP_VERSION = "107.0.0"
+APP_RELEASE_NAME = "FOBAK Manager Pro V107 — Profils photo & identité d’adhésion séparée"
 CARD_TEMPLATE_VERSION = "paysage-v99-photo-adaptative-pied-adresse-verso-aere"
 
 # Numérotation protocolaire nationale. Le numéro de cadre reste distinct du
@@ -600,6 +600,16 @@ def init_db():
         title TEXT,
         image_path TEXT NOT NULL,
         active INTEGER DEFAULT 1,
+        created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS health_carousel_images (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT,
+        message TEXT,
+        image_path TEXT NOT NULL,
+        image_fit TEXT DEFAULT 'cover',
+        active INTEGER DEFAULT 1,
+        display_order INTEGER DEFAULT 0,
         created_at TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS president_biography (
@@ -7259,7 +7269,8 @@ PERMISSION_MODULES = {
     'rendez_vous_chat':'Rendez-vous dans le chat','fichiers_chat':'Photos, vidéos, vocaux et documents du chat',
     'moderation_chat':'Modération et signalements du chat','communication_email':'Campagnes e-mail',
     'modeles_messages':'Modèles de messages','biographie_president':'Biographie du Président national',
-    'responsables':'Responsables et dirigeants','recaptcha':'Vérification anti-robot'
+    'responsables':'Responsables et dirigeants','recaptcha':'Vérification anti-robot',
+    'discussion_membres':'Discussion publique des membres','annonces_chat':'Annonces officielles','communication_sante':'Communication du Centre de Santé'
 }
 PERMISSION_ACTIONS = {'voir':'Voir','ajouter':'Ajouter','modifier':'Modifier','supprimer':'Supprimer','valider':'Valider','imprimer':'Imprimer','exporter':'Exporter','parametrer':'Paramétrer'}
 
@@ -7446,6 +7457,75 @@ def foundation_service_toggle(service_id):
     con.execute('UPDATE foundation_services SET active=?,updated_at=?,updated_by=? WHERE id=?',(0 if row['active'] else 1,now(),current_user()['id'],service_id)); con.commit(); con.close()
     flash('Statut du service mis à jour.','success'); return redirect(url_for('foundation_services_page'))
 
+
+@app.route('/centre-sante')
+def health_public_home():
+    con = db()
+    slides = con.execute("SELECT * FROM health_carousel_images WHERE active=1 ORDER BY display_order ASC, id DESC LIMIT 8").fetchall()
+    centers = con.execute("SELECT * FROM health_centers WHERE active=1 AND deleted_at IS NULL ORDER BY province,name LIMIT 12").fetchall()
+    con.close()
+    return render_template('health_public_home.html', slides=slides, centers=centers)
+
+
+@app.route('/centre-sante/connexion', methods=['GET','POST'])
+def health_login():
+    if current_user():
+        if module_allowed('centres_sante','voir'):
+            return redirect(url_for('health_dashboard'))
+        flash("Votre compte est connecté, mais l’accès au Centre de Santé n’est pas encore autorisé.", 'warning')
+        return redirect(url_for('dashboard'))
+    if request.method == 'POST':
+        ident = request.form.get('identifier','').strip()
+        password = request.form.get('password','')
+        con = db()
+        user = con.execute("SELECT * FROM users WHERE active=1 AND deleted_at IS NULL AND (email=? OR phone=?)", (ident,ident)).fetchone()
+        if user and is_account_locked(user):
+            con.close(); flash("Compte temporairement verrouillé après plusieurs tentatives.",'danger')
+            return render_template('health_login.html')
+        if user and check_password_hash(user['password_hash'], password):
+            con.close(); start_user_session(user, 'portail santé')
+            if should_force_password_change(user):
+                flash("Connexion réussie. Modifiez d’abord votre mot de passe initial.",'warning')
+                return redirect(url_for('change_password'))
+            if module_allowed('centres_sante','voir'):
+                return redirect(url_for('health_dashboard'))
+            flash("Connexion réussie, mais votre compte n’a pas encore l’autorisation d’accéder au module santé.",'warning')
+            return redirect(url_for('dashboard'))
+        if user:
+            attempts=int(user['failed_login_count'] or 0)+1; locked_until=None
+            if attempts>=5:
+                locked_until=(datetime.now()+timedelta(minutes=15)).strftime('%Y-%m-%d %H:%M:%S'); attempts=0
+            con.execute("UPDATE users SET failed_login_count=?,locked_until=? WHERE id=?",(attempts,locked_until,user['id'])); con.commit()
+        con.close(); flash("Identifiant ou mot de passe incorrect.",'danger')
+    return render_template('health_login.html')
+
+
+@app.route('/health/appearance', methods=['GET','POST'])
+@login_required
+@module_permission_required('centres_sante','parametrer')
+def health_appearance_page():
+    con=db()
+    if request.method=='POST':
+        action=request.form.get('action','add')
+        if action=='add':
+            image_path=save_upload(request.files.get('image'),'health_carousel')
+            if not image_path:
+                flash("Choisissez une image pour le carrousel.",'warning')
+            else:
+                con.execute("INSERT INTO health_carousel_images(title,message,image_path,image_fit,active,display_order,created_at) VALUES(?,?,?,?,1,?,?)",(
+                    request.form.get('title','').strip(),request.form.get('message','').strip(),image_path,
+                    request.form.get('image_fit','cover'),request.form.get('display_order',type=int) or 0,now()))
+                con.commit(); flash("Image ajoutée au carrousel du Centre de Santé.",'success')
+        elif action=='toggle':
+            item_id=request.form.get('item_id',type=int); row=con.execute("SELECT active FROM health_carousel_images WHERE id=?",(item_id,)).fetchone()
+            if row:
+                con.execute("UPDATE health_carousel_images SET active=? WHERE id=?",(0 if row['active'] else 1,item_id)); con.commit()
+        elif action=='delete':
+            item_id=request.form.get('item_id',type=int); con.execute("DELETE FROM health_carousel_images WHERE id=?",(item_id,)); con.commit(); flash("Image retirée du carrousel.",'success')
+    slides=con.execute("SELECT * FROM health_carousel_images ORDER BY display_order ASC,id DESC").fetchall(); con.close()
+    return render_template('health_appearance.html',slides=slides)
+
+
 @app.route('/health')
 @login_required
 @module_permission_required('centres_sante','voir')
@@ -7459,8 +7539,14 @@ def health_dashboard():
         else: patients=consultations=0
     else:
         patients=con.execute('SELECT COUNT(*) n FROM patients').fetchone()['n']; consultations=con.execute('SELECT COUNT(*) n FROM consultations').fetchone()['n']
-    staff=con.execute("SELECT COUNT(*) n FROM health_staff WHERE status='active'").fetchone()['n']; con.close()
-    return render_template('health_dashboard.html', centers=centers, patients=patients, consultations=consultations, staff=staff)
+    staff=con.execute("SELECT COUNT(*) n FROM health_staff WHERE status='active'").fetchone()['n']
+    today_value=today()
+    appointments_today=con.execute("SELECT COUNT(*) n FROM health_appointments WHERE appointment_date=?",(today_value,)).fetchone()['n']
+    hospitalized=con.execute("SELECT COUNT(*) n FROM health_admissions WHERE status='admitted'").fetchone()['n']
+    pending_labs=con.execute("SELECT COUNT(*) n FROM health_lab_orders WHERE status IN ('ordered','pending')").fetchone()['n']
+    recent_visits=con.execute("""SELECT v.*,p.patient_code,p.first_name,p.last_name,hc.name center_name FROM health_visits v JOIN patients p ON p.id=v.patient_id JOIN health_centers hc ON hc.id=v.center_id ORDER BY v.id DESC LIMIT 6""").fetchall()
+    con.close()
+    return render_template('health_dashboard.html', centers=centers, patients=patients, consultations=consultations, staff=staff, appointments_today=appointments_today, hospitalized=hospitalized, pending_labs=pending_labs, recent_visits=recent_visits)
 
 @app.route('/health/centers', methods=['GET','POST'])
 @login_required
@@ -7616,10 +7702,18 @@ def _next_health_receipt_no(con):
 
 @app.route('/health/operations', methods=['GET','POST'])
 @login_required
-@module_permission_required('consultations','voir')
 def health_operations_page():
     con=db(); user=current_user(); action=request.form.get('action','') if request.method=='POST' else ''
+    health_action_modules = {'appointment':'rendez_vous','visit':'files_attente','triage':'triage','lab':'laboratoire','lab_result':'laboratoire','product':'pharmacie','batch':'stocks','admission':'hospitalisation','invoice':'facturation','support':'aide_sociale','equipment':'equipements','supplier':'fournisseurs','referral':'references'}
+    required_module = health_action_modules.get(action)
+    if request.method=='POST' and required_module and not module_allowed(required_module, 'ajouter', False) and not module_allowed(required_module, 'modifier', False) and not module_allowed(required_module, 'valider', False):
+        con.close(); abort(403)
+    if request.method=='GET' and not module_allowed('consultations','voir',False):
+        con.close(); abort(403)
     redirect_url = url_for('health_operations_page')
+    requested_return = (request.form.get('return_to') or '').strip()
+    if requested_return.startswith('/health/') and not requested_return.startswith('//'):
+        redirect_url = requested_return
     if request.method=='POST':
         center_id=request.form.get('center_id',type=int)
         center=con.execute('SELECT * FROM health_centers WHERE id=?',(center_id,)).fetchone() if center_id else None
@@ -7686,6 +7780,74 @@ def health_operations_page():
         patients=con.execute('SELECT * FROM patients ORDER BY last_name').fetchall(); visits=con.execute("SELECT v.*,p.patient_code,p.last_name,p.first_name,hc.name center_name FROM health_visits v JOIN patients p ON p.id=v.patient_id JOIN health_centers hc ON hc.id=v.center_id ORDER BY v.id DESC LIMIT 100").fetchall()
     labs=con.execute('SELECT l.*,p.patient_code,p.last_name,p.first_name FROM health_lab_orders l JOIN patients p ON p.id=l.patient_id ORDER BY l.id DESC LIMIT 100').fetchall(); products=con.execute('SELECT hp.*,COALESCE(SUM(b.quantity),0) stock FROM health_products hp LEFT JOIN health_stock_batches b ON b.product_id=hp.id GROUP BY hp.id ORDER BY hp.name').fetchall(); invoices=con.execute('''SELECT i.*,p.patient_code,p.last_name,p.first_name,hc.name center_name, (SELECT hp.id FROM health_payments hp WHERE hp.invoice_id=i.id AND hp.voided_at IS NULL ORDER BY hp.id DESC LIMIT 1) latest_payment_id FROM health_invoices i JOIN patients p ON p.id=i.patient_id JOIN health_centers hc ON hc.id=i.center_id WHERE i.deleted_at IS NULL ORDER BY i.id DESC LIMIT 100''').fetchall(); admissions=con.execute('SELECT a.*,p.patient_code,p.last_name,p.first_name FROM health_admissions a JOIN patients p ON p.id=a.patient_id ORDER BY a.id DESC LIMIT 100').fetchall(); suppliers=con.execute('SELECT * FROM health_suppliers WHERE active=1 ORDER BY name').fetchall(); equipment=con.execute('SELECT e.*,hc.name center_name FROM health_equipment e JOIN health_centers hc ON hc.id=e.center_id ORDER BY e.id DESC LIMIT 100').fetchall(); appointments=con.execute('SELECT a.*,p.patient_code,p.last_name,p.first_name FROM health_appointments a JOIN patients p ON p.id=a.patient_id ORDER BY a.appointment_date DESC,a.appointment_time DESC LIMIT 100').fetchall(); referrals=con.execute('SELECT r.*,p.patient_code,p.last_name,p.first_name FROM health_referrals r JOIN patients p ON p.id=r.patient_id ORDER BY r.id DESC LIMIT 100').fetchall()
     con.close(); return render_template('health_operations.html',centers=centers,patients=patients,visits=visits,labs=labs,products=products,invoices=invoices,admissions=admissions,suppliers=suppliers,equipment=equipment,appointments=appointments,referrals=referrals)
+
+
+# ===== V103 : interfaces métier dédiées du Centre de Santé =====
+def _health_common_lists(con, user):
+    where,args=_health_scope_clause('hc')
+    centers=con.execute('SELECT hc.* FROM health_centers hc'+where+' ORDER BY hc.province,hc.name',args).fetchall()
+    if user['role'] in PROVINCIAL_ROLES:
+        patients=con.execute('SELECT p.* FROM patients p JOIN health_centers hc ON hc.id=p.center_id WHERE hc.province=? AND p.deleted_at IS NULL ORDER BY p.last_name,p.first_name',(user['province'],)).fetchall()
+    else:
+        patients=con.execute('SELECT * FROM patients WHERE deleted_at IS NULL ORDER BY last_name,first_name').fetchall()
+    return centers,patients
+
+@app.get('/health/reception')
+@login_required
+@module_permission_required('files_attente','voir')
+def health_reception_page():
+    con=db(); user=current_user(); centers,patients=_health_common_lists(con,user)
+    province_filter=(user['province'] or '') if user['role'] in PROVINCIAL_ROLES else None
+    if province_filter:
+        visits=con.execute("SELECT v.*,p.patient_code,p.last_name,p.first_name,hc.name center_name FROM health_visits v JOIN patients p ON p.id=v.patient_id JOIN health_centers hc ON hc.id=v.center_id WHERE hc.province=? AND v.visit_date=? ORDER BY CASE v.priority WHEN 'critique' THEN 0 WHEN 'urgent' THEN 1 ELSE 2 END,v.queue_number",(province_filter,today())).fetchall()
+    else:
+        visits=con.execute("SELECT v.*,p.patient_code,p.last_name,p.first_name,hc.name center_name FROM health_visits v JOIN patients p ON p.id=v.patient_id JOIN health_centers hc ON hc.id=v.center_id WHERE v.visit_date=? ORDER BY CASE v.priority WHEN 'critique' THEN 0 WHEN 'urgent' THEN 1 ELSE 2 END,v.queue_number",(today(),)).fetchall()
+    con.close(); return render_template('health_reception.html',centers=centers,patients=patients,visits=visits)
+
+@app.get('/health/rendez-vous')
+@login_required
+@module_permission_required('rendez_vous','voir')
+def health_appointments_page():
+    con=db(); user=current_user(); centers,patients=_health_common_lists(con,user)
+    if user['role'] in PROVINCIAL_ROLES:
+        appointments=con.execute('SELECT a.*,p.patient_code,p.last_name,p.first_name,hc.name center_name FROM health_appointments a JOIN patients p ON p.id=a.patient_id JOIN health_centers hc ON hc.id=a.center_id WHERE hc.province=? ORDER BY a.appointment_date,a.appointment_time',(user['province'],)).fetchall()
+    else:
+        appointments=con.execute('SELECT a.*,p.patient_code,p.last_name,p.first_name,hc.name center_name FROM health_appointments a JOIN patients p ON p.id=a.patient_id JOIN health_centers hc ON hc.id=a.center_id ORDER BY a.appointment_date,a.appointment_time').fetchall()
+    con.close(); return render_template('health_appointments.html',centers=centers,patients=patients,appointments=appointments)
+
+@app.get('/health/laboratoire')
+@login_required
+@module_permission_required('laboratoire','voir')
+def health_laboratory_page():
+    con=db(); user=current_user(); centers,patients=_health_common_lists(con,user)
+    if user['role'] in PROVINCIAL_ROLES:
+        labs=con.execute('SELECT l.*,p.patient_code,p.last_name,p.first_name,hc.name center_name FROM health_lab_orders l JOIN patients p ON p.id=l.patient_id JOIN health_centers hc ON hc.id=l.center_id WHERE hc.province=? ORDER BY l.id DESC LIMIT 200',(user['province'],)).fetchall()
+    else:
+        labs=con.execute('SELECT l.*,p.patient_code,p.last_name,p.first_name,hc.name center_name FROM health_lab_orders l JOIN patients p ON p.id=l.patient_id JOIN health_centers hc ON hc.id=l.center_id ORDER BY l.id DESC LIMIT 200').fetchall()
+    con.close(); return render_template('health_laboratory.html',centers=centers,patients=patients,labs=labs)
+
+@app.get('/health/pharmacie')
+@login_required
+@module_permission_required('pharmacie','voir')
+def health_pharmacy_page():
+    con=db(); user=current_user(); centers,_=_health_common_lists(con,user)
+    if user['role'] in PROVINCIAL_ROLES:
+        products=con.execute('SELECT hp.*,hc.name center_name,COALESCE(SUM(b.quantity),0) stock,MIN(NULLIF(b.expiry_date,\'\')) next_expiry FROM health_products hp JOIN health_centers hc ON hc.id=hp.center_id LEFT JOIN health_stock_batches b ON b.product_id=hp.id WHERE hc.province=? GROUP BY hp.id ORDER BY hp.name',(user['province'],)).fetchall()
+    else:
+        products=con.execute('SELECT hp.*,hc.name center_name,COALESCE(SUM(b.quantity),0) stock,MIN(NULLIF(b.expiry_date,\'\')) next_expiry FROM health_products hp JOIN health_centers hc ON hc.id=hp.center_id LEFT JOIN health_stock_batches b ON b.product_id=hp.id GROUP BY hp.id ORDER BY hp.name').fetchall()
+    suppliers=con.execute('SELECT * FROM health_suppliers WHERE active=1 ORDER BY name').fetchall()
+    con.close(); return render_template('health_pharmacy.html',centers=centers,products=products,suppliers=suppliers)
+
+@app.get('/health/facturation')
+@login_required
+@module_permission_required('facturation','voir')
+def health_billing_page():
+    con=db(); user=current_user(); centers,patients=_health_common_lists(con,user)
+    if user['role'] in PROVINCIAL_ROLES:
+        invoices=con.execute('SELECT i.*,p.patient_code,p.last_name,p.first_name,hc.name center_name FROM health_invoices i JOIN patients p ON p.id=i.patient_id JOIN health_centers hc ON hc.id=i.center_id WHERE hc.province=? AND i.deleted_at IS NULL ORDER BY i.id DESC LIMIT 200',(user['province'],)).fetchall()
+    else:
+        invoices=con.execute('SELECT i.*,p.patient_code,p.last_name,p.first_name,hc.name center_name FROM health_invoices i JOIN patients p ON p.id=i.patient_id JOIN health_centers hc ON hc.id=i.center_id WHERE i.deleted_at IS NULL ORDER BY i.id DESC LIMIT 200').fetchall()
+    con.close(); return render_template('health_billing.html',centers=centers,patients=patients,invoices=invoices)
 
 
 @app.post('/health/invoices/<int:invoice_id>/payment')
@@ -8529,6 +8691,10 @@ def sync_user_audience_chats(con, user):
     all_id = _ensure_audience_chat(con, 'Tous les membres FOBAK', 'all', '', user['id'])
     con.execute("INSERT OR IGNORE INTO chat_participants(conversation_id,user_id,joined_at,role) VALUES(?,?,?,'member')", (all_id, user['id'], now()))
     con.execute("INSERT OR IGNORE INTO chat_participants(conversation_id,user_id,joined_at,role) SELECT ?,id,?,'member' FROM users WHERE active=1 AND deleted_at IS NULL", (all_id, now()))
+    announcements_id = _ensure_audience_chat(con, 'Annonces officielles FOBAK', 'announcements', '', user['id'])
+    con.execute("UPDATE chat_conversations SET description=? WHERE id=?", ('Informations officielles de la Fondation. Les membres peuvent consulter et réagir ; la publication est réservée aux responsables autorisés.', announcements_id))
+    con.execute("INSERT OR IGNORE INTO chat_participants(conversation_id,user_id,joined_at,role) VALUES(?,?,?,'member')", (announcements_id, user['id'], now()))
+    con.execute("INSERT OR IGNORE INTO chat_participants(conversation_id,user_id,joined_at,role) SELECT ?,id,?,'member' FROM users WHERE active=1 AND deleted_at IS NULL", (announcements_id, now()))
     province = (user['province'] or '').strip()
     if province:
         province_id = _ensure_audience_chat(con, f'Province — {province}', 'province', province, user['id'])
@@ -8536,6 +8702,117 @@ def sync_user_audience_chats(con, user):
         con.execute("INSERT OR IGNORE INTO chat_participants(conversation_id,user_id,joined_at,role) SELECT ?,id,?,'member' FROM users WHERE active=1 AND deleted_at IS NULL AND province=?", (province_id, now(), province))
     con.commit()
 
+
+def _health_role_family(role_name):
+    name=(role_name or '').strip().lower()
+    if any(k in name for k in ('médec','medec','docteur','chirurg')): return 'medecins','Médecins'
+    if any(k in name for k in ('infirm','sage-femme','sage femme')): return 'infirmiers','Infirmiers'
+    if any(k in name for k in ('labor','biolog')): return 'laboratoire','Laboratoire'
+    if 'pharmac' in name: return 'pharmacie','Pharmacie'
+    if any(k in name for k in ('récept','recept','accueil')): return 'reception','Réception'
+    if any(k in name for k in ('compt','caisse','finance')): return 'comptabilite','Comptabilité'
+    if any(k in name for k in ('admin','direct','coordonn','responsable')): return 'administration','Administration'
+    return 'personnel','Personnel'
+
+
+def sync_health_audience_chats(con, user):
+    rows=con.execute("""SELECT DISTINCT hc.id center_id,hc.name center_name,hc.province,hr.name role_name
+                        FROM health_staff hs JOIN members m ON m.id=hs.member_id
+                        JOIN health_centers hc ON hc.id=hs.center_id JOIN health_roles hr ON hr.id=hs.role_id
+                        WHERE m.user_id=? AND hs.status='active' AND hc.active=1""",(user['id'],)).fetchall()
+    if user['role'] in ('super_admin','president') and not rows:
+        rows=con.execute("SELECT id center_id,name center_name,province,'Administration' role_name FROM health_centers WHERE active=1 AND deleted_at IS NULL").fetchall()
+    for row in rows:
+        cid=row['center_id']; center_name=row['center_name'] or 'Centre de Santé BAKITANI'
+        general_id=_ensure_audience_chat(con, f'{center_name} — Général personnel', 'health_center', str(cid), user['id'])
+        con.execute("UPDATE chat_conversations SET description=? WHERE id=?", ('Canal interne du personnel autorisé de ce centre de santé.',general_id))
+        con.execute("""INSERT OR IGNORE INTO chat_participants(conversation_id,user_id,joined_at,role)
+                       SELECT ?,u.id,?,'member' FROM health_staff hs
+                       JOIN members m ON m.id=hs.member_id JOIN users u ON u.id=m.user_id
+                       WHERE hs.center_id=? AND hs.status='active' AND u.active=1 AND u.deleted_at IS NULL""",(general_id,now(),cid))
+        if user['role'] in ('super_admin','president'):
+            con.execute("INSERT OR IGNORE INTO chat_participants(conversation_id,user_id,joined_at,role) VALUES(?,?,?,'admin')",(general_id,user['id'],now()))
+        ann_id=_ensure_audience_chat(con, f'{center_name} — Annonces Santé', 'health_announcement', str(cid), user['id'])
+        con.execute("UPDATE chat_conversations SET description=? WHERE id=?", ('Annonces institutionnelles du Centre de Santé. Publication réservée aux responsables autorisés.',ann_id))
+        con.execute("""INSERT OR IGNORE INTO chat_participants(conversation_id,user_id,joined_at,role)
+                       SELECT ?,u.id,?,'member' FROM health_staff hs
+                       JOIN members m ON m.id=hs.member_id JOIN users u ON u.id=m.user_id
+                       WHERE hs.center_id=? AND hs.status='active' AND u.active=1 AND u.deleted_at IS NULL""",(ann_id,now(),cid))
+        if user['role'] in ('super_admin','president'):
+            con.execute("INSERT OR IGNORE INTO chat_participants(conversation_id,user_id,joined_at,role) VALUES(?,?,?,'admin')",(ann_id,user['id'],now()))
+        staff_rows=con.execute("""SELECT DISTINCT u.id,hr.name FROM health_staff hs JOIN health_roles hr ON hr.id=hs.role_id
+                                  JOIN members m ON m.id=hs.member_id JOIN users u ON u.id=m.user_id
+                                  WHERE hs.center_id=? AND hs.status='active' AND u.active=1 AND u.deleted_at IS NULL""",(cid,)).fetchall()
+        families={}
+        for st in staff_rows:
+            key,label=_health_role_family(st['name']); families.setdefault((key,label),[]).append(st['id'])
+        for (key,label),ids in families.items():
+            rid=_ensure_audience_chat(con, f'{center_name} — {label}', 'health_role', f'{cid}:{key}', user['id'])
+            con.execute("UPDATE chat_conversations SET description=? WHERE id=?", (f'Canal métier : {label}.',rid))
+            for uid in ids:
+                con.execute("INSERT OR IGNORE INTO chat_participants(conversation_id,user_id,joined_at,role) VALUES(?,?,?,'member')",(rid,uid,now()))
+            if user['role'] in ('super_admin','president'):
+                con.execute("INSERT OR IGNORE INTO chat_participants(conversation_id,user_id,joined_at,role) VALUES(?,?,?,'admin')",(rid,user['id'],now()))
+    con.commit()
+
+
+def _health_private_users(con, user):
+    if user['role'] in ('super_admin','president'):
+        return con.execute("""SELECT DISTINCT u.id,u.first_name,u.last_name,u.email,u.province,m.photo_path,hr.name health_role,hc.name center_name
+                              FROM health_staff hs JOIN members m ON m.id=hs.member_id JOIN users u ON u.id=m.user_id
+                              JOIN health_roles hr ON hr.id=hs.role_id JOIN health_centers hc ON hc.id=hs.center_id
+                              WHERE hs.status='active' AND u.active=1 AND u.deleted_at IS NULL AND u.id<>?
+                              ORDER BY hc.name,u.first_name,u.last_name""",(user['id'],)).fetchall()
+    return con.execute("""SELECT DISTINCT u.id,u.first_name,u.last_name,u.email,u.province,m.photo_path,hr.name health_role,hc.name center_name
+                          FROM health_staff mine JOIN members mm ON mm.id=mine.member_id
+                          JOIN health_staff hs ON hs.center_id=mine.center_id JOIN members m ON m.id=hs.member_id
+                          JOIN users u ON u.id=m.user_id JOIN health_roles hr ON hr.id=hs.role_id JOIN health_centers hc ON hc.id=hs.center_id
+                          WHERE mm.user_id=? AND mine.status='active' AND hs.status='active' AND u.active=1 AND u.deleted_at IS NULL AND u.id<>?
+                          ORDER BY hc.name,u.first_name,u.last_name""",(user['id'],user['id'])).fetchall()
+
+
+@app.route('/health/communication', methods=['GET','POST'])
+@login_required
+@module_permission_required('centres_sante','voir')
+def health_communication_page():
+    user=current_user(); con=db(); sync_health_audience_chats(con,user)
+    if request.method=='POST':
+        mode=request.form.get('mode','private')
+        allowed={r['id'] for r in _health_private_users(con,user)}
+        if mode=='private':
+            other_id=request.form.get('user_id',type=int)
+            if not other_id or other_id not in allowed:
+                con.close(); flash('Choisissez un membre du personnel autorisé.','warning'); return redirect(url_for('health_communication_page'))
+            existing=con.execute("SELECT c.id FROM chat_conversations c JOIN chat_participants p1 ON p1.conversation_id=c.id AND p1.user_id=? JOIN chat_participants p2 ON p2.conversation_id=c.id AND p2.user_id=? WHERE c.conversation_type='private' AND c.audience_scope='health_private'",(user['id'],other_id)).fetchone()
+            if existing:
+                conv_id=existing['id']
+            else:
+                con.execute("INSERT INTO chat_conversations(title,conversation_type,created_by,created_at,audience_scope,description) VALUES('Discussion privée Santé','private',?,?,'health_private',?)",(user['id'],now(),'Échange professionnel privé au sein du Centre de Santé.'))
+                conv_id=con.execute('SELECT last_insert_rowid() id').fetchone()['id']
+                con.executemany('INSERT INTO chat_participants(conversation_id,user_id,joined_at) VALUES(?,?,?)',[(conv_id,user['id'],now()),(conv_id,other_id,now())]); con.commit()
+            con.close(); return redirect(url_for('chat_conversation',conversation_id=conv_id,context='health'))
+        if mode=='group':
+            title=(request.form.get('title') or '').strip()[:120]; ids=[]
+            for raw in request.form.getlist('member_ids'):
+                try: uid=int(raw)
+                except Exception: continue
+                if uid in allowed: ids.append(uid)
+            if not title or not ids:
+                con.close(); flash('Indiquez un nom et au moins un membre du personnel.','warning'); return redirect(url_for('health_communication_page'))
+            con.execute("INSERT INTO chat_conversations(title,conversation_type,created_by,created_at,audience_scope,description) VALUES(?, 'group', ?, ?, 'health_manual', ?)",(title,user['id'],now(),'Groupe de travail du Centre de Santé.'))
+            conv_id=con.execute('SELECT last_insert_rowid() id').fetchone()['id']
+            con.execute("INSERT INTO chat_participants(conversation_id,user_id,joined_at,role) VALUES(?,?,?,'admin')",(conv_id,user['id'],now()))
+            for uid in sorted(set(ids)):
+                con.execute("INSERT OR IGNORE INTO chat_participants(conversation_id,user_id,joined_at,role) VALUES(?,?,?,'member')",(conv_id,uid,now()))
+            con.commit(); con.close(); return redirect(url_for('chat_conversation',conversation_id=conv_id,context='health'))
+    channels=con.execute("""SELECT c.*,p.pinned,MAX(m.created_at) last_message_at,COUNT(DISTINCT m.id) message_count,
+                            COALESCE((SELECT COUNT(*) FROM chat_messages um WHERE um.conversation_id=c.id AND um.deleted_at IS NULL AND um.id>COALESCE((SELECT last_read_message_id FROM chat_reads WHERE conversation_id=c.id AND user_id=?),0) AND um.sender_id<>?),0) unread_count
+                            FROM chat_conversations c JOIN chat_participants p ON p.conversation_id=c.id AND p.user_id=?
+                            LEFT JOIN chat_messages m ON m.conversation_id=c.id AND m.deleted_at IS NULL
+                            WHERE c.active=1 AND c.audience_scope LIKE 'health_%'
+                            GROUP BY c.id ORDER BY CASE WHEN c.audience_scope='health_announcement' THEN 0 WHEN c.audience_scope='health_center' THEN 1 WHEN c.audience_scope='health_role' THEN 2 ELSE 3 END,COALESCE(last_message_at,c.created_at) DESC""",(user['id'],user['id'],user['id'])).fetchall()
+    users=_health_private_users(con,user)
+    con.close(); return render_template('health_communication.html',channels=channels,users=users)
 
 def chat_dashboard_summary(user):
     con = db(); sync_user_audience_chats(con, user)
@@ -8573,13 +8850,15 @@ def chat_home():
     if q: search=" AND (lower(COALESCE(c.title,'')) LIKE ? OR lower(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')) LIKE ?)"; params += [f'%{q.lower()}%',f'%{q.lower()}%']
     conversations=con.execute(f'''SELECT c.*,p.pinned,p.archived,MAX(m.created_at) last_message_at,COUNT(DISTINCT m.id) message_count,
       GROUP_CONCAT(DISTINCT CASE WHEN up.user_id<>? THEN trim(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')) END) other_names,
+      MAX(CASE WHEN up.user_id<>p.user_id THEN mem.photo_path END) other_photo,
       COALESCE((SELECT COUNT(*) FROM chat_messages um WHERE um.conversation_id=c.id AND um.deleted_at IS NULL AND um.id>COALESCE((SELECT last_read_message_id FROM chat_reads WHERE conversation_id=c.id AND user_id=p.user_id),0) AND um.sender_id<>p.user_id),0) unread_count
       FROM chat_conversations c JOIN chat_participants p ON p.conversation_id=c.id
       LEFT JOIN chat_participants up ON up.conversation_id=c.id LEFT JOIN users u ON u.id=up.user_id
+      LEFT JOIN members mem ON mem.user_id=u.id AND mem.deleted_at IS NULL
       LEFT JOIN chat_messages m ON m.conversation_id=c.id AND m.deleted_at IS NULL
       WHERE p.user_id=? AND p.hidden_at IS NULL AND c.active=1 AND COALESCE(p.archived,0)=? {search}
       GROUP BY c.id ORDER BY COALESCE(p.pinned,0) DESC,COALESCE(last_message_at,c.created_at) DESC''',params).fetchall()
-    users=con.execute('SELECT id,first_name,last_name,email,role,province FROM users WHERE active=1 AND deleted_at IS NULL AND id<>? ORDER BY first_name,last_name,email',(user['id'],)).fetchall(); con.close(); return render_template('chat_home.html',conversations=conversations,users=users,q=q,archived=archived)
+    users=con.execute('SELECT u.id,u.first_name,u.last_name,u.email,u.role,u.province,m.photo_path FROM users u LEFT JOIN members m ON m.user_id=u.id AND m.deleted_at IS NULL WHERE u.active=1 AND u.deleted_at IS NULL AND u.id<>? ORDER BY u.first_name,u.last_name,u.email',(user['id'],)).fetchall(); con.close(); return render_template('chat_home.html',conversations=conversations,users=users,q=q,archived=archived)
 
 
 def _chat_participant(con, conversation_id, user_id):
@@ -8590,8 +8869,16 @@ def _chat_participant(con, conversation_id, user_id):
 def chat_conversation(conversation_id):
     user=current_user(); con=db(); participant=_chat_participant(con,conversation_id,user['id'])
     if not participant: con.close(); abort(403)
+    info=con.execute('SELECT * FROM chat_conversations WHERE id=?',(conversation_id,)).fetchone()
+    if not info: con.close(); abort(404)
+    health_context=request.args.get('context')=='health' or str(info['audience_scope'] or '').startswith('health_')
     con.execute('UPDATE chat_participants SET last_seen_at=?,hidden_at=NULL WHERE conversation_id=? AND user_id=?',(now(),conversation_id,user['id']))
     if request.method=='POST':
+        scope=(info['audience_scope'] or '')
+        if scope in ('announcements','health_announcement'):
+            can_publish = (user['role'] in ('super_admin','president','secretary','national_secretary')) if scope=='announcements' else (user['role'] in ('super_admin','president') or module_allowed('centres_sante','parametrer'))
+            if not can_publish:
+                con.close(); return (jsonify({'ok':False,'error':'Publication réservée aux responsables autorisés.'}),403) if request.headers.get('X-Requested-With')=='XMLHttpRequest' else abort(403)
         body=request.form.get('body','').strip(); sticker=request.form.get('sticker','').strip(); reply_to=request.form.get('reply_to_id',type=int); f=request.files.get('attachment'); path=atype=original=''; size=0
         if sticker and len(sticker)<=20: body=sticker; atype='sticker'
         if f and f.filename:
@@ -8602,7 +8889,7 @@ def chat_conversation(conversation_id):
         if body or path:
             con.execute('INSERT INTO chat_messages(conversation_id,sender_id,body,attachment_path,attachment_type,original_name,file_size,created_at,message_kind,reply_to_id) VALUES(?,?,?,?,?,?,?,?,?,?)',(conversation_id,user['id'],body,path,atype,original,size,now(),atype or 'text',reply_to)); con.execute('UPDATE chat_participants SET hidden_at=NULL,archived=0 WHERE conversation_id=?',(conversation_id,)); con.commit()
         con.close(); return jsonify({'ok':True}) if request.headers.get('X-Requested-With')=='XMLHttpRequest' else redirect(url_for('chat_conversation',conversation_id=conversation_id))
-    messages=con.execute('''SELECT m.*,u.first_name,u.last_name,u.email,rm.body reply_body,ru.first_name reply_first_name,ru.last_name reply_last_name FROM chat_messages m JOIN users u ON u.id=m.sender_id LEFT JOIN chat_messages rm ON rm.id=m.reply_to_id LEFT JOIN users ru ON ru.id=rm.sender_id WHERE m.conversation_id=? AND m.deleted_at IS NULL ORDER BY m.id ASC LIMIT 500''',(conversation_id,)).fetchall(); info=con.execute('SELECT * FROM chat_conversations WHERE id=?',(conversation_id,)).fetchone(); people=con.execute('''SELECT u.id,u.first_name,u.last_name,u.email,u.province,p.role,p.last_seen_at,p.typing_at FROM chat_participants p JOIN users u ON u.id=p.user_id WHERE p.conversation_id=? ORDER BY u.first_name,u.last_name,u.email''',(conversation_id,)).fetchall(); settings=con.execute('SELECT * FROM chat_user_settings WHERE user_id=?',(user['id'],)).fetchone()
+    messages=con.execute('''SELECT m.*,u.first_name,u.last_name,u.email,mu.photo_path sender_photo,rm.body reply_body,ru.first_name reply_first_name,ru.last_name reply_last_name FROM chat_messages m JOIN users u ON u.id=m.sender_id LEFT JOIN members mu ON mu.user_id=u.id AND mu.deleted_at IS NULL LEFT JOIN chat_messages rm ON rm.id=m.reply_to_id LEFT JOIN users ru ON ru.id=rm.sender_id WHERE m.conversation_id=? AND m.deleted_at IS NULL ORDER BY m.id ASC LIMIT 500''',(conversation_id,)).fetchall(); people=con.execute('''SELECT u.id,u.first_name,u.last_name,u.email,u.province,m.photo_path,p.role,p.last_seen_at,p.typing_at FROM chat_participants p JOIN users u ON u.id=p.user_id LEFT JOIN members m ON m.user_id=u.id AND m.deleted_at IS NULL WHERE p.conversation_id=? ORDER BY u.first_name,u.last_name,u.email''',(conversation_id,)).fetchall(); settings=con.execute('SELECT * FROM chat_user_settings WHERE user_id=?',(user['id'],)).fetchone()
     other_people=[p for p in people if p['id']!=user['id']]
     if info['conversation_type']=='group':
         conversation_title=(info['title'] or 'Groupe FOBAK').strip()
@@ -8612,19 +8899,27 @@ def chat_conversation(conversation_id):
             name=' '.join(x for x in [(p['first_name'] or '').strip(),(p['last_name'] or '').strip()] if x)
             names.append(name or p['email'] or 'Membre FOBAK')
         conversation_title=', '.join(names) or 'Discussion privée'
-    available_users=con.execute('''SELECT id,first_name,last_name,email,province FROM users WHERE active=1 AND deleted_at IS NULL AND id<>? AND id NOT IN (SELECT user_id FROM chat_participants WHERE conversation_id=?) ORDER BY first_name,last_name,email''',(user['id'],conversation_id)).fetchall()
+    if health_context:
+        participant_ids={p['id'] for p in people}
+        available_users=[u for u in _health_private_users(con,user) if u['id'] not in participant_ids]
+    else:
+        available_users=con.execute('''SELECT u.id,u.first_name,u.last_name,u.email,u.province,m.photo_path FROM users u LEFT JOIN members m ON m.user_id=u.id AND m.deleted_at IS NULL WHERE u.active=1 AND u.deleted_at IS NULL AND u.id<>? AND u.id NOT IN (SELECT user_id FROM chat_participants WHERE conversation_id=?) ORDER BY first_name,last_name,email''',(user['id'],conversation_id)).fetchall()
     meetings=con.execute('SELECT * FROM chat_meetings WHERE conversation_id=? ORDER BY meeting_at DESC LIMIT 10',(conversation_id,)).fetchall()
+    if health_context:
+        sidebar_conversations=con.execute("""SELECT c.id,c.title,c.conversation_type,c.audience_scope,MAX(m.created_at) last_message_at FROM chat_conversations c JOIN chat_participants p ON p.conversation_id=c.id AND p.user_id=? LEFT JOIN chat_messages m ON m.conversation_id=c.id AND m.deleted_at IS NULL WHERE c.active=1 AND (c.audience_scope LIKE 'health_%' OR c.conversation_type='private') GROUP BY c.id ORDER BY COALESCE(MAX(m.created_at),c.created_at) DESC LIMIT 60""",(user['id'],)).fetchall()
+    else:
+        sidebar_conversations=con.execute("""SELECT c.id,c.title,c.conversation_type,c.audience_scope,MAX(m.created_at) last_message_at FROM chat_conversations c JOIN chat_participants p ON p.conversation_id=c.id AND p.user_id=? LEFT JOIN chat_messages m ON m.conversation_id=c.id AND m.deleted_at IS NULL WHERE c.active=1 AND COALESCE(c.audience_scope,'manual') NOT LIKE 'health_%' GROUP BY c.id ORDER BY COALESCE(MAX(m.created_at),c.created_at) DESC LIMIT 60""",(user['id'],)).fetchall()
     if messages:
         con.execute('''INSERT INTO chat_reads(conversation_id,user_id,last_read_message_id,read_at) VALUES(?,?,?,?) ON CONFLICT(conversation_id,user_id) DO UPDATE SET last_read_message_id=excluded.last_read_message_id,read_at=excluded.read_at''',(conversation_id,user['id'],messages[-1]['id'],now()))
     if not settings: con.execute('INSERT OR IGNORE INTO chat_user_settings(user_id,updated_at) VALUES(?,?)',(user['id'],now())); settings=con.execute('SELECT * FROM chat_user_settings WHERE user_id=?',(user['id'],)).fetchone()
-    con.commit(); con.close(); return render_template('chat_conversation.html',messages=messages,conversation=info,people=people,chat_settings=settings,conversation_title=conversation_title,available_users=available_users,meetings=meetings)
+    con.commit(); con.close(); return render_template('chat_conversation.html',messages=messages,conversation=info,people=people,chat_settings=settings,conversation_title=conversation_title,available_users=available_users,meetings=meetings,health_context=health_context,sidebar_conversations=sidebar_conversations)
 
 @app.route('/api/chat/<int:conversation_id>/messages')
 @login_required
 def chat_messages_api(conversation_id):
     user=current_user(); con=db()
     if not _chat_participant(con,conversation_id,user['id']): con.close(); return jsonify({'ok':False}),403
-    after=max(0,request.args.get('after',0,type=int)); rows=con.execute('''SELECT m.*,u.first_name,u.last_name,rm.body reply_body,ru.first_name reply_first_name,ru.last_name reply_last_name FROM chat_messages m JOIN users u ON u.id=m.sender_id LEFT JOIN chat_messages rm ON rm.id=m.reply_to_id LEFT JOIN users ru ON ru.id=rm.sender_id WHERE m.conversation_id=? AND m.deleted_at IS NULL AND m.id>? ORDER BY m.id ASC LIMIT 200''',(conversation_id,after)).fetchall()
+    after=max(0,request.args.get('after',0,type=int)); rows=con.execute('''SELECT m.*,u.first_name,u.last_name,mu.photo_path sender_photo,rm.body reply_body,ru.first_name reply_first_name,ru.last_name reply_last_name FROM chat_messages m JOIN users u ON u.id=m.sender_id LEFT JOIN members mu ON mu.user_id=u.id AND mu.deleted_at IS NULL LEFT JOIN chat_messages rm ON rm.id=m.reply_to_id LEFT JOIN users ru ON ru.id=rm.sender_id WHERE m.conversation_id=? AND m.deleted_at IS NULL AND m.id>? ORDER BY m.id ASC LIMIT 200''',(conversation_id,after)).fetchall()
     if rows: con.execute('''INSERT INTO chat_reads(conversation_id,user_id,last_read_message_id,read_at) VALUES(?,?,?,?) ON CONFLICT(conversation_id,user_id) DO UPDATE SET last_read_message_id=excluded.last_read_message_id,read_at=excluded.read_at''',(conversation_id,user['id'],rows[-1]['id'],now()))
     con.execute('UPDATE chat_participants SET last_seen_at=? WHERE conversation_id=? AND user_id=?',(now(),conversation_id,user['id'])); con.commit(); typing=con.execute("SELECT u.first_name,u.last_name FROM chat_participants p JOIN users u ON u.id=p.user_id WHERE p.conversation_id=? AND p.user_id<>? AND p.typing_at IS NOT NULL AND datetime(p.typing_at)>=datetime('now','-6 seconds')",(conversation_id,user['id'])).fetchall(); con.close()
     messages=[]
@@ -8664,12 +8959,14 @@ def chat_add_members(conversation_id):
     info=con.execute('SELECT * FROM chat_conversations WHERE id=?',(conversation_id,)).fetchone()
     if not participant or not info or info['conversation_type']!='group': con.close(); abort(403)
     ids=request.form.getlist('member_ids')
+    health_scope=str(info['audience_scope'] or '').startswith('health_')
+    health_allowed={r['id'] for r in _health_private_users(con,user)} if health_scope else None
     added=0
     for raw in ids:
         try: uid=int(raw)
         except (TypeError,ValueError): continue
         valid=con.execute('SELECT id FROM users WHERE id=? AND active=1 AND deleted_at IS NULL',(uid,)).fetchone()
-        if valid:
+        if valid and (health_allowed is None or uid in health_allowed):
             cur=con.execute("INSERT OR IGNORE INTO chat_participants(conversation_id,user_id,joined_at,role) VALUES(?,?,?,'member')",(conversation_id,uid,now()))
             added += cur.rowcount
     con.commit(); con.close(); flash(f'{added} membre(s) ajouté(s) au groupe.','success'); return redirect(url_for('chat_conversation',conversation_id=conversation_id))

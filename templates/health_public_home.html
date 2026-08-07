@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Centre de Santé BAKITANI</title><meta name="theme-color" content="#0d6f67">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/health.css') }}?v={{ app_version }}">
+</head>
+<body class="health-public">
+<header class="health-public-header">
+  <a class="health-public-brand" href="{{ url_for('health_public_home') }}"><span>✚</span><div><strong>Centre de Santé BAKITANI</strong><small>Soins • Prévention • Proximité</small></div></a>
+  <nav><a href="#services">Services</a><a href="#centres">Nos centres</a><a href="#contact">Contact</a><a class="health-btn ghost" href="{{ url_for('index') }}">FOBAK</a><a class="health-btn" href="{{ url_for('health_login') }}">Connexion</a></nav>
+</header>
+<main>
+  <section class="health-hero-carousel" data-health-carousel>
+    {% if slides %}{% for slide in slides %}
+      <article class="health-hero-slide {{ 'active' if loop.first else '' }}" style="background-image:linear-gradient(90deg,rgba(3,37,48,.86),rgba(3,37,48,.35)),url('{{ url_for('static',filename=slide.image_path) }}');background-size:{{ slide.image_fit or 'cover' }}">
+        <div><span>Centre de Santé BAKITANI</span><h1>{{ slide.title or 'Votre santé, notre engagement' }}</h1><p>{{ slide.message or 'Un parcours de soins clair, humain et sécurisé.' }}</p><div class="health-hero-actions"><a class="health-btn" href="#rendezvous">Prendre rendez-vous</a><a class="health-btn ghost-light" href="{{ url_for('health_login') }}">Espace patient / personnel</a></div></div>
+      </article>
+    {% endfor %}{% else %}
+      <article class="health-hero-slide active health-fallback"><div><span>Centre de Santé BAKITANI</span><h1>Des soins organisés autour du patient.</h1><p>Accueil, consultation, laboratoire, pharmacie et suivi dans un même système sécurisé.</p><div class="health-hero-actions"><a class="health-btn" href="#rendezvous">Prendre rendez-vous</a><a class="health-btn ghost-light" href="{{ url_for('health_login') }}">Se connecter</a></div></div></article>
+    {% endif %}
+    <button class="health-carousel-prev" aria-label="Précédent">‹</button><button class="health-carousel-next" aria-label="Suivant">›</button>
+  </section>
+
+  <section class="health-public-actions" id="rendezvous">
+    <a href="{{ url_for('health_login') }}"><b>📅</b><span><strong>Prendre rendez-vous</strong><small>Accédez à votre espace pour programmer une consultation.</small></span></a>
+    <a href="{{ url_for('health_login') }}"><b>👤</b><span><strong>Espace patient</strong><small>Résultats, ordonnances, factures et historique.</small></span></a>
+    <a href="{{ url_for('health_login') }}"><b>🩺</b><span><strong>Personnel de santé</strong><small>Accès sécurisé selon votre fonction.</small></span></a>
+    <a href="#contact"><b>🚑</b><span><strong>Besoin d’aide ?</strong><small>Contactez rapidement un centre disponible.</small></span></a>
+  </section>
+
+  <section class="health-public-section" id="services"><div class="health-section-heading"><span>Nos services</span><h2>Un parcours de soins cohérent</h2><p>Les services sont structurés pour limiter les déplacements inutiles et assurer un meilleur suivi du dossier médical.</p></div>
+    <div class="health-service-grid">
+      {% for icon,title,text in [('🛎️','Accueil & réception','Enregistrement, orientation et file d’attente.'),('🩺','Consultations','Consultations générales et spécialisées.'),('🧪','Laboratoire','Demandes, prélèvements et résultats.'),('💊','Pharmacie','Ordonnances, stock et délivrance.'),('🛏️','Hospitalisation','Admission, lit, surveillance et sortie.'),('🤰','Maternité','Suivi prénatal, accouchement et postnatal.'),('👶','Pédiatrie','Consultation, croissance et vaccination.'),('📑','Dossier médical','Historique et documents médicaux centralisés.')] %}<article><span>{{ icon }}</span><h3>{{ title }}</h3><p>{{ text }}</p></article>{% endfor %}
+    </div>
+  </section>
+
+  <section class="health-public-section alt" id="centres"><div class="health-section-heading"><span>Réseau de soins</span><h2>Nos centres de santé</h2></div><div class="health-center-grid">{% for c in centers %}<article><div class="health-center-icon">✚</div><div><h3>{{ c.name }}</h3><p>{{ c.province }}{% if c.commune %} • {{ c.commune }}{% endif %}</p><small>{{ c.address or c.header_address or 'Adresse à compléter' }}</small>{% if c.phone %}<a href="tel:{{ c.phone|replace(' ','') }}">{{ c.phone }}</a>{% endif %}</div></article>{% else %}<article><div class="health-center-icon">✚</div><div><h3>Centre de Santé BAKITANI</h3><p>Les structures seront publiées ici.</p></div></article>{% endfor %}</div></section>
+
+  <section class="health-public-section contact" id="contact"><div><span>Contact</span><h2>Besoin d’une orientation ?</h2><p>Utilisez l’espace sécurisé pour vos rendez-vous et documents. Pour une urgence, contactez directement le centre concerné.</p></div><div class="health-contact-actions"><a class="health-btn" href="{{ url_for('health_login') }}">Ouvrir l’espace sécurisé</a><a class="health-btn secondary-light" href="#centres">Voir nos centres</a><a class="health-btn ghost-light" href="{{ url_for('index') }}">Retour à FOBAK</a></div></section>
+</main>
+<footer class="health-public-footer health-footer-full"><div class="health-footer-title"><strong>Centre de Santé BAKITANI</strong><span>Soins • Prévention • Proximité</span></div>{% include '_official_contact_footer.html' %}<div class="health-footer-links"><a href="{{ url_for('index') }}">Fondation BAKITANI</a><a href="#services">Services</a><a href="#centres">Nos centres</a><a href="{{ url_for('health_login') }}">Espace sécurisé</a></div></footer>
+<script>
+(()=>{const root=document.querySelector('[data-health-carousel]');if(!root)return;const slides=[...root.querySelectorAll('.health-hero-slide')];if(slides.length<2)return;let i=0;const show=n=>{slides[i].classList.remove('active');i=(n+slides.length)%slides.length;slides[i].classList.add('active')};root.querySelector('.health-carousel-next').onclick=()=>show(i+1);root.querySelector('.health-carousel-prev').onclick=()=>show(i-1);setInterval(()=>show(i+1),7000)})();
+</script>
+</body></html>

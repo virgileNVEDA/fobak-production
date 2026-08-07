@@ -16,7 +16,7 @@
       <tbody>
         {% for a in rows %}
         <tr>
-          <td><strong>{{ a.last_name }} {{ a.first_name }}</strong><br><small>{{ a.gender }} — {{ a.marital_status or '' }}</small><br><small>{{ a.birth_place or '' }} {{ a.birth_date or '' }}</small></td>
+          <td><div class="application-identity"><strong>Nom : {{ a.last_name or '—' }}</strong><span>Postnom : {{ a.post_name or '—' }}</span><span>Prénom : {{ a.first_name or '—' }}</span></div><small>{{ a.gender }} — {{ a.marital_status or '' }}</small><br><small>{{ a.birth_place or '' }} {{ a.birth_date or '' }}</small></td>
           <td>{{ a.phone }}<br>{{ a.email }}</td>
           <td>{{ a.province }}<br><small>{{ a.territory }} / {{ a.commune }}</small><br><small>{{ a.physical_address or a.localite }}</small></td>
           <td>{{ a.studies_done or a.education }}</td>

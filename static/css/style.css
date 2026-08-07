@@ -2572,3 +2572,99 @@ body.admin-layout.topbar-compact .topbar-action-button{width:40px!important;heig
 .renumber-toolbar,.renumber-confirm{display:flex;justify-content:space-between;gap:24px;align-items:center}.renumber-toolbar label{font-weight:800}.renumber-toolbar select{min-width:320px}.renumber-rules{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.renumber-rules span{padding:7px 10px;border-radius:999px;background:#eef6fb;color:#315a75;font-size:.82rem}.number-pill{display:inline-block;min-width:72px;text-align:center;padding:7px 12px;border-radius:999px;background:#073f6c;color:#fff;letter-spacing:.08em}.renumber-confirm{border-left:5px solid #0b8d81}.renumber-confirm h2{margin:0 0 5px}.renumber-confirm p{margin:0;color:#5e7284;max-width:780px}
 @media(max-width:900px){.auth-premium-shell{grid-template-columns:1fr;margin:14px;min-height:0}.auth-premium-brand{padding:80px 30px 34px}.auth-emblem-wrap{width:115px;height:115px}.auth-trust-grid{grid-template-columns:1fr}.auth-premium-card{padding:36px 28px}.renumber-toolbar,.renumber-confirm{align-items:stretch;flex-direction:column}.renumber-toolbar select{min-width:0;width:100%}}
 @media(max-width:520px){.auth-premium-shell{margin:6px;border-radius:20px}.auth-premium-brand{padding:72px 20px 28px}.auth-premium-brand h1{font-size:2rem}.auth-intro{font-size:.96rem}.auth-trust-grid>div{padding:10px}.auth-premium-card{padding:28px 18px}.auth-card-heading h2{font-size:2rem}.auth-actions{flex-direction:column}.auth-home-link{left:20px;top:22px}}
+
+
+/* ===== V101 — Accueil public épuré & préparation Centre de Santé ===== */
+.public-nav{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:6px;
+  padding:10px clamp(12px,2vw,28px)!important;
+  background:rgba(255,255,255,.98)!important;
+  box-shadow:0 8px 24px rgba(15,63,105,.08);
+}
+.top-nav.public-nav a{
+  padding:10px 13px;
+  border-radius:12px;
+  white-space:nowrap;
+}
+.top-nav.public-nav a.public-health-link{
+  display:inline-flex;
+  align-items:center;
+  gap:7px;
+  background:linear-gradient(135deg,#0d7a56 0%,#16a06f 100%);
+  color:#fff!important;
+  box-shadow:0 8px 18px rgba(13,122,86,.20);
+  border:1px solid rgba(255,255,255,.18);
+}
+.top-nav.public-nav a.public-health-link:hover{
+  background:linear-gradient(135deg,#096747 0%,#12895f 100%);
+  color:#fff!important;
+  transform:translateY(-1px);
+}
+.top-nav.public-nav a.public-health-link span{
+  width:22px;height:22px;border-radius:7px;display:inline-grid;place-items:center;
+  background:rgba(255,255,255,.16);font-weight:900;
+}
+.top-nav.public-nav .public-login-link{
+  background:#0f4f83;
+  color:#fff!important;
+  padding-inline:16px;
+}
+.top-nav.public-nav .public-login-link:hover{background:#0a3e69;color:#fff!important}
+.public-language{min-width:112px}
+.site-header.public-header{
+  background:linear-gradient(120deg,#0c416f 0%,#106ca5 48%,#18a8c9 100%)!important;
+}
+.brand-block em{color:#fff3a6}
+.public-footer .footer-map-link+br+small a{display:inline-block!important;margin-top:4px!important;color:#f4d94d!important;font-weight:800}
+@media(max-width:1100px){
+  .public-nav{justify-content:flex-start;overflow-x:auto;scrollbar-width:thin}
+  .top-nav.public-nav a{flex:0 0 auto}
+}
+@media(max-width:780px){
+  .public-nav{display:none!important}
+  .public-nav.is-open{display:flex!important;flex-direction:column;align-items:stretch;overflow:visible;padding:12px!important}
+  .top-nav.public-nav a,.top-nav.public-nav select{width:100%;text-align:left}
+  .top-nav.public-nav a.public-health-link{justify-content:flex-start}
+}
+
+/* V102 — Porte d’entrée publique Centre de Santé */
+.home-health-gateway{max-width:1180px;margin:26px auto;padding:24px 28px;border:1px solid #cfe5e1;border-radius:20px;background:linear-gradient(115deg,#eef9f7,#fff);display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:20px;box-shadow:0 10px 28px rgba(13,111,103,.08)}
+.home-health-icon{width:58px;height:58px;border-radius:16px;background:#0d6f67;color:#fff;display:grid;place-items:center;font-size:34px}.home-health-copy h2{margin:.25rem 0 .35rem;color:#123d43}.home-health-copy p{margin:0;color:#667982;line-height:1.55}.home-health-copy .eyebrow{color:#0d6f67}@media(max-width:760px){.home-health-gateway{margin:18px 14px;grid-template-columns:auto 1fr;padding:20px}.home-health-gateway>.btn{grid-column:1/-1;width:100%}}
+/* ===== V106 FOBAK CONNECT ===== */
+.community-shell{display:grid;grid-template-columns:245px minmax(0,1fr);min-height:calc(100vh - 180px);background:#f5f7fb;border:1px solid #dbe3ef;border-radius:26px;overflow:hidden;box-shadow:0 22px 55px rgba(20,43,77,.12)}
+.community-rail{background:#182231;color:#dfe7f2;padding:22px 14px;display:flex;flex-direction:column;gap:22px}.community-brand{display:flex;gap:12px;align-items:center;padding:8px 10px}.community-brand>span{width:44px;height:44px;display:grid;place-items:center;background:#0b70c9;border-radius:14px;font-size:23px}.community-brand strong,.community-brand small{display:block}.community-brand small{color:#9cabbe}.community-rail nav{display:grid;gap:6px}.community-rail nav a{color:#cfd8e6;text-decoration:none;padding:11px 12px;border-radius:10px;display:flex;align-items:center;gap:9px;font-weight:700}.community-rail nav a:hover,.community-rail nav a.active{background:#2a3546;color:white}.community-rail nav a b{margin-left:auto;background:#ef4458;color:#fff;border-radius:20px;padding:2px 7px;font-size:.75rem}.community-rules{margin-top:auto;padding:14px;background:#222e3f;border-radius:13px}.community-rules strong,.community-rules small{display:block}.community-rules small{margin-top:6px;color:#9eacbf;line-height:1.5}.community-main{min-width:0}.community-topbar{padding:28px 30px 20px;background:white;border-bottom:1px solid #e6ebf2;display:flex;align-items:flex-end;justify-content:space-between;gap:20px}.community-topbar h1{font-size:clamp(1.65rem,3vw,2.35rem);margin:.2rem 0}.community-topbar p{margin:0;color:#617087}.community-search{display:flex;width:min(360px,100%);background:#f3f6fa;border:1px solid #dae3ef;border-radius:13px;overflow:hidden}.community-search input{border:0;background:transparent;padding:12px 14px;flex:1;min-width:0}.community-search button{border:0;background:#0b70c9;color:#fff;width:48px}.community-featured{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;padding:20px 30px}.community-channel-card{background:white;border:1px solid #e0e7f0;border-radius:17px;padding:16px;display:grid;grid-template-columns:44px 1fr auto;gap:12px;align-items:center;text-decoration:none;color:#14243b;box-shadow:0 8px 20px rgba(31,54,88,.06)}.community-channel-card:hover{transform:translateY(-2px);box-shadow:0 12px 28px rgba(31,54,88,.11)}.channel-symbol{width:44px;height:44px;border-radius:13px;display:grid;place-items:center;background:#eef6ff;font-size:21px}.community-channel-card small,.community-channel-card strong,.community-channel-card em{display:block}.community-channel-card small{color:#7c8ba0;text-transform:uppercase;font-size:.68rem;font-weight:800}.community-channel-card strong{margin:3px 0;font-size:1rem}.community-channel-card em{font-style:normal;color:#718098;font-size:.8rem}.scope-announcements .channel-symbol{background:#fff3e4}.scope-province .channel-symbol{background:#eefbf4}.community-content-grid{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:18px;padding:0 30px 30px}.community-conversations,.compose-card{background:#fff;border:1px solid #e0e7f0;border-radius:18px;padding:20px}.section-heading{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:14px}.section-heading h2{margin:2px 0}.soft-pill{background:#edf3fa;color:#52657c;border-radius:99px;padding:6px 10px;font-size:.8rem}.community-list{display:grid;gap:8px}.community-row{display:flex;border:1px solid #edf0f5;border-radius:13px;padding:8px}.community-row>a{display:flex;align-items:center;gap:12px;flex:1;min-width:0;text-decoration:none;color:#18263b;padding:6px}.community-avatar{width:42px;height:42px;border-radius:50%;background:#eaf2fb;display:grid;place-items:center}.community-row strong,.community-row small{display:block}.community-row small{color:#7c899a}.row-tools button{border:0;background:transparent;padding:8px;cursor:pointer}.community-compose{display:grid;align-content:start;gap:14px}.compose-card form{display:grid;gap:12px}.compose-card label{display:grid;gap:6px;font-weight:700}.compose-card input,.compose-card select{width:100%;padding:11px;border:1px solid #d4deea;border-radius:10px;background:#fff}.compose-card select[multiple]{min-height:160px}.eyebrow{color:#0b70c9;font-size:.72rem;font-weight:900;letter-spacing:.11em}.community-empty{text-align:center;padding:44px 20px;color:#77869a}
+.chat-room-shell.discord-inspired{background:#f4f6fa;border-radius:24px;padding:0;overflow:hidden;border:1px solid #dfe5ef}.chat-room-header.pro{margin:0;border-radius:0;background:#fff;border-bottom:1px solid #e3e8ef;padding:16px 20px}.chat-discord-grid{display:grid;grid-template-columns:235px minmax(0,1fr) 290px;min-height:680px}.chat-channel-sidebar{background:#202938;color:#d4deeb;padding:14px 9px;overflow:auto}.channel-sidebar-title{padding:10px 12px 15px;border-bottom:1px solid #344052}.channel-sidebar-title strong,.channel-sidebar-title small{display:block}.channel-sidebar-title small{color:#8fa0b6}.chat-channel-sidebar nav{display:grid;gap:4px;margin-top:10px}.chat-channel-sidebar nav a{color:#c7d0dc;text-decoration:none;border-radius:8px;padding:9px;display:grid;grid-template-columns:24px minmax(0,1fr);gap:7px;align-items:center}.chat-channel-sidebar nav a:hover,.chat-channel-sidebar nav a.active{background:#343f50;color:#fff}.chat-channel-sidebar nav strong,.chat-channel-sidebar nav small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.chat-channel-sidebar nav small{font-size:.68rem;color:#8f9caf}.chat-discord-grid .chat-panel{border:0;border-radius:0;box-shadow:none;display:flex;flex-direction:column;min-width:0;background:#fff}.chat-discord-grid .chat-messages{flex:1;min-height:500px;max-height:none;padding:22px;overflow-y:auto}.chat-message{max-width:78%;border-radius:15px;padding:11px 13px;margin-bottom:12px;background:#f0f3f7}.chat-message.mine{margin-left:auto;background:#e4f1ff}.chat-message header{display:flex;gap:10px;justify-content:space-between}.chat-message p{margin:5px 0;line-height:1.5}.chat-message img,.chat-message video{max-width:min(480px,100%);border-radius:13px;margin-top:7px}.message-actions{opacity:.45}.chat-message:hover .message-actions{opacity:1}.chat-compose{position:sticky;bottom:0;background:#fff;border-top:1px solid #e3e8ef;padding:12px 16px}.chat-compose textarea{width:100%;border:1px solid #d9e1eb;border-radius:14px;padding:12px 14px;resize:none;background:#f7f9fc}.chat-tools{display:flex;gap:7px;align-items:center;margin-top:8px}.chat-room-sidebar{background:#f8fafc;border-left:1px solid #e3e8ef;padding:12px;overflow:auto}.member-chip-list{display:grid;gap:8px}.member-chip{display:flex;gap:9px;align-items:center}.member-chip>span{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:#dceaf8;font-weight:800}.member-chip strong,.member-chip small{display:block}.member-chip small{color:#7b8999}.reaction-summary span{display:inline-block;background:#fff;border:1px solid #d9e0e9;border-radius:99px;padding:2px 7px;margin:3px;font-size:.78rem}
+@media(max-width:1050px){.community-featured{grid-template-columns:1fr}.community-content-grid{grid-template-columns:1fr}.chat-discord-grid{grid-template-columns:190px minmax(0,1fr)}.chat-room-sidebar{grid-column:1/-1;display:grid;grid-template-columns:1fr 1fr;gap:12px}.community-rail{display:none}.community-shell{grid-template-columns:1fr}}
+@media(max-width:720px){.community-topbar{padding:20px;display:block}.community-search{margin-top:14px}.community-featured,.community-content-grid{padding-left:14px;padding-right:14px}.chat-discord-grid{display:block}.chat-channel-sidebar{max-height:175px}.chat-channel-sidebar nav{grid-template-columns:repeat(2,minmax(0,1fr))}.chat-room-sidebar{display:block}.chat-room-header.pro{display:block}.chat-header-actions{margin-top:10px}.chat-message{max-width:92%}.chat-tools{flex-wrap:wrap}}
+
+/* V107 — Profils photo dans FOBAK Connect / Communication Santé */
+.community-avatar.profile-avatar,
+.quick-profile-card img,
+.quick-profile-card span,
+.message-profile-photo,
+.member-chip-photo {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex: 0 0 44px;
+  border: 2px solid rgba(26, 116, 174, .18);
+  background: #eef6fb;
+}
+.community-avatar.profile-avatar { overflow:hidden; display:inline-grid; place-items:center; }
+.community-avatar.profile-avatar img { width:100%; height:100%; object-fit:cover; border-radius:inherit; }
+.message-profile-row { display:flex; align-items:flex-start; gap:10px; margin-bottom:7px; }
+.message-profile-row header { display:flex; flex-direction:column; gap:2px; min-width:0; }
+.message-profile-row header strong { line-height:1.2; }
+.avatar-fallback { display:inline-grid; place-items:center; font-weight:800; color:#0d4f79; }
+.member-chip-photo { width:38px; height:38px; flex-basis:38px; }
+.quick-profile-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; margin:10px 0 14px; }
+.quick-profile-card { border:1px solid #d8e5ee; background:#fff; border-radius:14px; padding:8px 5px; display:flex; flex-direction:column; align-items:center; gap:6px; cursor:pointer; min-width:0; }
+.quick-profile-card:hover { border-color:#1a8ac2; box-shadow:0 8px 22px rgba(13,79,121,.10); transform:translateY(-1px); }
+.quick-profile-card img,.quick-profile-card span { width:48px; height:48px; flex-basis:48px; }
+.quick-profile-card small { width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:center; font-weight:700; }
+@media (max-width:720px){ .quick-profile-grid{grid-template-columns:repeat(3,minmax(0,1fr));}.message-profile-photo{width:38px;height:38px;flex-basis:38px;} }
+.application-identity{display:flex;flex-direction:column;gap:2px;margin-bottom:5px}.application-identity strong{color:#073f67}.application-identity span{font-size:.93rem;color:#40586a}

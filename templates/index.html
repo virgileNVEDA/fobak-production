@@ -40,6 +40,16 @@
   </div>
 </section>
 
+<section class="home-health-gateway" aria-labelledby="home-health-title">
+  <div class="home-health-icon" aria-hidden="true">✚</div>
+  <div class="home-health-copy">
+    <span class="eyebrow">Nouveau portail médical</span>
+    <h2 id="home-health-title">Centre de Santé BAKITANI</h2>
+    <p>Accédez aux services de santé, à l’espace patient et à l’espace sécurisé du personnel médical.</p>
+  </div>
+  <a class="btn primary" href="{{ url_for('health_public_home') }}">Ouvrir le Centre de Santé</a>
+</section>
+
 {% if settings.get('download_section_enabled','1') == '1' %}
 <section class="download-app-section" id="telecharger-application">
   <div class="download-app-copy">
