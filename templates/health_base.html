@@ -33,12 +33,13 @@
       {% if module_allowed('communication_sante','voir') %}<a href="{{ url_for('health_communication_page') }}" class="{{ 'active' if request.endpoint=='health_communication_page' else '' }}"><span>💬</span><b>Communication</b></a>{% endif %}
       {% if module_allowed('rapports_sante','voir') %}<a href="{{ url_for('health_reports_page') }}" class="{{ 'active' if request.endpoint=='health_reports_page' else '' }}"><span>📈</span><b>Rapports</b></a>{% endif %}
     </div>
-    {% if module_allowed('personnel_sante','voir') or module_allowed('centres_sante','voir') %}<details class="health-admin-details" {{ 'open' if request.endpoint in ['health_centers_page','health_roles_page','health_staff_page','medical_forms_page','health_data_quality_page','health_appearance_page'] else '' }}><summary><span>⚙️</span><b>Administration Santé</b><em>⌄</em></summary><div>
+    {% if module_allowed('personnel_sante','voir') or module_allowed('centres_sante','voir') %}<details class="health-admin-details" {{ 'open' if request.endpoint in ['health_centers_page','health_roles_page','health_staff_page','medical_forms_page','health_data_quality_page','health_appearance_page','health_permissions_page'] else '' }}><summary><span>⚙️</span><b>Administration Santé</b><em>⌄</em></summary><div>
       {% if module_allowed('centres_sante','voir') %}<a href="{{ url_for('health_centers_page') }}">Centres</a>{% endif %}
       {% if module_allowed('personnel_sante','voir') %}<a href="{{ url_for('health_staff_page') }}">Personnel & comptes</a><a href="{{ url_for('health_roles_page') }}">Rôles sanitaires</a>{% endif %}
       {% if module_allowed('modeles_fiches','voir') %}<a href="{{ url_for('medical_forms_page') }}">Fiches médicales</a>{% endif %}
       {% if module_allowed('qualite_donnees','voir') %}<a href="{{ url_for('health_data_quality_page') }}">Qualité des données</a>{% endif %}
       {% if module_allowed('centres_sante','parametrer') %}<a href="{{ url_for('health_appearance_page') }}">Accueil & carrousel</a>{% endif %}
+      {% if module_allowed('autorisations_sante','voir') %}<a href="{{ url_for('health_permissions_page') }}">Autorisations personnalisées</a>{% endif %}
     </div></details>{% endif %}
   </nav>
   <div class="health-sidebar-footer"><a href="{{ url_for('health_public_home') }}">🌐 Accueil Santé</a><a href="{{ url_for('dashboard') }}">← Retour à FOBAK</a><a class="logout-btn" href="{{ url_for('logout') }}">⎋ Déconnexion</a></div>
@@ -53,8 +54,13 @@
   </div>
   <div class="health-top-title"><span class="health-top-kicker">Plateforme sanitaire sécurisée</span><strong>{{ title or 'Centre de Santé BAKITANI' }}</strong></div>
   <form class="health-global-search" action="{{ url_for('health_global_search') }}" method="get"><input name="q" type="search" placeholder="Rechercher patient, personnel, examen, facture…" aria-label="Recherche Santé"><button type="submit" title="Rechercher">🔎</button></form>
-  <div class="health-top-actions"><a href="{{ url_for('health_public_home') }}" title="Accueil public">🌐</a><a id="health-alert-link" href="{{ url_for('health_alerts_page') }}" title="Alertes Santé">🩺<sup id="health-alert-count" hidden>0</sup></a><a href="{{ url_for('notifications') }}" title="Notifications FOBAK">🔔{% if unread_notification_count %}<sup>{{ unread_notification_count }}</sup>{% endif %}</a><a href="{{ url_for('my_profile') }}" title="Mon profil">👤</a></div>
+  <div class="health-top-actions">
+    {% if health_current_module and module_allowed(health_current_module,'imprimer') %}<button type="button" class="health-top-action-btn no-print" onclick="window.print()" title="Imprimer cette page">🖨️</button>{% endif %}
+    <button type="button" id="health-header-toggle" class="health-top-action-btn no-print" title="Masquer l’en-tête" aria-pressed="false">▴</button>
+    <a href="{{ url_for('health_public_home') }}" title="Accueil public">🌐</a><a id="health-alert-link" href="{{ url_for('health_alerts_page') }}" title="Alertes Santé">🩺<sup id="health-alert-count" hidden>0</sup></a><a href="{{ url_for('notifications') }}" title="Notifications FOBAK">🔔{% if unread_notification_count %}<sup>{{ unread_notification_count }}</sup>{% endif %}</a><a href="{{ url_for('my_profile') }}" title="Mon profil">👤</a>
+  </div>
 </header>
+<button type="button" id="health-header-restore" class="health-header-restore no-print" title="Afficher l’en-tête" hidden>▾ Afficher l’en-tête</button>
 <div class="health-content">{% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}<div class="health-flashes" role="status">{% for category,message in messages %}<div class="health-alert {{ category }}">{{ message }}</div>{% endfor %}</div>{% endif %}{% endwith %}{% block content %}{% endblock %}</div>
 {% set footer_health_mode = true %}{% include '_fobak_shared_footer.html' %}
 </main></div>
@@ -74,9 +80,19 @@
 <script>
 (()=>{
  const mi=document.getElementById('health-menu-search-input'), mc=document.getElementById('health-menu-search-clear'), empty=document.getElementById('health-menu-search-empty');
- if(mi){const links=[...document.querySelectorAll('.health-nav a,.health-nav summary')]; const run=()=>{const q=mi.value.trim().toLowerCase();let n=0;links.forEach(a=>{const hit=!q||a.textContent.toLowerCase().includes(q);a.style.display=hit?'':'none';if(hit&&a.tagName==='A')n++;});if(empty)empty.hidden=!q||n>0};mi.addEventListener('input',run);mc&&mc.addEventListener('click',()=>{mi.value='';run();mi.focus()});}
+ if(mi){const links=[...document.querySelectorAll('.health-nav a,.health-nav summary')]; const run=()=>{const q=mi.value.trim().toLowerCase();let n=0;links.forEach(a=>{const hit=!q||a.textContent.toLowerCase().includes(q);a.style.display=hit?'':'none';if(q&&hit&&a.tagName==='A')n++;});if(empty){const show=!!q&&n===0;empty.hidden=!show;empty.style.display=show?'block':'none';}};mi.addEventListener('input',run);mc&&mc.addEventListener('click',()=>{mi.value='';run();mi.focus()});run();}
  function addFilter(host){if(host.dataset.healthFilterReady)return;host.dataset.healthFilterReady='1';const isTable=host.classList.contains('table-wrap');const items=()=>isTable?[...host.querySelectorAll('tbody tr')]:[...host.children];if(items().length<2)return;const bar=document.createElement('div');bar.className='health-list-toolbar no-print';bar.innerHTML='<div class="health-list-search"><span>🔎</span><input type="search" placeholder="Filtrer cette liste…"><button type="button">×</button></div><span class="health-list-count"></span>';host.parentNode.insertBefore(bar,host);const input=bar.querySelector('input'),clear=bar.querySelector('button'),count=bar.querySelector('.health-list-count');const filter=()=>{const q=input.value.trim().toLowerCase();let shown=0;items().forEach(el=>{const hit=!q||el.textContent.toLowerCase().includes(q);el.style.display=hit?'':'none';if(hit)shown++});count.textContent=shown+' visible(s)'};input.addEventListener('input',filter);clear.addEventListener('click',()=>{input.value='';filter();input.focus()});filter();}
  document.querySelectorAll('.table-wrap,.health-staff-grid,.responsive-card-list').forEach(addFilter);
+})();
+</script>
+
+<script>
+(()=>{
+ const toggle=document.getElementById('health-header-toggle'), restore=document.getElementById('health-header-restore');
+ const apply=(hidden)=>{document.body.classList.toggle('health-header-hidden',hidden);if(toggle){toggle.setAttribute('aria-pressed',hidden?'true':'false');toggle.title=hidden?'Afficher l’en-tête':'Masquer l’en-tête';toggle.textContent=hidden?'▾':'▴';}if(restore){restore.hidden=!hidden;restore.style.display=hidden?'inline-flex':'none';}try{localStorage.setItem('healthHeaderHidden',hidden?'1':'0')}catch(e){}};
+ let hidden=false;try{hidden=localStorage.getItem('healthHeaderHidden')==='1'}catch(e){}apply(hidden);
+ toggle&&toggle.addEventListener('click',()=>apply(!document.body.classList.contains('health-header-hidden')));
+ restore&&restore.addEventListener('click',()=>apply(false));
 })();
 </script>
 </body></html>

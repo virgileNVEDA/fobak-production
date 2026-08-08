@@ -63,7 +63,7 @@ UPLOAD_ROOT = os.environ.get("UPLOAD_ROOT", os.path.join(STATIC_DIR, "uploads"))
 RDC_FLAG_REL = "img/drapeau_rdc.jpg"
 RDC_FLAG_ABS = os.path.join(STATIC_DIR, RDC_FLAG_REL)
 ALLOWED_IMAGE_EXT = {"png", "jpg", "jpeg", "webp", "pdf", "doc", "docx", "xls", "xlsx"}
-APP_VERSION = "115.0.0"
+APP_VERSION = "116.0.0"
 APP_RELEASE_NAME = "FOBAK Manager Pro V113 — Finition graphique et responsive général"
 CARD_TEMPLATE_VERSION = "paysage-v99-photo-adaptative-pied-adresse-verso-aere"
 
@@ -1897,6 +1897,7 @@ def inject_globals():
                 voice_welcome_pending=bool(session.pop("voice_welcome_pending", 0)),
                 login_sound_alert=get_latest_login_sound_alert(current_user()),
                 app_version=APP_VERSION, app_release_name=APP_RELEASE_NAME, module_allowed=module_allowed,
+                health_current_module=health_module_for_endpoint(request.endpoint) if request.path.startswith('/health') else None,
                 module_guide=module_guide_for_endpoint(request.endpoint) if current_user() else None)
 
 
@@ -7374,7 +7375,7 @@ PERMISSION_MODULES = {
     'discussion_membres':'Discussion publique des membres','annonces_chat':'Annonces officielles','communication_sante':'Communication du Centre de Santé',
     'reception_sante':'Réception Santé','urgences_sante':'Urgences','comptabilite_sante':'Comptabilité Santé','rh_sante':'Ressources humaines Santé',
     'ambulance_sante':'Ambulance','assurance_sante':'Assurance maladie','parametres_sante':'Paramètres Santé','comptes_personnel_sante':'Comptes du personnel Santé',
-    'resultats_patients':'Résultats patients et notifications','recherche_sante':'Recherche globale Santé'
+    'resultats_patients':'Résultats patients et notifications','recherche_sante':'Recherche globale Santé','autorisations_sante':'Autorisations personnalisées Santé'
 }
 PERMISSION_ACTIONS = {'voir':'Voir','ajouter':'Ajouter','modifier':'Modifier','supprimer':'Supprimer','valider':'Valider','imprimer':'Imprimer','exporter':'Exporter','parametrer':'Paramétrer'}
 
@@ -7415,8 +7416,36 @@ BUSINESS_ENDPOINT_MODULES = {
     'chat_create_meeting':'rendez_vous_chat','chat_report_message':'moderation_chat','chat_block_user':'moderation_chat',
     'communication_campaign':'communication_email','communication_templates':'modeles_messages',
     'leaders_admin':'responsables','delete_leader':'responsables','president_biography_admin':'biographie_president',
-    'health_staff_page':'personnel_sante','health_reception_page':'reception_sante','health_communication_page':'communication_sante'
+    'health_staff_page':'personnel_sante','health_reception_page':'reception_sante','health_communication_page':'communication_sante','health_permissions_page':'autorisations_sante','patients_page':'patients','consultations_page':'consultations','health_appointments_page':'rendez_vous','health_laboratory_page':'laboratoire','health_pharmacy_page':'pharmacie','health_billing_page':'facturation','health_centers_page':'centres_sante','health_roles_page':'personnel_sante','health_reports_page':'rapports_sante','health_data_quality_page':'qualite_donnees','health_appearance_page':'parametres_sante'
 }
+
+
+HEALTH_ENDPOINT_MODULES = {
+    'health_dashboard':'dashboard',
+    'patients_page':'patients',
+    'health_reception_page':'reception_sante',
+    'health_appointments_page':'rendez_vous',
+    'consultations_page':'consultations',
+    'health_operations_page':'hospitalisation',
+    'health_laboratory_page':'laboratoire',
+    'health_pharmacy_page':'pharmacie',
+    'health_billing_page':'facturation',
+    'health_communication_page':'communication_sante',
+    'health_reports_page':'rapports_sante',
+    'health_centers_page':'centres_sante',
+    'health_staff_page':'personnel_sante',
+    'health_roles_page':'personnel_sante',
+    'medical_forms_page':'modeles_fiches',
+    'health_data_quality_page':'qualite_donnees',
+    'health_appearance_page':'parametres_sante',
+    'health_alerts_page':'alertes',
+    'health_search_page':'recherche_sante',
+    'health_global_search':'recherche_sante',
+    'health_permissions_page':'autorisations_sante',
+}
+
+def health_module_for_endpoint(endpoint=None):
+    return HEALTH_ENDPOINT_MODULES.get(endpoint or request.endpoint)
 
 
 def _permission_action_for_endpoint(endpoint):
@@ -7686,6 +7715,58 @@ def health_centers_page():
     where,params=health_scope_clause(user)
     query='SELECT * FROM health_centers'+where+(' AND deleted_at IS NULL' if 'WHERE' in where else ' WHERE deleted_at IS NULL')+' ORDER BY province,name'; rows=con.execute(query,params).fetchall(); con.close()
     return render_template('health_centers.html',rows=rows)
+
+@app.route('/health/admin/permissions', methods=['GET','POST'])
+@login_required
+@module_permission_required('autorisations_sante','voir')
+def health_permissions_page():
+    """Vue Santé de la matrice existante role_permissions — aucun système parallèle."""
+    health_modules = {k:v for k,v in PERMISSION_MODULES.items() if k in {
+        'centres_sante','personnel_sante','patients','rendez_vous','files_attente','triage','consultations','dossiers_medicaux',
+        'laboratoire','resultats_patients','pharmacie','stocks','hospitalisation','maternite','vaccination','facturation','caisse_sante',
+        'aide_sociale','equipements','fournisseurs','references','rapports_sante','statistiques','qualite_donnees','modeles_fiches',
+        'cartes_sanitaires','communication_sante','reception_sante','urgences_sante','comptabilite_sante','rh_sante','ambulance_sante',
+        'assurance_sante','parametres_sante','comptes_personnel_sante','recherche_sante','autorisations_sante'
+    }}
+    actions = PERMISSION_ACTIONS
+    con=db()
+    existing=con.execute('SELECT role_key,MAX(role_label) role_label FROM role_permissions GROUP BY role_key').fetchall()
+    editable_roles=dict(ROLE_LABELS)
+    for rr in existing:
+        if rr['role_key']:
+            editable_roles.setdefault(rr['role_key'], rr['role_label'] or rr['role_key'])
+    # Priorité visuelle aux rôles sanitaires dynamiques, tout en gardant les rôles FOBAK pouvant recevoir des droits Santé.
+    ordered={}
+    for k,v in editable_roles.items():
+        if k=='super_admin' or k.startswith('health_'):
+            ordered[k]=v
+    for k,v in editable_roles.items():
+        if k not in ordered:
+            ordered[k]=v
+    if request.method=='POST':
+        if not module_allowed('autorisations_sante','parametrer') and current_user()['role']!='super_admin':
+            abort(403)
+        for role_key, role_label in ordered.items():
+            new_label=request.form.get(f'label_{role_key}',role_label).strip() or role_label
+            for module in health_modules:
+                for action in actions:
+                    pkey=f'{module}.{action}'
+                    allowed=1 if request.form.get(f'{role_key}__{module}__{action}')=='1' else 0
+                    con.execute('DELETE FROM role_permissions WHERE role_key=? AND permission_key=?',(role_key,pkey))
+                    con.execute('INSERT INTO role_permissions(role_key,role_label,permission_key,allowed,updated_at) VALUES(?,?,?,?,?)',(role_key,new_label,pkey,allowed,now()))
+        con.commit(); flash('Autorisations Santé enregistrées dans la matrice générale.','success')
+        log_action(current_user()['id'],'Modification des autorisations Santé','roles',None)
+    rows=con.execute('SELECT * FROM role_permissions').fetchall(); con.close()
+    data={r:{m:{a:0 for a in actions} for m in health_modules} for r in ordered}; labels=dict(ordered)
+    for row in rows:
+        key=row['permission_key']
+        if '.' in key:
+            module,action=key.split('.',1)
+            if module in health_modules and action in actions:
+                data.setdefault(row['role_key'],{}).setdefault(module,{})[action]=row['allowed']
+        labels[row['role_key']]=row['role_label']
+    return render_template('health_permissions.html',modules=health_modules,actions=actions,data=data,labels=labels)
+
 
 @app.route('/health/roles', methods=['GET','POST'])
 @login_required
