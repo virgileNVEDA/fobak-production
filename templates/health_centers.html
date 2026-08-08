@@ -31,7 +31,7 @@
   <div class="table-wrap">
     <table>
       <thead><tr><th>Code</th><th>Centre</th><th>Province</th><th>Localisation</th><th>Contact</th><th>En-tête</th><th>État</th><th>Actions</th></tr></thead>
-      <tbody>{% for r in rows %}<tr><td>{{ r.code }}</td><td><strong>{{ r.name }}</strong></td><td>{{ r.province }}</td><td>{{ r.territory }} {{ r.commune }}</td><td>{{ r.phone }}</td><td>{{ r.header_title or 'Par défaut FOBAK' }}</td><td>{{ 'Actif' if r.active else 'Suspendu' }}</td><td>{% if module_allowed('centres_sante','supprimer') %}<form method="post" action="{{ url_for('universal_delete',entity='health_center',record_id=r.id) }}" onsubmit="return confirm('Supprimer ce centre ?')"><button class="btn danger small">Supprimer</button></form>{% endif %}</td></tr>{% endfor %}</tbody>
+      <tbody>{% for r in rows %}<tr><td>{{ r.code }}</td><td><strong>{{ r.name }}</strong></td><td>{{ r.province }}</td><td>{{ r.territory }} {{ r.commune }}</td><td>{{ r.phone }}</td><td>{{ r.header_title or 'Par défaut FOBAK' }}</td><td>{{ 'Actif' if r.active else 'Suspendu' }}</td><td><div class="health-row-actions">{% if module_allowed('centres_sante','modifier') %}<a class="btn secondary small" href="{{ url_for('health_edit_record',entity='health_center',record_id=r.id) }}">Modifier</a>{% endif %}{% if module_allowed('centres_sante','supprimer') %}<form method="post" action="{{ url_for('universal_delete',entity='health_center',record_id=r.id) }}" onsubmit="return confirm('Supprimer ce centre ?')"><button class="btn danger small">Supprimer</button></form>{% endif %}</div></td></tr>{% endfor %}</tbody>
     </table>
   </div>
 </section>

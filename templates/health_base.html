@@ -12,6 +12,8 @@
 <aside class="health-sidebar" id="health-sidebar">
   <div class="health-brand"><div class="health-brand-mark">✚</div><div><strong>Centre de Santé</strong><span>BAKITANI • FOBAK</span></div></div>
   <div class="health-user-card">{% if current_user_photo_path %}<img src="{{ url_for('static', filename=current_user_photo_path) }}" alt="Photo de {{ current_user_display_name }}">{% else %}<div class="health-user-avatar">{{ (current_user_display_name or 'U')[:1]|upper }}</div>{% endif %}<div><strong>{{ current_user_display_name }}</strong><small>{{ role_labels.get(session.role, session.role|replace('_',' ')|title) }}</small></div></div>
+  <div class="health-menu-search"><span>🔎</span><input id="health-menu-search-input" type="search" placeholder="Rechercher un menu…" autocomplete="off"><button type="button" id="health-menu-search-clear">×</button></div>
+  <small id="health-menu-search-empty" class="health-menu-search-empty" hidden>Aucune rubrique trouvée.</small>
   <nav class="health-nav" aria-label="Navigation du Centre de Santé">
     <div class="health-nav-group"><span class="health-nav-label">Pilotage</span>
       <a href="{{ url_for('health_dashboard') }}" class="{{ 'active' if request.endpoint=='health_dashboard' else '' }}"><span>▦</span><b>Tableau de bord</b></a>
@@ -43,7 +45,16 @@
 </aside>
 <div class="health-backdrop" aria-hidden="true"></div>
 <main class="health-main">
-<header class="health-topbar"><div><span class="health-top-kicker">Plateforme sanitaire sécurisée</span><strong>{{ title or 'Centre de Santé BAKITANI' }}</strong></div><div class="health-top-actions"><a href="{{ url_for('health_public_home') }}" title="Accueil public">🌐</a><a id="health-alert-link" href="{{ url_for('health_alerts_page') }}" title="Alertes Santé">🩺<sup id="health-alert-count" hidden>0</sup></a><a href="{{ url_for('notifications') }}" title="Notifications FOBAK">🔔{% if unread_notification_count %}<sup>{{ unread_notification_count }}</sup>{% endif %}</a><a href="{{ url_for('my_profile') }}" title="Mon profil">👤</a></div></header>
+<header class="health-topbar">
+  <div class="health-history-actions no-print">
+    <button type="button" class="health-history-btn" onclick="history.back()" title="Retour">← <span>Retour</span></button>
+    <button type="button" class="health-history-btn" onclick="history.forward()" title="Suivante">→ <span>Suivante</span></button>
+    <a class="health-history-btn health-home-btn" href="{{ url_for('health_dashboard') }}" title="Tableau de bord">⌂ <span>Tableau de bord</span></a>
+  </div>
+  <div class="health-top-title"><span class="health-top-kicker">Plateforme sanitaire sécurisée</span><strong>{{ title or 'Centre de Santé BAKITANI' }}</strong></div>
+  <form class="health-global-search" action="{{ url_for('health_global_search') }}" method="get"><input name="q" type="search" placeholder="Rechercher patient, personnel, examen, facture…" aria-label="Recherche Santé"><button type="submit" title="Rechercher">🔎</button></form>
+  <div class="health-top-actions"><a href="{{ url_for('health_public_home') }}" title="Accueil public">🌐</a><a id="health-alert-link" href="{{ url_for('health_alerts_page') }}" title="Alertes Santé">🩺<sup id="health-alert-count" hidden>0</sup></a><a href="{{ url_for('notifications') }}" title="Notifications FOBAK">🔔{% if unread_notification_count %}<sup>{{ unread_notification_count }}</sup>{% endif %}</a><a href="{{ url_for('my_profile') }}" title="Mon profil">👤</a></div>
+</header>
 <div class="health-content">{% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}<div class="health-flashes" role="status">{% for category,message in messages %}<div class="health-alert {{ category }}">{{ message }}</div>{% endfor %}</div>{% endif %}{% endwith %}{% block content %}{% endblock %}</div>
 {% set footer_health_mode = true %}{% include '_fobak_shared_footer.html' %}
 </main></div>
@@ -57,6 +68,15 @@
   document.addEventListener('pointerdown',()=>{try{ctx().resume()}catch(e){}},{once:true});
   async function poll(){try{const r=await fetch(`{{ url_for('health_alerts_poll') }}?after=${last}`,{headers:{'X-Requested-With':'fetch'}});if(!r.ok)return;const d=await r.json();if(count){count.textContent=d.unread||0;count.hidden=!(d.unread>0);}for(const a of (d.alerts||[])){last=Math.max(last,a.id);healthSound(a.event_type,a.priority);if(document.hidden && 'Notification' in window && Notification.permission==='granted') new Notification(a.title,{body:a.message});}localStorage.setItem('healthLastAlertId',String(last));}catch(e){} }
   setInterval(poll,10000); poll();
+})();
+</script>
+
+<script>
+(()=>{
+ const mi=document.getElementById('health-menu-search-input'), mc=document.getElementById('health-menu-search-clear'), empty=document.getElementById('health-menu-search-empty');
+ if(mi){const links=[...document.querySelectorAll('.health-nav a,.health-nav summary')]; const run=()=>{const q=mi.value.trim().toLowerCase();let n=0;links.forEach(a=>{const hit=!q||a.textContent.toLowerCase().includes(q);a.style.display=hit?'':'none';if(hit&&a.tagName==='A')n++;});if(empty)empty.hidden=!q||n>0};mi.addEventListener('input',run);mc&&mc.addEventListener('click',()=>{mi.value='';run();mi.focus()});}
+ function addFilter(host){if(host.dataset.healthFilterReady)return;host.dataset.healthFilterReady='1';const isTable=host.classList.contains('table-wrap');const items=()=>isTable?[...host.querySelectorAll('tbody tr')]:[...host.children];if(items().length<2)return;const bar=document.createElement('div');bar.className='health-list-toolbar no-print';bar.innerHTML='<div class="health-list-search"><span>🔎</span><input type="search" placeholder="Filtrer cette liste…"><button type="button">×</button></div><span class="health-list-count"></span>';host.parentNode.insertBefore(bar,host);const input=bar.querySelector('input'),clear=bar.querySelector('button'),count=bar.querySelector('.health-list-count');const filter=()=>{const q=input.value.trim().toLowerCase();let shown=0;items().forEach(el=>{const hit=!q||el.textContent.toLowerCase().includes(q);el.style.display=hit?'':'none';if(hit)shown++});count.textContent=shown+' visible(s)'};input.addEventListener('input',filter);clear.addEventListener('click',()=>{input.value='';filter();input.focus()});filter();}
+ document.querySelectorAll('.table-wrap,.health-staff-grid,.responsive-card-list').forEach(addFilter);
 })();
 </script>
 </body></html>

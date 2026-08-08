@@ -63,7 +63,7 @@ UPLOAD_ROOT = os.environ.get("UPLOAD_ROOT", os.path.join(STATIC_DIR, "uploads"))
 RDC_FLAG_REL = "img/drapeau_rdc.jpg"
 RDC_FLAG_ABS = os.path.join(STATIC_DIR, RDC_FLAG_REL)
 ALLOWED_IMAGE_EXT = {"png", "jpg", "jpeg", "webp", "pdf", "doc", "docx", "xls", "xlsx"}
-APP_VERSION = "114.0.0"
+APP_VERSION = "115.0.0"
 APP_RELEASE_NAME = "FOBAK Manager Pro V113 — Finition graphique et responsive général"
 CARD_TEMPLATE_VERSION = "paysage-v99-photo-adaptative-pied-adresse-verso-aere"
 
@@ -7374,7 +7374,7 @@ PERMISSION_MODULES = {
     'discussion_membres':'Discussion publique des membres','annonces_chat':'Annonces officielles','communication_sante':'Communication du Centre de Santé',
     'reception_sante':'Réception Santé','urgences_sante':'Urgences','comptabilite_sante':'Comptabilité Santé','rh_sante':'Ressources humaines Santé',
     'ambulance_sante':'Ambulance','assurance_sante':'Assurance maladie','parametres_sante':'Paramètres Santé','comptes_personnel_sante':'Comptes du personnel Santé',
-    'resultats_patients':'Résultats patients et notifications'
+    'resultats_patients':'Résultats patients et notifications','recherche_sante':'Recherche globale Santé'
 }
 PERMISSION_ACTIONS = {'voir':'Voir','ajouter':'Ajouter','modifier':'Modifier','supprimer':'Supprimer','valider':'Valider','imprimer':'Imprimer','exporter':'Exporter','parametrer':'Paramétrer'}
 
@@ -8345,6 +8345,149 @@ def health_data_quality_page():
     con.close(); return render_template('health_data_quality.html',report=report)
 
 
+# ===== V115 : recherche Santé et modification universelle contrôlée =====
+HEALTH_EDIT_REGISTRY = {
+    'health_center': {
+        'table':'health_centers','module':'centres_sante','endpoint':'health_centers_page','title':'Centre de santé',
+        'fields':[('name','Nom du centre','text'),('code','Code','text'),('province','Province','text'),('territory','Territoire / ville','text'),('commune','Commune','text'),('address','Adresse','textarea'),('phone','Téléphone','text'),('email','E-mail','email'),('opening_date','Date d’ouverture','date'),('header_title','Titre d’en-tête','text'),('header_subtitle','Sous-titre','text'),('header_address','Adresse d’en-tête','textarea'),('header_contact','Contacts d’en-tête','textarea'),('footer_note','Note de bas de page','textarea'),('active','Actif','boolean')]
+    },
+    'health_role': {
+        'table':'health_roles','module':'personnel_sante','endpoint':'health_roles_page','title':'Rôle sanitaire',
+        'fields':[('name','Nom du rôle','text'),('description','Description','textarea'),('level','Niveau','select:centre|province|national'),('active','Actif','boolean')]
+    },
+    'health_staff': {
+        'table':'health_staff','module':'personnel_sante','endpoint':'health_staff_page','title':'Affectation du personnel',
+        'fields':[('specialty','Spécialité','text'),('professional_number','N° professionnel','text'),('diploma','Diplôme / qualification','text'),('engagement_date','Date d’engagement','date'),('status','Statut','select:active|inactive|suspended')]
+    },
+    'patient': {
+        'table':'patients','module':'patients','endpoint':'patients_page','title':'Patient',
+        'fields':[('last_name','Nom','text'),('first_name','Prénom','text'),('gender','Sexe','select:M|F|Autre'),('birth_date','Date de naissance','date'),('phone','Téléphone','text'),('email','E-mail','email'),('address','Adresse','textarea'),('emergency_contact','Contact d’urgence','text'),('guardian_name','Responsable légal','text'),('guardian_relation','Lien avec le patient','text'),('guardian_email','E-mail responsable','email'),('guardian_phone','Téléphone responsable','text'),('blood_group','Groupe sanguin','text'),('allergies','Allergies','textarea'),('medical_history','Antécédents','textarea')]
+    },
+    'consultation': {
+        'table':'consultations','module':'consultations','endpoint':'consultations_page','title':'Consultation',
+        'fields':[('consultation_date','Date','date'),('reason','Motif','textarea'),('complaints','Plaintes','textarea'),('disease_history','Histoire de la maladie','textarea'),('temperature','Température','text'),('blood_pressure','Tension artérielle','text'),('heart_rate','Fréquence cardiaque','text'),('respiratory_rate','Fréquence respiratoire','text'),('weight','Poids','text'),('height','Taille','text'),('clinical_exam','Examen clinique','textarea'),('diagnosis','Diagnostic','textarea'),('requested_tests','Examens demandés','textarea'),('treatment','Traitement','textarea'),('orientation','Orientation','textarea'),('next_appointment','Prochain rendez-vous','date'),('notes','Notes','textarea'),('status','Statut','select:draft|validated|completed')]
+    },
+    'appointment': {
+        'table':'health_appointments','module':'rendez_vous','endpoint':'health_appointments_page','title':'Rendez-vous',
+        'fields':[('service_name','Service','text'),('appointment_date','Date','date'),('appointment_time','Heure','time'),('reason','Motif','textarea'),('status','Statut','select:scheduled|confirmed|completed|cancelled')]
+    },
+    'visit': {
+        'table':'health_visits','module':'files_attente','endpoint':'health_reception_page','title':'Passage / file d’attente',
+        'fields':[('arrival_time','Heure d’arrivée','time'),('service_name','Service','text'),('priority','Priorité','select:normal|urgent|critique'),('queue_number','N° de file','number'),('status','Statut','select:waiting|triaged|assigned|in_consultation|completed|cancelled')]
+    },
+    'lab_order': {
+        'table':'health_lab_orders','module':'laboratoire','endpoint':'health_laboratory_page','title':'Examen de laboratoire',
+        'fields':[('test_name','Examen','text'),('sample_type','Échantillon','text'),('priority','Priorité','select:normal|urgent|critique'),('status','Statut','select:ordered|pending|collected|received|validated|cancelled'),('result_text','Résultat','textarea'),('reference_range','Valeurs de référence','textarea')]
+    },
+    'product': {
+        'table':'health_products','module':'pharmacie','endpoint':'health_pharmacy_page','title':'Produit / médicament',
+        'fields':[('code','Code','text'),('name','Nom','text'),('category','Catégorie','select:medicament|consommable|reactif|vaccin'),('unit','Unité','text'),('minimum_stock','Stock minimum','number'),('sale_price','Prix de vente','number'),('active','Actif','boolean')]
+    },
+    'admission': {
+        'table':'health_admissions','module':'hospitalisation','endpoint':'health_operations_page','title':'Hospitalisation',
+        'fields':[('ward','Pavillon','text'),('room','Chambre','text'),('bed','Lit','text'),('diagnosis','Diagnostic d’admission','textarea'),('status','Statut','select:admitted|discharged|transferred'),('discharged_at','Date/heure de sortie','text'),('discharge_summary','Résumé de sortie','textarea'),('outcome','Issue','text')]
+    },
+    'invoice': {
+        'table':'health_invoices','module':'facturation','endpoint':'health_billing_page','title':'Facture',
+        'fields':[('invoice_date','Date','date'),('discount','Réduction','number'),('social_support','Prise en charge','number'),('payment_method','Mode de paiement','text'),('notes','Notes','textarea'),('status','Statut','select:unpaid|partial|paid|cancelled')]
+    },
+    'supplier': {
+        'table':'health_suppliers','module':'fournisseurs','endpoint':'health_operations_page','title':'Fournisseur',
+        'fields':[('name','Nom','text'),('phone','Téléphone','text'),('email','E-mail','email'),('address','Adresse','textarea'),('province','Province','text'),('active','Actif','boolean')]
+    },
+    'equipment': {
+        'table':'health_equipment','module':'equipements','endpoint':'health_operations_page','title':'Équipement',
+        'fields':[('inventory_code','Code inventaire','text'),('name','Équipement','text'),('category','Catégorie','text'),('location','Localisation','text'),('state','État','select:operational|maintenance|broken|retired'),('acquisition_date','Acquisition','date'),('warranty_end','Fin garantie','date'),('next_maintenance','Prochaine maintenance','date'),('notes','Notes','textarea')]
+    },
+}
+
+def _health_row_allowed(con, table, row, user):
+    if not row or user['role'] not in PROVINCIAL_ROLES:
+        return bool(row)
+    province = user['province'] or ''
+    if table == 'health_centers':
+        return (row['province'] or '') == province
+    if 'center_id' in row.keys() and row['center_id']:
+        center = con.execute('SELECT province FROM health_centers WHERE id=?',(row['center_id'],)).fetchone()
+        return bool(center and (center['province'] or '') == province)
+    if table == 'health_staff':
+        center = con.execute('SELECT province FROM health_centers WHERE id=?',(row['center_id'],)).fetchone()
+        return bool(center and (center['province'] or '') == province)
+    return True
+
+@app.route('/health/search')
+@login_required
+def health_global_search():
+    q=(request.args.get('q') or '').strip()
+    con=db(); user=current_user(); results=[]
+    if q:
+        like=f'%{q}%'
+        def allow(mod): return module_allowed(mod,'voir')
+        if allow('patients'):
+            sql="""SELECT p.id,p.patient_code code,(COALESCE(p.last_name,'')||' '||COALESCE(p.first_name,'')) title,
+                   COALESCE(p.phone,'') detail,p.center_id FROM patients p WHERE p.deleted_at IS NULL
+                   AND (p.patient_code LIKE ? OR p.last_name LIKE ? OR p.first_name LIKE ? OR COALESCE(p.phone,'') LIKE ?) ORDER BY p.id DESC LIMIT 20"""
+            for r in con.execute(sql,(like,like,like,like)).fetchall():
+                if _health_row_allowed(con,'patients',r,user): results.append({'type':'Patient','icon':'👤','title':r['title'],'detail':f"{r['code']} • {r['detail']}",'url':url_for('health_edit_record',entity='patient',record_id=r['id']) if module_allowed('patients','modifier') else url_for('patients_page')})
+        if allow('personnel_sante'):
+            sql="""SELECT hs.id,hs.center_id,(COALESCE(m.last_name,'')||' '||COALESCE(m.first_name,'')) title,
+                   (COALESCE(hr.name,'')||' • '||COALESCE(hc.name,'')) detail FROM health_staff hs JOIN members m ON m.id=hs.member_id
+                   JOIN health_roles hr ON hr.id=hs.role_id JOIN health_centers hc ON hc.id=hs.center_id
+                   WHERE hs.deleted_at IS NULL AND (m.last_name LIKE ? OR m.first_name LIKE ? OR hr.name LIKE ? OR hc.name LIKE ?) ORDER BY hs.id DESC LIMIT 20"""
+            for r in con.execute(sql,(like,like,like,like)).fetchall():
+                if _health_row_allowed(con,'health_staff',r,user): results.append({'type':'Personnel','icon':'🧑‍⚕️','title':r['title'],'detail':r['detail'],'url':url_for('health_edit_record',entity='health_staff',record_id=r['id']) if module_allowed('personnel_sante','modifier') else url_for('health_staff_page')})
+        if allow('centres_sante'):
+            sql="SELECT id,code,name title,(province||' • '||COALESCE(phone,'')) detail,province FROM health_centers WHERE deleted_at IS NULL AND (code LIKE ? OR name LIKE ? OR province LIKE ?) ORDER BY name LIMIT 20"
+            for r in con.execute(sql,(like,like,like)).fetchall():
+                if _health_row_allowed(con,'health_centers',r,user): results.append({'type':'Centre','icon':'🏥','title':r['title'],'detail':r['detail'],'url':url_for('health_edit_record',entity='health_center',record_id=r['id']) if module_allowed('centres_sante','modifier') else url_for('health_centers_page')})
+        if allow('consultations'):
+            sql="""SELECT co.id,co.center_id,co.consultation_code code,(COALESCE(p.last_name,'')||' '||COALESCE(p.first_name,'')) title,
+                   (COALESCE(co.diagnosis,'')||' • '||COALESCE(co.consultation_date,'')) detail FROM consultations co JOIN patients p ON p.id=co.patient_id
+                   WHERE co.deleted_at IS NULL AND (co.consultation_code LIKE ? OR p.last_name LIKE ? OR p.first_name LIKE ? OR COALESCE(co.diagnosis,'') LIKE ?) ORDER BY co.id DESC LIMIT 20"""
+            for r in con.execute(sql,(like,like,like,like)).fetchall():
+                if _health_row_allowed(con,'consultations',r,user): results.append({'type':'Consultation','icon':'🩺','title':r['title'],'detail':f"{r['code']} • {r['detail']}",'url':url_for('health_edit_record',entity='consultation',record_id=r['id']) if module_allowed('consultations','modifier') else url_for('consultations_page')})
+        if allow('laboratoire'):
+            sql="""SELECT l.id,l.center_id,l.code,(COALESCE(p.last_name,'')||' '||COALESCE(p.first_name,'')) title,
+                   (l.test_name||' • '||COALESCE(l.status,'')) detail FROM health_lab_orders l JOIN patients p ON p.id=l.patient_id
+                   WHERE l.deleted_at IS NULL AND (l.code LIKE ? OR p.last_name LIKE ? OR p.first_name LIKE ? OR l.test_name LIKE ?) ORDER BY l.id DESC LIMIT 20"""
+            for r in con.execute(sql,(like,like,like,like)).fetchall():
+                if _health_row_allowed(con,'health_lab_orders',r,user): results.append({'type':'Laboratoire','icon':'🧪','title':r['title'],'detail':f"{r['code']} • {r['detail']}",'url':url_for('health_edit_record',entity='lab_order',record_id=r['id']) if module_allowed('laboratoire','modifier') else url_for('health_laboratory_page')})
+        if allow('facturation'):
+            sql="""SELECT i.id,i.center_id,i.code,(COALESCE(p.last_name,'')||' '||COALESCE(p.first_name,'')) title,
+                   (printf('%.2f',COALESCE(i.total,0))||' • '||COALESCE(i.status,'')) detail FROM health_invoices i JOIN patients p ON p.id=i.patient_id
+                   WHERE i.deleted_at IS NULL AND (i.code LIKE ? OR p.last_name LIKE ? OR p.first_name LIKE ?) ORDER BY i.id DESC LIMIT 20"""
+            for r in con.execute(sql,(like,like,like)).fetchall():
+                if _health_row_allowed(con,'health_invoices',r,user): results.append({'type':'Facture','icon':'🧾','title':r['title'],'detail':f"{r['code']} • {r['detail']}",'url':url_for('health_edit_record',entity='invoice',record_id=r['id']) if module_allowed('facturation','modifier') else url_for('health_billing_page')})
+    con.close(); return render_template('health_search.html',q=q,results=results)
+
+@app.route('/health/edit/<entity>/<int:record_id>', methods=['GET','POST'])
+@login_required
+def health_edit_record(entity, record_id):
+    cfg=HEALTH_EDIT_REGISTRY.get(entity)
+    if not cfg: abort(404)
+    if not module_allowed(cfg['module'],'modifier'): abort(403)
+    con=db(); table=cfg['table']
+    row=con.execute(f'SELECT * FROM {table} WHERE id=? AND deleted_at IS NULL',(record_id,)).fetchone()
+    if not _health_row_allowed(con,table,row,current_user()): con.close(); abort(403)
+    columns={r['name'] for r in con.execute(f'PRAGMA table_info({table})').fetchall()}
+    fields=[f for f in cfg['fields'] if f[0] in columns]
+    if request.method=='POST':
+        updates=[]; params=[]
+        for name,label,kind in fields:
+            if kind=='boolean': value=1 if request.form.get(name)=='1' else 0
+            else: value=(request.form.get(name) or '').strip()
+            updates.append(f'{name}=?'); params.append(value)
+        if 'updated_at' in columns: updates.append('updated_at=?'); params.append(now())
+        params.append(record_id)
+        try:
+            con.execute(f"UPDATE {table} SET {', '.join(updates)} WHERE id=?",params); con.commit()
+            log_action(current_user()['id'],'Modification Santé',table,record_id,cfg['title'])
+            flash(f"{cfg['title']} modifié avec succès.",'success'); con.close(); return redirect(url_for(cfg['endpoint']))
+        except Exception as exc:
+            con.rollback(); logging.exception('Modification Santé %s/%s: %s',entity,record_id,exc); flash('La modification a échoué. Vérifiez les valeurs saisies.','danger')
+    con.close(); return render_template('health_edit_record.html',cfg=cfg,row=row,fields=fields,entity=entity)
+
+
 DELETE_REGISTRY = {
     'health_center': ('health_centers', 'centres_sante', 'health_centers_page'),
     'health_role': ('health_roles', 'personnel_sante', 'health_roles_page'),
@@ -8357,12 +8500,12 @@ DELETE_REGISTRY = {
     'service_role': ('service_roles', 'roles_services', 'foundation_services_page'),
     'service_assignment': ('service_staff_assignments', 'affectations_services', 'foundation_services_page'),
     'service_module': ('service_modules', 'services', 'foundation_services_page'),
-    'appointment': ('health_appointments', 'rendez_vous', 'health_operations_page'),
-    'visit': ('health_visits', 'files_attente', 'health_operations_page'),
-    'lab_order': ('health_lab_orders', 'laboratoire', 'health_operations_page'),
-    'product': ('health_products', 'pharmacie', 'health_operations_page'),
+    'appointment': ('health_appointments', 'rendez_vous', 'health_appointments_page'),
+    'visit': ('health_visits', 'files_attente', 'health_reception_page'),
+    'lab_order': ('health_lab_orders', 'laboratoire', 'health_laboratory_page'),
+    'product': ('health_products', 'pharmacie', 'health_pharmacy_page'),
     'stock_batch': ('health_stock_batches', 'stocks', 'health_operations_page'),
-    'invoice': ('health_invoices', 'facturation', 'health_operations_page'),
+    'invoice': ('health_invoices', 'facturation', 'health_billing_page'),
     'admission': ('health_admissions', 'hospitalisation', 'health_operations_page'),
     'social_support': ('health_social_support', 'aide_sociale', 'health_operations_page'),
     'equipment': ('health_equipment', 'equipements', 'health_operations_page'),
