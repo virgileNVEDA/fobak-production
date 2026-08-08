@@ -1,0 +1,51 @@
+<footer class="app-footer dashboard-style-footer health-shared-footer" aria-label="Pied de page Fondation BAKITANI">
+  <div class="footer-about">
+    <div class="footer-logo"><img src="{{ url_for('static', filename=settings.get('emblem_path','img/fobak_embleme_officiel_v79.png')) }}" alt="Emblème FOBAK"></div>
+    <p>{{ settings.footer_note }}</p>
+    {% if footer_health_mode %}<p class="health-footer-context"><strong>Centre de Santé BAKITANI</strong><br><span>Une initiative de la Fondation BAKITANI ASBL</span></p>{% endif %}
+  </div>
+
+  <div class="footer-contacts">
+    <h3>Adresse & contacts</h3>
+    <div class="footer-contact-row"><span aria-hidden="true">📍</span><div><span class="footer-address-text">{{ settings.headquarters }}</span><a class="footer-action-link" href="{{ maps_url }}" target="_blank" rel="noopener">Nous trouver / Itinéraire</a></div></div>
+    <div class="footer-contact-row"><span aria-hidden="true">☎</span><a href="tel:{{ settings.contact_phones.split(';')[0]|replace(' ','') }}">{{ settings.contact_phones }}</a></div>
+    <div class="footer-contact-row"><span aria-hidden="true">🌐</span><a class="footer-action-link footer-site-link" href="{{ settings.get('public_base_url') or 'https://fondationbakitani.org' }}" target="_blank" rel="noopener">Site officiel</a></div>
+    <div class="socials">
+      {% if settings.facebook and settings.facebook != '#' %}<a href="{{ settings.facebook }}" target="_blank" rel="noopener noreferrer" aria-label="Facebook">f</a>{% endif %}
+      {% if settings.youtube and settings.youtube != '#' %}<a href="{{ settings.youtube }}" target="_blank" rel="noopener noreferrer" aria-label="YouTube">▶</a>{% endif %}
+      {% if settings.whatsapp and settings.whatsapp != '#' %}<a href="{{ settings.whatsapp if settings.whatsapp.startswith('http') else 'https://wa.me/' + settings.whatsapp|replace('+','')|replace(' ','') }}" target="_blank" rel="noopener noreferrer" aria-label="WhatsApp">WA</a>{% endif %}
+      {% if settings.instagram and settings.instagram != '#' %}<a href="{{ settings.instagram }}" target="_blank" rel="noopener noreferrer" aria-label="Instagram">◎</a>{% endif %}
+      {% if settings.tiktok and settings.tiktok != '#' %}<a href="{{ settings.tiktok }}" target="_blank" rel="noopener noreferrer" aria-label="TikTok">♪</a>{% endif %}
+      {% if settings.x_twitter and settings.x_twitter != '#' %}<a href="{{ settings.x_twitter }}" target="_blank" rel="noopener noreferrer" aria-label="X">𝕏</a>{% endif %}
+      {% if settings.linkedin and settings.linkedin != '#' %}<a href="{{ settings.linkedin }}" target="_blank" rel="noopener noreferrer" aria-label="LinkedIn">in</a>{% endif %}
+    </div>
+  </div>
+
+  <div>
+    <h3>{{ 'Accès Santé' if footer_health_mode else 'Accès rapides' }}</h3>
+    {% if footer_health_mode %}
+      <a href="{{ url_for('health_public_home') }}">› Accueil Centre de Santé</a>
+      {% if session.get('user_id') %}<a href="{{ url_for('health_dashboard') }}">› Tableau de bord Santé</a>{% else %}<a href="{{ url_for('health_login') }}">› Connexion Santé</a>{% endif %}
+      <a href="{{ url_for('index') }}">› Portail FOBAK</a>
+      <a href="{{ url_for('quick_guide') }}">› Guide rapide</a>
+      <a href="{{ url_for('report_problem') }}">› Support / contact</a>
+    {% else %}
+      <a href="{{ url_for('index') }}">› Accueil</a>
+      <a href="{{ url_for('become_member') }}">› Adhésion en ligne</a>
+      <a href="{{ url_for('public_statutes') }}">› Statuts & règlement</a>
+      <a href="{{ url_for('login') }}">› Connexion sécurisée</a>
+    {% endif %}
+  </div>
+
+  <div>
+    <h3>Fondation BAKITANI</h3>
+    <a href="{{ url_for('index') }}">› À propos de nous</a>
+    <a href="{{ url_for('privacy_policy') }}">› Confidentialité</a>
+    <a href="{{ url_for('terms_of_use') }}">› Conditions d’utilisation</a>
+    <a href="{{ url_for('report_problem') }}">› Nous contacter</a>
+    {% if lang_options is defined %}<div class="language-card"><strong>Langue / Language</strong><span>{{ lang_options.get(lang_code, 'Français') }}</span><div class="footer-language-list">{% for code,label in lang_options.items() %}<a href="{{ url_for('set_language', code=code) }}">{{ label }}</a>{% endfor %}</div></div>{% endif %}
+  </div>
+
+  {% include '_official_contact_footer.html' %}
+  <div class="footer-bottom">© {{ current_year }} {{ settings.structure_name }} — Tous droits réservés. Version {{ app_version }}{% if settings.get('initiator') %} — Initiateur : {{ settings.get('initiator') }}{% endif %}</div>
+</footer>

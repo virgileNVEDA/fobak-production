@@ -1,5 +1,9 @@
 {% extends 'base.html' %}{% block content %}
-<style>.enhanced-ticker{display:none!important}body.public-layout{padding-bottom:0!important}</style>
+<style>
+.enhanced-ticker{display:none!important}
+body.public-layout{padding-bottom:0!important}
+body.public-layout .public-content{padding-top:0!important}
+</style>
 <section class="auth-premium-shell">
   <aside class="auth-premium-brand">
     <a class="auth-home-link" href="{{ url_for('index') }}">← Retour au site public</a>
@@ -21,8 +25,8 @@
       <label for="login-identifier">E-mail ou numéro de téléphone</label>
       <div class="auth-input"><span>👤</span><input id="login-identifier" name="identifier" autocomplete="username" required autofocus placeholder="Ex. membre@email.com ou +243…"></div>
       <label for="login-password">Mot de passe</label>
-      <div class="auth-input"><span>🔒</span><input id="login-password" type="password" name="password" autocomplete="current-password" required placeholder="Saisissez votre mot de passe"><button type="button" class="auth-password-toggle" aria-label="Afficher le mot de passe" onclick="const p=document.getElementById('login-password');p.type=p.type==='password'?'text':'password';this.textContent=p.type==='password'?'Afficher':'Masquer'">Afficher</button></div>
-      <label class="auth-remember"><input id="remember-identifier" type="checkbox"><span>Mémoriser uniquement mon identifiant sur cet appareil</span></label>
+      <div class="auth-input"><span>🔒</span><input id="login-password" type="password" name="password" autocomplete="current-password" required placeholder="Saisissez votre mot de passe"><button type="button" class="auth-password-toggle" aria-label="Afficher ou masquer le mot de passe" title="Afficher ou masquer le mot de passe" onclick="const p=document.getElementById('login-password');p.type=p.type==='password'?'text':'password';this.setAttribute('aria-pressed',p.type==='text'?'true':'false')">👁</button></div>
+      <label class="auth-remember"><input id="remember-identifier" type="checkbox"><span><strong>Mémoriser mon identifiant</strong><small>Sur cet appareil uniquement.</small></span></label>
       <button class="btn primary auth-submit" type="submit">Se connecter en toute sécurité <span>→</span></button>
     </form>
     <div class="auth-actions"><a href="{{ url_for('reset_password') }}">Mot de passe oublié ?</a><a href="{{ url_for('become_member') }}">Demander une adhésion</a></div>

@@ -63,8 +63,8 @@ UPLOAD_ROOT = os.environ.get("UPLOAD_ROOT", os.path.join(STATIC_DIR, "uploads"))
 RDC_FLAG_REL = "img/drapeau_rdc.jpg"
 RDC_FLAG_ABS = os.path.join(STATIC_DIR, RDC_FLAG_REL)
 ALLOWED_IMAGE_EXT = {"png", "jpg", "jpeg", "webp", "pdf", "doc", "docx", "xls", "xlsx"}
-APP_VERSION = "111.0.0"
-APP_RELEASE_NAME = "FOBAK Manager Pro V111 — Navigation mobile et logos corrigés"
+APP_VERSION = "114.0.0"
+APP_RELEASE_NAME = "FOBAK Manager Pro V113 — Finition graphique et responsive général"
 CARD_TEMPLATE_VERSION = "paysage-v99-photo-adaptative-pied-adresse-verso-aere"
 
 # Numérotation protocolaire nationale. Le numéro de cadre reste distinct du

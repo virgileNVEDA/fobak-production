@@ -2811,3 +2811,162 @@ body.admin-layout.topbar-compact .topbar-action-button{width:40px!important;heig
   .site-header.public-header .brand-block span,
   .site-header.public-header .brand-block em{font-size:9px!important;}
 }
+
+/* ===== V113 — Finition graphique générale : login, footer, flottants, version ===== */
+:root{
+  --fobak-radius-card:20px;
+  --fobak-radius-control:13px;
+  --fobak-shadow-soft:0 12px 34px rgba(7,55,91,.10);
+}
+
+/* Footer : structure plus compacte et lisible */
+.app-footer.dashboard-style-footer{
+  gap:22px!important;
+  padding:26px 30px 50px!important;
+}
+.app-footer .footer-about{gap:9px!important}
+.app-footer .footer-about p{margin:0!important;max-width:38rem}
+.app-footer .footer-logo{
+  width:82px!important;height:82px!important;border-radius:18px!important;
+  border:1px solid rgba(255,255,255,.34)!important;
+  background:rgba(255,255,255,.10)!important;padding:6px!important;
+}
+.app-footer .footer-logo img{object-fit:contain!important;border-radius:12px!important}
+.footer-contacts{display:flex;flex-direction:column;gap:10px}
+.footer-contacts h3{margin-bottom:4px!important}
+.footer-contact-row{display:grid;grid-template-columns:26px minmax(0,1fr);gap:9px;align-items:start}
+.footer-contact-row>span{line-height:1.45;text-align:center}
+.footer-contact-row a,.footer-contact-row .footer-address-text{display:block!important;margin:0!important;line-height:1.48!important;color:#eef7ff!important;text-decoration:none!important;overflow-wrap:anywhere}
+.footer-action-link{color:#ffe35a!important;font-weight:800!important;margin-top:3px!important;text-decoration:none!important}
+.footer-action-link:hover{text-decoration:underline!important}
+.footer-site-link:after{content:"  ↗";font-weight:900}
+.app-footer .socials{gap:8px!important;margin-top:4px!important}
+.app-footer .socials a{
+  width:38px!important;height:38px!important;background:rgba(255,255,255,.14)!important;
+  color:#fff!important;border:1px solid rgba(255,255,255,.28)!important;
+  box-shadow:none!important;font-size:15px!important;
+}
+.app-footer .socials a:hover{background:#fff!important;color:#0b4f86!important;transform:translateY(-1px)}
+.app-footer .footer-bottom{padding:10px 14px!important;font-size:12px!important;line-height:1.35!important}
+
+/* Contrôles flottants : ne couvrent plus le footer ni les champs */
+.install-pwa-button,.floating-help{transition:opacity .18s ease,transform .18s ease,visibility .18s ease!important}
+body.floating-controls-hidden .install-pwa-button,
+body.floating-controls-hidden .floating-help,
+body.floating-controls-input-active .install-pwa-button,
+body.floating-controls-input-active .floating-help{
+  opacity:0!important;visibility:hidden!important;pointer-events:none!important;transform:translateY(12px) scale(.94)!important;
+}
+
+/* Login : hiérarchie plus sobre et champs unifiés */
+.auth-premium-shell{border-radius:24px!important;box-shadow:0 22px 60px rgba(4,35,62,.15)!important}
+.auth-premium-brand{padding:46px 48px!important}
+.auth-premium-brand h1{font-size:clamp(2rem,3.2vw,3.2rem)!important}
+.auth-premium-card{padding:48px 46px!important}
+.auth-card-heading{margin-bottom:20px!important}
+.auth-card-heading h2{font-size:2.05rem!important}
+.auth-input{
+  min-height:54px!important;grid-template-columns:34px minmax(0,1fr) auto!important;
+  border:1px solid #c8d8e5!important;border-radius:var(--fobak-radius-control)!important;
+  padding:0 10px!important;background:#fff!important;overflow:hidden!important;
+}
+.auth-input>span{display:grid;place-items:center;font-size:19px}
+.auth-input input{
+  width:100%!important;min-width:0!important;min-height:52px!important;
+  border:0!important;outline:0!important;box-shadow:none!important;
+  background:transparent!important;padding:10px 8px!important;margin:0!important;
+  font-size:16px!important;color:#163b5c!important;
+}
+.auth-input input::placeholder{color:#7b8793!important;opacity:1!important}
+.auth-password-toggle{
+  width:42px!important;height:42px!important;display:grid!important;place-items:center!important;
+  padding:0!important;border-radius:10px!important;font-size:19px!important;line-height:1!important;
+  background:#eef6fb!important;color:#0a5a86!important;
+}
+.auth-remember{align-items:flex-start!important;font-size:.92rem!important;line-height:1.35!important}
+.auth-remember span{display:grid;gap:2px}
+.auth-remember strong{font-size:.94rem;color:#27465f}
+.auth-remember small{font-size:.78rem;color:#708193}
+.auth-submit{min-height:50px!important;border-radius:13px!important;font-size:.98rem!important}
+.auth-actions{gap:14px!important}
+.auth-actions a{font-size:.9rem!important;font-weight:750!important}
+.auth-security-line{font-size:.86rem!important}
+
+/* Sur la page de connexion, l'action supérieure ne répète plus "Connexion" : base.html affiche Accueil. */
+body.public-layout .public-content:has(.auth-premium-shell){padding-top:8px!important}
+
+/* Mobile : formulaire d'abord, bloc institutionnel ensuite, pas de grand espace vide */
+@media(max-width:900px){
+  body.public-layout:has(.auth-premium-shell){background:#f3f7fb!important}
+  body.public-layout .public-content:has(.auth-premium-shell){padding:8px 8px 22px!important;margin:0!important;min-height:0!important}
+  .auth-premium-shell{display:flex!important;flex-direction:column!important;margin:6px auto!important;max-width:680px!important;border-radius:18px!important;min-height:0!important;overflow:hidden!important}
+  .auth-premium-card{order:1!important;padding:24px 20px!important}
+  .auth-premium-brand{order:2!important;padding:24px 20px!important;min-height:0!important;justify-content:flex-start!important}
+  .auth-home-link{position:static!important;display:inline-flex!important;margin-bottom:14px!important;font-size:.9rem!important}
+  .auth-emblem-wrap{width:84px!important;height:84px!important;margin:0 0 12px!important}
+  .auth-premium-brand h1{font-size:1.75rem!important;margin:10px 0!important}
+  .auth-intro{font-size:.94rem!important;line-height:1.5!important;margin-bottom:12px!important}
+  .auth-trust-grid{grid-template-columns:1fr!important;gap:7px!important;margin-top:8px!important}
+  .auth-trust-grid>div{padding:9px 10px!important;border-radius:12px!important}
+  .auth-official-note{margin-top:12px!important;font-size:.77rem!important}
+  .auth-card-heading{gap:12px!important;margin-bottom:18px!important}
+  .auth-card-heading h2{font-size:1.75rem!important}
+  .auth-card-heading p{font-size:.93rem!important;line-height:1.45!important}
+  .auth-shield{width:46px!important;height:46px!important;border-radius:14px!important}
+  .auth-premium-form{gap:8px!important}
+  .auth-premium-form>label:not(.auth-remember){font-size:.93rem!important;margin-top:4px!important}
+  .auth-actions{margin-top:12px!important;padding-top:12px!important;border-top:1px solid #e4ebf2!important}
+}
+
+@media(max-width:560px){
+  /* Barre publique plus compacte */
+  .public-mobile-bar{min-height:58px!important;padding:6px 10px!important;grid-template-columns:46px minmax(0,1fr) auto!important}
+  body.public-layout{padding-top:58px!important}
+  .public-menu-toggle{width:46px!important;height:46px!important;border-radius:14px!important}
+  .public-mobile-brand{font-size:19px!important}
+  .public-mobile-login{min-height:42px!important;padding:0 14px!important;border-radius:13px!important;font-size:14px!important}
+
+  /* Footer public compact, sans effet "deuxième page" */
+  .app-footer.dashboard-style-footer{
+    width:100%!important;margin:18px 0 0!important;border-radius:20px 20px 0 0!important;
+    padding:20px 16px 44px!important;gap:14px!important;
+  }
+  .app-footer.dashboard-style-footer:before{width:5px!important}
+  .app-footer .footer-about{display:grid!important;grid-template-columns:72px minmax(0,1fr)!important;align-items:center!important;gap:12px!important}
+  .app-footer .footer-logo{width:72px!important;height:72px!important;margin:0!important}
+  .app-footer .footer-about p{font-size:13.5px!important;line-height:1.45!important;margin:0!important}
+  .footer-contacts{gap:8px!important}
+  .app-footer h3{font-size:17px!important;margin-bottom:3px!important}
+  .footer-contact-row{grid-template-columns:22px minmax(0,1fr)!important;gap:7px!important;font-size:13.5px!important}
+  .footer-contact-row a,.footer-contact-row .footer-address-text{font-size:13.5px!important;line-height:1.42!important}
+  .footer-action-link{font-size:13px!important}
+  .app-footer .socials{gap:7px!important;margin-top:2px!important}
+  .app-footer .socials a{width:34px!important;height:34px!important;font-size:13px!important}
+  .app-footer .footer-bottom{font-size:10.5px!important;padding:8px 10px!important;white-space:normal!important}
+
+  /* Flottants plus petits et plus proches du bord, sans chevauchement */
+  .install-pwa-button,.floating-help{right:10px!important;width:46px!important;height:46px!important}
+  .install-pwa-button{bottom:66px!important}
+  .floating-help{bottom:14px!important}
+
+  /* Login mobile : priorité à l'action */
+  .auth-premium-shell{margin:4px 0!important;border-radius:16px!important}
+  .auth-premium-card{padding:20px 16px!important}
+  .auth-premium-brand{padding:20px 16px!important}
+  .auth-card-heading h2{font-size:1.55rem!important}
+  .auth-card-heading small{font-size:.72rem!important}
+  .auth-card-heading p{font-size:.88rem!important}
+  .auth-shield{width:42px!important;height:42px!important}
+  .auth-input{min-height:50px!important;grid-template-columns:30px minmax(0,1fr) auto!important;padding:0 8px!important}
+  .auth-input input{min-height:48px!important;padding:8px 6px!important;font-size:16px!important}
+  .auth-password-toggle{width:38px!important;height:38px!important;font-size:17px!important}
+  .auth-submit{min-height:48px!important;padding:10px 12px!important;font-size:.92rem!important}
+  .auth-actions{display:flex!important;flex-direction:row!important;justify-content:space-between!important;gap:10px!important;flex-wrap:wrap!important}
+  .auth-actions a{font-size:.84rem!important}
+}
+
+/* Ordinateur : proportions régulières */
+@media(min-width:901px){
+  .auth-premium-shell{max-width:1120px!important;grid-template-columns:minmax(0,1fr) minmax(430px,.85fr)!important;margin:28px auto!important}
+  .app-footer.dashboard-style-footer{max-width:1500px}
+}
