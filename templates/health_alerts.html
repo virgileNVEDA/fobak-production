@@ -1,0 +1,4 @@
+{% extends 'health_base.html' %}{% set title='Alertes Santé' %}{% block content %}
+<section class="health-page-heading"><div><span>Notifications cliniques</span><h1>Alertes Santé</h1><p>Patients orientés, urgences et actions nécessitant votre attention.</p></div></section>
+<section class="health-panel"><div class="health-alert-list">{% for a in rows %}<a class="health-alert-item {{ a.priority }}" href="{{ a.link or '#' }}"><div class="health-alert-icon">{% if a.priority in ['urgent','critique'] %}🚨{% else %}🩺{% endif %}</div><div><strong>{{ a.title }}</strong><p>{{ a.message }}</p><small>{{ a.created_at }} · E-mail : {{ a.email_status }}</small></div></a>{% else %}<div class="health-empty">Aucune alerte Santé.</div>{% endfor %}</div></section>
+{% endblock %}

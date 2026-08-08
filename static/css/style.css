@@ -2668,3 +2668,146 @@ body.admin-layout.topbar-compact .topbar-action-button{width:40px!important;heig
 .quick-profile-card small { width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:center; font-weight:700; }
 @media (max-width:720px){ .quick-profile-grid{grid-template-columns:repeat(3,minmax(0,1fr));}.message-profile-photo{width:38px;height:38px;flex-basis:38px;} }
 .application-identity{display:flex;flex-direction:column;gap:2px;margin-bottom:5px}.application-identity strong{color:#073f67}.application-identity span{font-size:.93rem;color:#40586a}
+
+/* V108 — navigation publique mieux classée, Connexion dans la même ligne */
+@media(min-width:781px){.top-nav.public-nav{display:flex!important;align-items:center!important;justify-content:center!important;gap:6px!important;flex-wrap:nowrap!important;padding:7px 12px!important;overflow:visible!important}.top-nav.public-nav a,.top-nav.public-nav .language-select{flex:0 0 auto!important;min-height:38px!important;padding:8px 10px!important;font-size:13px!important;white-space:nowrap!important}.top-nav.public-nav .public-login-link{order:initial!important;margin-left:2px!important}.top-nav.public-nav .public-language{max-width:112px!important}}
+@media(min-width:1100px){.top-nav.public-nav a,.top-nav.public-nav .language-select{font-size:14px!important;padding:8px 12px!important}}
+
+/* ===== V111 — Navigation mobile centrée et identité FOBAK entièrement visible ===== */
+@media (max-width:820px){
+  /* La barre mobile reste fixe, mais l'en-tête institutionnel participe au flux.
+     Cela évite que le logo / le drapeau soient cachés derrière la barre. */
+  body.public-layout{padding-top:62px!important;}
+  body.public-layout>.site-header.public-header{
+    position:relative!important;
+    top:auto!important;
+    z-index:15!important;
+    width:100%!important;
+    margin:0!important;
+    border-radius:0!important;
+    overflow:visible!important;
+  }
+  .site-header.public-header{
+    grid-template-columns:72px minmax(0,1fr) 58px!important;
+    min-height:82px!important;
+    padding:10px 12px!important;
+    gap:10px!important;
+  }
+  .site-header.public-header .logo-box{
+    width:66px!important;
+    height:62px!important;
+    padding:4px!important;
+    margin:0!important;
+    overflow:visible!important;
+  }
+  .site-header.public-header .logo-box img{
+    width:100%!important;
+    height:100%!important;
+    max-width:none!important;
+    max-height:none!important;
+    object-fit:contain!important;
+    display:block!important;
+  }
+  .site-header.public-header .brand-block{
+    min-width:0!important;
+    text-align:center!important;
+    overflow:visible!important;
+  }
+  .site-header.public-header .brand-block strong{
+    display:block!important;
+    font-size:17px!important;
+    line-height:1.15!important;
+    white-space:normal!important;
+  }
+  .site-header.public-header .brand-block span,
+  .site-header.public-header .brand-block em{
+    display:block!important;
+    font-size:10px!important;
+    line-height:1.25!important;
+    white-space:normal!important;
+  }
+  .site-header.public-header .flag-real{
+    display:flex!important;
+    width:54px!important;
+    height:40px!important;
+    overflow:hidden!important;
+  }
+  .site-header.public-header .flag-real img{
+    width:100%!important;
+    height:100%!important;
+    object-fit:cover!important;
+  }
+
+  /* Drawer : tous les choix suivent le même axe visuel. */
+  .public-nav.is-open{
+    display:flex!important;
+    flex-direction:column!important;
+    align-items:stretch!important;
+    gap:6px!important;
+    padding:76px 12px 20px!important;
+    overflow-y:auto!important;
+  }
+  .top-nav.public-nav a,
+  .public-nav a{
+    width:100%!important;
+    min-height:50px!important;
+    display:flex!important;
+    align-items:center!important;
+    justify-content:center!important;
+    text-align:center!important;
+    padding:11px 14px!important;
+    margin:0!important;
+    border-radius:13px!important;
+  }
+  .top-nav.public-nav a.public-health-link{
+    justify-content:center!important;
+    text-align:center!important;
+    width:100%!important;
+  }
+  .top-nav.public-nav a.public-health-link span{
+    flex:0 0 26px!important;
+  }
+  .public-nav .public-login-link{
+    order:initial!important;
+  }
+  .public-nav .language-select{
+    width:100%!important;
+    min-height:50px!important;
+    text-align:center!important;
+    text-align-last:center!important;
+    margin:2px 0 0!important;
+  }
+
+  /* Le premier contenu commence après l'identité, jamais sous celle-ci. */
+  .public-content{
+    position:relative!important;
+    z-index:1!important;
+    padding-top:14px!important;
+  }
+  .hero,
+  .hero-fullwidth,
+  .public-carousel,
+  .home-carousel{
+    margin-top:0!important;
+  }
+}
+
+@media (max-width:480px){
+  .site-header.public-header{
+    grid-template-columns:62px minmax(0,1fr) 48px!important;
+    min-height:76px!important;
+    padding:8px 9px!important;
+  }
+  .site-header.public-header .logo-box{
+    width:58px!important;
+    height:54px!important;
+  }
+  .site-header.public-header .flag-real{
+    display:flex!important;
+    width:46px!important;
+    height:34px!important;
+  }
+  .site-header.public-header .brand-block strong{font-size:15px!important;}
+  .site-header.public-header .brand-block span,
+  .site-header.public-header .brand-block em{font-size:9px!important;}
+}

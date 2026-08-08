@@ -20,12 +20,20 @@
     </fieldset>
     <fieldset>
       <legend>2. Coordonnées et personne à contacter</legend>
-      <label>Téléphone<input name="phone" type="tel" autocomplete="tel" placeholder="Ex. +243 000 000 000"></label>
+      <label>Téléphone<input name="phone" type="tel" autocomplete="tel" placeholder="Ex. +243 000 000 000"></label><label>Adresse e-mail du patient<input name="email" type="email" autocomplete="email" placeholder="Ex. patient@gmail.com"><small>Utilisée pour la confirmation d’enregistrement lorsque le patient est majeur.</small></label>
       <label>Contact d’urgence<input name="emergency_contact" autocomplete="tel" placeholder="Nom et téléphone du proche"></label>
       <label class="full">Adresse complète<textarea name="address" autocomplete="street-address" placeholder="Quartier, avenue, numéro, commune ou territoire"></textarea></label>
     </fieldset>
     <fieldset>
-      <legend>3. Informations médicales essentielles</legend>
+      <legend>3. Responsable légal — si le patient est mineur</legend>
+      <p class="health-section-note full">Pour un enfant, renseignez le père, la mère ou le responsable légal. L’e-mail de confirmation sera envoyé à cette personne plutôt qu’à l’enfant.</p>
+      <label>Nom complet du responsable<input name="guardian_name" placeholder="Ex. Jean KABAMBA"></label>
+      <label>Lien avec l’enfant<select name="guardian_relation"><option value="">Sélectionner</option><option>Père</option><option>Mère</option><option>Tuteur légal</option><option>Autre responsable</option></select></label>
+      <label>Téléphone du responsable<input name="guardian_phone" type="tel" placeholder="Ex. +243..."></label>
+      <label>E-mail du responsable<input name="guardian_email" type="email" placeholder="Ex. parent@gmail.com"></label>
+    </fieldset>
+    <fieldset>
+      <legend>4. Informations médicales essentielles</legend>
       <label class="full">Allergies connues<textarea name="allergies" placeholder="Médicaments, aliments, produits ou autres allergies. Écrire « Aucune connue » lorsque vérifié."></textarea></label>
       <label class="full">Antécédents médicaux et chirurgicaux<textarea name="medical_history" placeholder="Maladies chroniques, interventions, hospitalisations, traitements habituels et informations importantes."></textarea></label>
     </fieldset>

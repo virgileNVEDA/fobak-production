@@ -1,6 +1,7 @@
 {% extends 'health_base.html' %}
 {% block content %}
 <section class="dashboard-welcome"><div><span class="eyebrow">Dossier clinique</span><h1>Fiche de consultation</h1><p>Constantes, anamnèse, examen, diagnostic, traitement et suivi dans un ordre clinique logique.</p></div><div class="dashboard-seal">📋</div></section>
+{% if assigned_visits %}<section class="health-panel health-assigned-panel"><div class="health-panel-head"><div><span>Orientation infirmière</span><h2>Patients qui vous sont transmis</h2></div><strong>{{ assigned_visits|length }} en attente</strong></div><div class="health-assigned-grid">{% for v in assigned_visits %}<button type="button" class="health-assigned-patient" data-patient-id="{{ v.patient_id }}" data-staff-id="{{ current_staff_id }}"><span class="health-status {{ v.priority }}">{{ v.priority }}</span><strong>{{ v.patient_code }} — {{ v.last_name }} {{ v.first_name }}</strong><small>T° {{ v.temperature or '—' }} · TA {{ v.systolic or '—' }}/{{ v.diastolic or '—' }} · SpO₂ {{ v.oxygen_saturation or '—' }}% · Douleur {{ v.pain_score if v.pain_score is not none else '—' }}/10</small></button>{% endfor %}</div></section>{% endif %}
 <section class="card health-form-card">
   <div class="sheet-header-clean">
     <div class="sheet-logo-stack"><div class="sheet-center-placeholder">SERVICE</div></div>
@@ -11,8 +12,8 @@
     <p class="health-section-note">Une consultation doit être rattachée à un patient. Les constantes doivent être saisies avec leurs unités habituelles.</p>
     <fieldset>
       <legend>1. Identification de la consultation</legend>
-      <label>Patient <span class="required-mark">*</span><select name="patient_id" required><option value="">Sélectionner un patient</option>{% for p in patients %}<option value="{{ p.id }}">{{ p.patient_code }} — {{ p.last_name }} {{ p.first_name }}</option>{% endfor %}</select></label>
-      <label>Consultant<select name="staff_id"><option value="">Non précisé</option>{% for s in staff %}<option value="{{ s.id }}">{{ s.last_name }} {{ s.first_name }} — {{ s.role_name }}</option>{% endfor %}</select></label>
+      <label>Patient <span class="required-mark">*</span><select name="patient_id" id="consult-patient" required><option value="">Sélectionner un patient</option>{% for p in patients %}<option value="{{ p.id }}">{{ p.patient_code }} — {{ p.last_name }} {{ p.first_name }}</option>{% endfor %}</select></label>
+      <label>Consultant<select name="staff_id" id="consult-staff"><option value="">Non précisé</option>{% for s in staff %}<option value="{{ s.id }}">{{ s.last_name }} {{ s.first_name }} — {{ s.role_name }}</option>{% endfor %}</select></label>
       <label>Date de consultation<input name="consultation_date" type="date"></label>
       <label>Prochain rendez-vous<input name="next_appointment" type="date"></label>
     </fieldset>
@@ -46,4 +47,4 @@
   <div class="sheet-footer-clean"><div><strong>Contrôle :</strong> vérifiez le patient, le diagnostic, la prescription et la date de suivi.</div><div><strong>Impression :</strong> la fiche imprimée reprend l’identité visuelle du centre de santé.</div></div>
 </section>
 <section class="card"><div class="table-wrap"><table><thead><tr><th>Code</th><th>Date</th><th>Patient</th><th>Centre</th><th>Diagnostic</th><th>Statut</th><th>Actions</th></tr></thead><tbody>{% for r in rows %}<tr><td>{{ r.consultation_code }}</td><td>{{ r.consultation_date }}</td><td>{{ r.patient_code }} — {{ r.last_name }} {{ r.first_name }}</td><td>{{ r.center_name }}</td><td>{{ r.diagnosis }}</td><td>{{ r.status }}</td><td>{% if module_allowed('consultations','imprimer') %}<a class="btn secondary small" target="_blank" href="{{ url_for('consultation_print',consultation_id=r.id) }}">Imprimer</a>{% endif %}{% if module_allowed('consultations','supprimer') %}<form method="post" action="{{ url_for('universal_delete',entity='consultation',record_id=r.id) }}" onsubmit="return confirm('Confirmer la suppression ?')"><button class="btn danger small">Supprimer</button></form>{% endif %}</td></tr>{% endfor %}</tbody></table></div></section>
-{% endblock %}
+<script>document.querySelectorAll('.health-assigned-patient').forEach(b=>b.addEventListener('click',()=>{const p=document.getElementById('consult-patient'),st=document.getElementById('consult-staff');if(p)p.value=b.dataset.patientId;if(st&&b.dataset.staffId)st.value=b.dataset.staffId;document.querySelector('.health-form-card')?.scrollIntoView({behavior:'smooth',block:'start'});}));</script>{% endblock %}

@@ -1,18 +1,7 @@
 {% extends 'base.html' %}{% block content %}
-<section class="dashboard-welcome">
-  <div><span class="eyebrow">Sécurité du compte</span><h1>Mot de passe et connexions</h1><p>Contrôlez l’accès à votre compte et les appareils actuellement connectés.</p></div>
-  <div class="dashboard-seal">🔐</div>
-</section>
+<section class="dashboard-welcome"><div><span class="eyebrow">Sécurité du compte</span><h1>Mot de passe et connexions</h1><p>Contrôlez l’accès à votre compte et les appareils actuellement connectés.</p></div><div class="dashboard-seal">🔐</div></section>
 <div class="security-grid">
-  <section class="card">
-    <h2>Mot de passe</h2>
-    <p class="muted">Utilisez un mot de passe personnel robuste et ne le communiquez jamais.</p>
-    <a class="btn primary" href="{{ url_for('change_password') }}">Modifier mon mot de passe</a>
-  </section>
-  <section class="card">
-    <h2>Connexions en cours</h2>
-    <p class="muted">Consultez les appareils connectés et fermez toute session que vous ne reconnaissez pas.</p>
-    <a class="btn primary" href="{{ url_for('active_sessions_page') }}">Voir les connexions</a>
-  </section>
-</div>
-{% endblock %}
+<section class="card"><h2>Mot de passe</h2><p class="muted">Utilisez un mot de passe personnel robuste et ne le communiquez jamais.</p><a class="btn primary" href="{{ url_for('change_password') }}">Modifier mon mot de passe</a></section>
+<section class="card"><h2>Connexions en cours</h2><p class="muted">Consultez les appareils connectés et fermez une session précise si nécessaire.</p><a class="btn primary" href="{{ url_for('active_sessions_page') }}">Voir les connexions</a></section>
+<section class="card"><h2>Fermer toutes mes sessions</h2><p class="muted">Utilisez cette action seulement si vous souhaitez déconnecter aussi vos autres appareils.</p><a class="btn danger" href="{{ url_for('logout_all_sessions') }}" onclick="return confirm('Fermer toutes vos sessions sur tous les appareils ?')">Déconnecter tous mes appareils</a></section>
+</div>{% endblock %}

@@ -1,23 +1,57 @@
 {% extends 'health_base.html' %}
+{% set title='Personnel & comptes Santé' %}
 {% block content %}
-<section class="dashboard-welcome"><div><span class="eyebrow">Condition obligatoire</span><h1>Personnel sanitaire</h1><p>Seuls les membres actifs de la Fondation peuvent être affectés aux centres.</p></div><div class="dashboard-seal">👩🏽‍⚕️</div></section>
-<section class="card health-form-card">
-  <div class="sheet-header-clean">
-    <div class="sheet-logo-stack"><div class="sheet-center-placeholder">RH</div></div>
-    <div class="sheet-title-stack"><h2>Affectation du personnel sanitaire</h2><p>Organisation claire du personnel par rôle, centre et province.</p></div>
-    <div class="sheet-logo-stack">{% if settings.logo_path %}<img src="{{ url_for('static', filename=settings.logo_path) }}" class="sheet-foundation-logo" alt="FOBAK">{% endif %}</div>
-  </div>
-  <form method="post" class="form-grid adhesion-inspired-form clean-form-grid">
-    <label>Membre actif<select name="member_id" required><option value="">Choisir</option>{% for m in members %}<option value="{{ m.id }}">{{ m.code }} — {{ m.last_name }} {{ m.first_name }} ({{ m.province }})</option>{% endfor %}</select></label>
-    <label>Centre<select name="center_id" required>{% for c in centers %}<option value="{{ c.id }}">{{ c.province }} — {{ c.name }}</option>{% endfor %}</select></label>
-    <label>Rôle<select name="role_id" required>{% for r in roles %}<option value="{{ r.id }}">{{ r.name }}</option>{% endfor %}</select></label>
-    <label>Spécialité<input name="specialty"></label>
-    <label>N° professionnel<input name="professional_number"></label>
-    <label>Diplôme<input name="diploma"></label>
-    <label>Date d'engagement<input name="engagement_date" type="date"></label>
-    <button class="btn primary">Affecter le membre</button>
+<section class="health-page-heading health-page-heading-pro"><div><span>RESSOURCES HUMAINES</span><h1>Personnel du Centre de Santé</h1><p>Engagez un professionnel même s’il n’est pas membre FOBAK, affectez-le à un centre et gérez son compte sécurisé.</p></div><div class="health-page-actions"><a class="health-btn secondary" href="{{ url_for('health_roles_page') }}">Rôles sanitaires</a></div></section>
+
+<section class="health-panel health-staff-form-panel">
+  <div class="health-panel-head"><div><span>Nouvelle affectation</span><h2>Engager ou affecter un personnel</h2></div><div class="health-chip">Membre FOBAK facultatif</div></div>
+  <form method="post" enctype="multipart/form-data" class="health-form health-staff-form">
+    <input type="hidden" name="action" value="add_staff">
+    <fieldset class="health-form-section"><legend>1. Origine de la personne</legend>
+      <div class="health-choice-row">
+        <label class="health-choice"><input type="radio" name="link_mode" value="external" checked><span><b>Nouveau personnel Santé</b><small>La personne travaille au Centre sans devenir membre de la Fondation.</small></span></label>
+        <label class="health-choice"><input type="radio" name="link_mode" value="member"><span><b>Membre FOBAK existant</b><small>Lier sa fiche membre à une fonction sanitaire.</small></span></label>
+      </div>
+      <label class="member-only-field" hidden>Membre FOBAK<select name="member_id"><option value="">Rechercher / choisir</option>{% for m in members %}<option value="{{ m.id }}">{{ m.code }} — {{ m.last_name }} {{ m.first_name }} ({{ m.province }})</option>{% endfor %}</select></label>
+      <div class="external-only-fields health-form-grid three">
+        <label>Nom *<input name="last_name" autocomplete="family-name"></label>
+        <label>Postnom<input name="post_name"></label>
+        <label>Prénom *<input name="first_name" autocomplete="given-name"></label>
+        <label>E-mail<input name="email" type="email" autocomplete="email"></label>
+        <label>Téléphone<input name="phone" type="tel" autocomplete="tel"></label>
+        <label>Photo<input name="photo" type="file" accept="image/*"></label>
+        <label class="span-2">Adresse<input name="staff_address" autocomplete="street-address"></label>
+      </div>
+    </fieldset>
+    <fieldset class="health-form-section"><legend>2. Affectation professionnelle</legend>
+      <div class="health-form-grid three">
+        <label>Centre *<select name="center_id" required><option value="">Choisir un centre</option>{% for c in centers %}<option value="{{ c.id }}">{{ c.province }} — {{ c.name }}</option>{% endfor %}</select></label>
+        <label>Rôle sanitaire *<select name="role_id" required><option value="">Choisir un rôle</option>{% for r in roles %}<option value="{{ r.id }}">{{ r.name }}</option>{% endfor %}</select></label>
+        <label>Spécialité<input name="specialty" placeholder="Ex. Pédiatrie"></label>
+        <label>N° professionnel<input name="professional_number"></label>
+        <label>Diplôme / qualification<input name="diploma"></label>
+        <label>Type de contrat<select name="contract_type"><option value="">Non précisé</option><option>CDI</option><option>CDD</option><option>Vacation</option><option>Stage</option><option>Bénévolat</option></select></label>
+        <label>Date d’engagement<input name="engagement_date" type="date"></label>
+      </div>
+    </fieldset>
+    <fieldset class="health-form-section"><legend>3. Accès à l’application</legend>
+      <label class="health-toggle-line"><input type="checkbox" name="create_account" value="1"><span><b>Créer maintenant un compte sécurisé</b><small>Un mot de passe temporaire sera généré. L’utilisateur devra le modifier à sa première connexion.</small></span></label>
+    </fieldset>
+    <div class="health-form-actions"><button class="health-btn" type="submit">Enregistrer le personnel</button><small>La création d’une fiche Santé n’inscrit pas la personne comme membre FOBAK.</small></div>
   </form>
-  <div class="sheet-footer-clean"><div><strong>Rappel :</strong> les rôles du centre restent personnalisables dans l'application.</div><div><strong>Contrôle :</strong> seuls les membres actifs peuvent être affectés.</div></div>
 </section>
-<section class="card"><div class="table-wrap"><table><thead><tr><th>Membre</th><th>Centre</th><th>Province</th><th>Rôle</th><th>Spécialité</th><th>Statut</th><th>Actions</th></tr></thead><tbody>{% for r in rows %}<tr><td>{{ r.member_code }} — <strong>{{ r.last_name }} {{ r.first_name }}</strong></td><td>{{ r.center_name }}</td><td>{{ r.province }}</td><td>{{ r.role_name }}</td><td>{{ r.specialty }}</td><td>{{ r.status }}</td><td>{% if module_allowed('personnel_sante','supprimer') %}<form method="post" action="{{ url_for('universal_delete',entity='health_staff',record_id=r.id) }}" onsubmit="return confirm('Confirmer la suppression ?')"><button class="btn danger small">Supprimer</button></form>{% endif %}</td></tr>{% endfor %}</tbody></table></div></section>
+
+<section class="health-panel"><div class="health-panel-head"><div><span>Équipe</span><h2>Personnel enregistré</h2></div><span class="health-chip">{{ rows|length }} personne(s)</span></div>
+<div class="health-staff-grid">{% for r in rows %}<article class="health-staff-card">
+  <div class="health-staff-avatar">{% if r.photo_path %}<img src="{{ url_for('static',filename=r.photo_path) }}" alt="Photo">{% else %}<span>{{ (r.first_name or 'P')[:1]|upper }}{{ (r.last_name or '')[:1]|upper }}</span>{% endif %}</div>
+  <div class="health-staff-info"><div class="health-staff-name"><h3>{{ r.last_name }} {{ r.first_name }}</h3><span class="health-status ok">{{ r.status }}</span></div><p>{{ r.role_name }}{% if r.specialty %} • {{ r.specialty }}{% endif %}</p><small>{{ r.center_name }} • {{ r.province }}</small><small>{{ r.email or r.phone or 'Coordonnées non renseignées' }}</small><span class="health-origin-badge">{{ 'Personnel Santé indépendant' if r.staff_origin=='external' else 'Lié à un membre FOBAK' }}</span></div>
+  <div class="health-staff-actions">
+    {% if r.account_user_id or r.account_active is not none %}<span class="health-account-state {{ 'on' if r.account_active else 'off' }}">{{ 'Compte actif' if r.account_active else 'Compte suspendu' }}</span>{% else %}<span class="health-account-state off">Sans compte</span>{% endif %}
+    {% if module_allowed('comptes_personnel_sante','modifier') and (r.account_user_id or r.account_active is not none) %}<form method="post"><input type="hidden" name="action" value="reset_password"><input type="hidden" name="staff_id" value="{{ r.id }}"><button class="health-btn tiny secondary">Réinitialiser le mot de passe</button></form><form method="post"><input type="hidden" name="action" value="toggle_account"><input type="hidden" name="staff_id" value="{{ r.id }}"><button class="health-btn tiny {{ 'danger-soft' if r.account_active else '' }}">{{ 'Suspendre' if r.account_active else 'Réactiver' }}</button></form>{% endif %}
+    {% if module_allowed('personnel_sante','supprimer') %}<form method="post" action="{{ url_for('universal_delete',entity='health_staff',record_id=r.id) }}" onsubmit="return confirm('Confirmer la suppression de cette affectation ?')"><button class="health-btn tiny danger-soft">Supprimer</button></form>{% endif %}
+  </div>
+</article>{% else %}<div class="health-empty">Aucun personnel enregistré.</div>{% endfor %}</div></section>
+<script>
+(()=>{const radios=[...document.querySelectorAll('input[name="link_mode"]')], member=document.querySelector('.member-only-field'), ext=document.querySelector('.external-only-fields');function sync(){const v=document.querySelector('input[name="link_mode"]:checked')?.value;member.hidden=v!=='member';ext.hidden=v==='member';ext.querySelectorAll('input').forEach(i=>{if(['first_name','last_name'].includes(i.name))i.required=v!=='member'});document.querySelector('select[name="member_id"]').required=v==='member'}radios.forEach(r=>r.addEventListener('change',sync));sync()})();
+</script>
 {% endblock %}

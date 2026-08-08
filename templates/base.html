@@ -203,7 +203,7 @@
           {% if current_user.province %}<small>{{ current_user.province }}</small>{% endif %}
         </div>
       </div>
-      <a class="logout-btn" href="{{ url_for('logout_tab') }}">⎋ {{ _("Déconnexion") }}</a>
+      <a class="logout-btn" href="{{ url_for('logout') }}">⎋ {{ _("Déconnexion") }}</a>
     </aside>
 
     <div class="mobile-menu-backdrop" aria-hidden="true"></div>
@@ -256,13 +256,13 @@
   <nav id="public-main-nav" class="top-nav public-nav">
     <a href="{{ url_for('index') }}">{{ _("Accueil") }}</a>
     <a href="{{ url_for('become_member') }}">{{ _("Devenir membre") }}</a>
-    <a href="{{ url_for('public_statutes') }}">Statuts</a>
     <a class="public-health-link" href="{{ url_for('health_public_home') }}"><span aria-hidden="true">✚</span> Centre de Santé</a>
+    <a href="{{ url_for('public_statutes') }}">Statuts</a>
     <a href="{{ url_for('report_problem') }}">Contact</a>
-    <a href="{{ url_for('intelligent_help') }}">{{ _("Aide intelligente") }}</a>
-    <a href="{{ url_for('quick_guide') }}">Guide rapide</a>
-    <select class="language-select public-language" onchange="if(this.value) location.href=this.value">{% for code,label in lang_options.items() %}<option value="{{ url_for('set_language', code=code) }}" {{ 'selected' if code==lang_code else '' }}>{{ label }}</option>{% endfor %}</select>
+    <a href="{{ url_for('quick_guide') }}">Guide</a>
+    <a href="{{ url_for('intelligent_help') }}">Aide</a>
     <a class="public-login-link" href="{{ url_for('login') }}">{{ _("Connexion") }}</a>
+    <select class="language-select public-language" onchange="if(this.value) location.href=this.value">{% for code,label in lang_options.items() %}<option value="{{ url_for('set_language', code=code) }}" {{ 'selected' if code==lang_code else '' }}>{{ label }}</option>{% endfor %}</select>
   </nav>
 
   <main class="main-content public-content">

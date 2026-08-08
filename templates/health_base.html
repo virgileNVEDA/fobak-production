@@ -1,78 +1,62 @@
 <!doctype html>
 <html lang="{{ lang_code or 'fr' }}">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="csrf-token" content="{{ csrf_token() }}">
-  <title>{{ title or 'Centre de Santé BAKITANI' }}</title>
-  <meta name="theme-color" content="#0d6f67">
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="csrf-token" content="{{ csrf_token() }}">
+  <title>{{ title or 'Centre de Santé BAKITANI' }}</title><meta name="theme-color" content="#0b4f86">
   <link rel="icon" href="{{ url_for('static', filename=settings.get('emblem_path','img/fobak_embleme_officiel_v79.png')) }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ app_version }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/health.css') }}?v={{ app_version }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ app_version }}"><link rel="stylesheet" href="{{ url_for('static', filename='css/health.css') }}?v={{ app_version }}">
 </head>
 <body class="health-app health-admin" data-current-path="{{ request.path }}">
-  <button class="health-mobile-menu" type="button" aria-label="Afficher le menu" aria-controls="health-sidebar" aria-expanded="false">☰</button>
-  <div class="health-shell">
-    <aside class="health-sidebar" id="health-sidebar">
-      <div class="health-brand">
-        <div class="health-brand-mark">✚</div>
-        <div><strong>Centre de Santé</strong><span>BAKITANI</span></div>
-      </div>
-      <div class="health-user-card">
-        {% if current_user_photo_path %}<img src="{{ url_for('static', filename=current_user_photo_path) }}" alt="Photo de {{ current_user_display_name }}">{% else %}<div class="health-user-avatar">{{ (current_user_display_name or 'U')[:1]|upper }}</div>{% endif %}
-        <div><strong>{{ current_user_display_name }}</strong><small>{{ role_labels.get(session.role, session.role) }}</small></div>
-      </div>
-      <nav class="health-nav" aria-label="Navigation du Centre de Santé">
-        <a href="{{ url_for('health_dashboard') }}" class="{{ 'active' if request.endpoint=='health_dashboard' else '' }}"><span>▦</span> Tableau de bord</a>
-        <a href="{{ url_for('patients_page') }}" class="{{ 'active' if request.endpoint=='patients_page' else '' }}"><span>👤</span> Patients</a>
-        <a href="{{ url_for('health_reception_page') }}" class="{{ 'active' if request.endpoint=='health_reception_page' else '' }}"><span>🛎️</span> Réception</a>
-        <a href="{{ url_for('health_appointments_page') }}" class="{{ 'active' if request.endpoint=='health_appointments_page' else '' }}"><span>📅</span> Rendez-vous</a>
-        <a href="{{ url_for('consultations_page') }}" class="{{ 'active' if request.endpoint=='consultations_page' else '' }}"><span>🩺</span> Consultations</a>
-        <a href="{{ url_for('health_operations_page') }}#urgences"><span>🚑</span> Urgences</a>
-        <a href="{{ url_for('health_operations_page') }}#hospitalisation"><span>🛏️</span> Hospitalisation</a>
-        <a href="{{ url_for('health_laboratory_page') }}" class="{{ 'active' if request.endpoint=='health_laboratory_page' else '' }}"><span>🧪</span> Laboratoire</a>
-        <a href="{{ url_for('health_pharmacy_page') }}" class="{{ 'active' if request.endpoint=='health_pharmacy_page' else '' }}"><span>💊</span> Pharmacie</a>
-        <a href="{{ url_for('health_billing_page') }}" class="{{ 'active' if request.endpoint=='health_billing_page' else '' }}"><span>🧾</span> Facturation</a>
-        <a href="{{ url_for('health_communication_page') }}" class="{{ 'active' if request.endpoint=='health_communication_page' else '' }}"><span>💬</span> Communication</a>
-        <a href="{{ url_for('health_reports_page') }}" class="{{ 'active' if request.endpoint=='health_reports_page' else '' }}"><span>📈</span> Rapports</a>
-        <details {{ 'open' if request.endpoint in ['health_centers_page','health_roles_page','health_staff_page','medical_forms_page','health_data_quality_page','health_appearance_page'] else '' }}>
-          <summary><span>⚙️</span> Administration <b>⌄</b></summary>
-          <div>
-            <a href="{{ url_for('health_centers_page') }}">Centres</a>
-            <a href="{{ url_for('health_staff_page') }}">Personnel</a>
-            <a href="{{ url_for('health_roles_page') }}">Rôles sanitaires</a>
-            <a href="{{ url_for('medical_forms_page') }}">Fiches médicales</a>
-            <a href="{{ url_for('health_data_quality_page') }}">Qualité des données</a>
-            {% if module_allowed('centres_sante','parametrer') %}<a href="{{ url_for('health_appearance_page') }}">Accueil & carrousel</a>{% endif %}
-          </div>
-        </details>
-      </nav>
-      <div class="health-sidebar-footer">
-        <a href="{{ url_for('health_public_home') }}">🌐 Accueil Santé</a>
-        <a href="{{ url_for('dashboard') }}">← Retour à FOBAK</a>
-        <a href="{{ url_for('logout_tab') }}">⎋ Déconnexion</a>
-      </div>
-    </aside>
-    <div class="health-backdrop" aria-hidden="true"></div>
-    <main class="health-main">
-      <header class="health-topbar">
-        <div><span class="health-top-kicker">Espace sanitaire sécurisé</span><strong>{{ title or 'Centre de Santé BAKITANI' }}</strong></div>
-        <div class="health-top-actions">
-          <a href="{{ url_for('health_public_home') }}" title="Accueil public">🌐</a>
-          <a href="{{ url_for('notifications') }}" title="Notifications">🔔{% if unread_notification_count %}<sup>{{ unread_notification_count }}</sup>{% endif %}</a>
-          <a href="{{ url_for('my_profile') }}" title="Mon profil">👤</a>
-        </div>
-      </header>
-      <div class="health-content">
-        {% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}<div class="health-flashes" role="status">{% for category,message in messages %}<div class="health-alert {{ category }}">{{ message }}</div>{% endfor %}</div>{% endif %}{% endwith %}
-        {% block content %}{% endblock %}
-      </div>
-      <footer class="health-general-footer">{% include '_official_contact_footer.html' %}<div class="health-footer-meta"><span>Centre de Santé BAKITANI • Plateforme FOBAK</span><a href="{{ url_for('index') }}">Retour au portail Fondation BAKITANI</a></div></footer>
-    </main>
-  </div>
-  <script src="{{ url_for('static', filename='js/app.js') }}?v={{ app_version }}"></script>
-  <script>
-  (()=>{const b=document.querySelector('.health-mobile-menu'),s=document.querySelector('.health-sidebar'),d=document.querySelector('.health-backdrop');if(!b||!s)return;const close=()=>{document.body.classList.remove('health-menu-open');b.setAttribute('aria-expanded','false')};b.addEventListener('click',()=>{const open=document.body.classList.toggle('health-menu-open');b.setAttribute('aria-expanded',open?'true':'false')});d&&d.addEventListener('click',close);document.addEventListener('keydown',e=>{if(e.key==='Escape')close()});})();
-  </script>
-</body>
-</html>
+<button class="health-mobile-menu" type="button" aria-label="Afficher le menu" aria-controls="health-sidebar" aria-expanded="false">☰</button>
+<div class="health-shell">
+<aside class="health-sidebar" id="health-sidebar">
+  <div class="health-brand"><div class="health-brand-mark">✚</div><div><strong>Centre de Santé</strong><span>BAKITANI • FOBAK</span></div></div>
+  <div class="health-user-card">{% if current_user_photo_path %}<img src="{{ url_for('static', filename=current_user_photo_path) }}" alt="Photo de {{ current_user_display_name }}">{% else %}<div class="health-user-avatar">{{ (current_user_display_name or 'U')[:1]|upper }}</div>{% endif %}<div><strong>{{ current_user_display_name }}</strong><small>{{ role_labels.get(session.role, session.role|replace('_',' ')|title) }}</small></div></div>
+  <nav class="health-nav" aria-label="Navigation du Centre de Santé">
+    <div class="health-nav-group"><span class="health-nav-label">Pilotage</span>
+      <a href="{{ url_for('health_dashboard') }}" class="{{ 'active' if request.endpoint=='health_dashboard' else '' }}"><span>▦</span><b>Tableau de bord</b></a>
+    </div>
+    <div class="health-nav-group"><span class="health-nav-label">Parcours patient</span>
+      {% if module_allowed('patients','voir') %}<a href="{{ url_for('patients_page') }}" class="{{ 'active' if request.endpoint=='patients_page' else '' }}"><span>👤</span><b>Patients</b></a>{% endif %}
+      {% if module_allowed('reception_sante','voir') or module_allowed('files_attente','voir') %}<a href="{{ url_for('health_reception_page') }}" class="{{ 'active' if request.endpoint=='health_reception_page' else '' }}"><span>🛎️</span><b>Réception</b></a>{% endif %}
+      {% if module_allowed('rendez_vous','voir') %}<a href="{{ url_for('health_appointments_page') }}" class="{{ 'active' if request.endpoint=='health_appointments_page' else '' }}"><span>📅</span><b>Rendez-vous</b></a>{% endif %}
+      {% if module_allowed('consultations','voir') %}<a href="{{ url_for('consultations_page') }}" class="{{ 'active' if request.endpoint=='consultations_page' else '' }}"><span>🩺</span><b>Consultations</b></a>{% endif %}
+      {% if module_allowed('urgences_sante','voir') or module_allowed('hospitalisation','voir') %}<a href="{{ url_for('health_operations_page') }}#urgences"><span>🚑</span><b>Urgences</b></a>{% endif %}
+      {% if module_allowed('hospitalisation','voir') %}<a href="{{ url_for('health_operations_page') }}#hospitalisation"><span>🛏️</span><b>Hospitalisation</b></a>{% endif %}
+    </div>
+    <div class="health-nav-group"><span class="health-nav-label">Services médico-techniques</span>
+      {% if module_allowed('laboratoire','voir') %}<a href="{{ url_for('health_laboratory_page') }}" class="{{ 'active' if request.endpoint=='health_laboratory_page' else '' }}"><span>🧪</span><b>Laboratoire</b></a>{% endif %}
+      {% if module_allowed('pharmacie','voir') %}<a href="{{ url_for('health_pharmacy_page') }}" class="{{ 'active' if request.endpoint=='health_pharmacy_page' else '' }}"><span>💊</span><b>Pharmacie</b></a>{% endif %}
+      {% if module_allowed('facturation','voir') %}<a href="{{ url_for('health_billing_page') }}" class="{{ 'active' if request.endpoint=='health_billing_page' else '' }}"><span>🧾</span><b>Facturation</b></a>{% endif %}
+      {% if module_allowed('communication_sante','voir') %}<a href="{{ url_for('health_communication_page') }}" class="{{ 'active' if request.endpoint=='health_communication_page' else '' }}"><span>💬</span><b>Communication</b></a>{% endif %}
+      {% if module_allowed('rapports_sante','voir') %}<a href="{{ url_for('health_reports_page') }}" class="{{ 'active' if request.endpoint=='health_reports_page' else '' }}"><span>📈</span><b>Rapports</b></a>{% endif %}
+    </div>
+    {% if module_allowed('personnel_sante','voir') or module_allowed('centres_sante','voir') %}<details class="health-admin-details" {{ 'open' if request.endpoint in ['health_centers_page','health_roles_page','health_staff_page','medical_forms_page','health_data_quality_page','health_appearance_page'] else '' }}><summary><span>⚙️</span><b>Administration Santé</b><em>⌄</em></summary><div>
+      {% if module_allowed('centres_sante','voir') %}<a href="{{ url_for('health_centers_page') }}">Centres</a>{% endif %}
+      {% if module_allowed('personnel_sante','voir') %}<a href="{{ url_for('health_staff_page') }}">Personnel & comptes</a><a href="{{ url_for('health_roles_page') }}">Rôles sanitaires</a>{% endif %}
+      {% if module_allowed('modeles_fiches','voir') %}<a href="{{ url_for('medical_forms_page') }}">Fiches médicales</a>{% endif %}
+      {% if module_allowed('qualite_donnees','voir') %}<a href="{{ url_for('health_data_quality_page') }}">Qualité des données</a>{% endif %}
+      {% if module_allowed('centres_sante','parametrer') %}<a href="{{ url_for('health_appearance_page') }}">Accueil & carrousel</a>{% endif %}
+    </div></details>{% endif %}
+  </nav>
+  <div class="health-sidebar-footer"><a href="{{ url_for('health_public_home') }}">🌐 Accueil Santé</a><a href="{{ url_for('dashboard') }}">← Retour à FOBAK</a><a class="logout-btn" href="{{ url_for('logout') }}">⎋ Déconnexion</a></div>
+</aside>
+<div class="health-backdrop" aria-hidden="true"></div>
+<main class="health-main">
+<header class="health-topbar"><div><span class="health-top-kicker">Plateforme sanitaire sécurisée</span><strong>{{ title or 'Centre de Santé BAKITANI' }}</strong></div><div class="health-top-actions"><a href="{{ url_for('health_public_home') }}" title="Accueil public">🌐</a><a id="health-alert-link" href="{{ url_for('health_alerts_page') }}" title="Alertes Santé">🩺<sup id="health-alert-count" hidden>0</sup></a><a href="{{ url_for('notifications') }}" title="Notifications FOBAK">🔔{% if unread_notification_count %}<sup>{{ unread_notification_count }}</sup>{% endif %}</a><a href="{{ url_for('my_profile') }}" title="Mon profil">👤</a></div></header>
+<div class="health-content">{% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}<div class="health-flashes" role="status">{% for category,message in messages %}<div class="health-alert {{ category }}">{{ message }}</div>{% endfor %}</div>{% endif %}{% endwith %}{% block content %}{% endblock %}</div>
+<footer class="health-general-footer health-footer-v108"><div class="health-footer-brand"><div class="health-brand-mark">✚</div><div><strong>Centre de Santé BAKITANI</strong><span>Une initiative de la Fondation BAKITANI ASBL</span></div></div>{% include '_official_contact_footer.html' %}<div class="health-footer-meta"><span>{{ settings.get('structure_address') or settings.get('headquarters') or 'Kinshasa — RDC' }}</span><div><a href="{{ url_for('health_public_home') }}">Accueil Santé</a><a href="{{ url_for('index') }}">Portail FOBAK</a></div></div></footer>
+</main></div>
+<script src="{{ url_for('static', filename='js/app.js') }}?v={{ app_version }}"></script><script>(()=>{const b=document.querySelector('.health-mobile-menu'),s=document.querySelector('.health-sidebar'),d=document.querySelector('.health-backdrop');if(!b||!s)return;const close=()=>{document.body.classList.remove('health-menu-open');b.setAttribute('aria-expanded','false')};b.addEventListener('click',()=>{const open=document.body.classList.toggle('health-menu-open');b.setAttribute('aria-expanded',open?'true':'false')});d&&d.addEventListener('click',close);document.addEventListener('keydown',e=>{if(e.key==='Escape')close()});})();</script>
+<script>
+(()=>{
+  const count=document.getElementById('health-alert-count'); let last=Number(localStorage.getItem('healthLastAlertId')||0); let audioCtx=null;
+  const ctx=()=>audioCtx||(audioCtx=new (window.AudioContext||window.webkitAudioContext)());
+  function tone(freq,dur,delay=0,vol=.055){ try{const c=ctx(),o=c.createOscillator(),g=c.createGain();o.type='sine';o.frequency.value=freq;g.gain.value=vol;o.connect(g);g.connect(c.destination);const t=c.currentTime+delay;o.start(t);g.gain.exponentialRampToValueAtTime(.001,t+dur);o.stop(t+dur);}catch(e){} }
+  function healthSound(kind,priority){ if(localStorage.getItem('healthSounds')==='off')return; if(priority==='urgent'||priority==='critique'){tone(880,.16);tone(880,.16,.24);tone(1040,.22,.48,.07);}else if(kind==='lab_result'){tone(660,.18);tone(820,.22,.22);}else if(kind==='appointment'){tone(520,.16);tone(620,.18,.22);}else{tone(620,.16);tone(760,.20,.22);} }
+  document.addEventListener('pointerdown',()=>{try{ctx().resume()}catch(e){}},{once:true});
+  async function poll(){try{const r=await fetch(`{{ url_for('health_alerts_poll') }}?after=${last}`,{headers:{'X-Requested-With':'fetch'}});if(!r.ok)return;const d=await r.json();if(count){count.textContent=d.unread||0;count.hidden=!(d.unread>0);}for(const a of (d.alerts||[])){last=Math.max(last,a.id);healthSound(a.event_type,a.priority);if(document.hidden && 'Notification' in window && Notification.permission==='granted') new Notification(a.title,{body:a.message});}localStorage.setItem('healthLastAlertId',String(last));}catch(e){} }
+  setInterval(poll,10000); poll();
+})();
+</script>
+</body></html>

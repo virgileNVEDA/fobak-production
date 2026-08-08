@@ -524,12 +524,12 @@ document.addEventListener('DOMContentLoaded', () => {
     logout.dataset.voiceHandled = '1';
     const target = logout.href;
     const message = firstName
-      ? `Au revoir ${firstName}. Déconnexion de votre espace ${role || 'utilisateur'}.`
-      : 'Au revoir. Déconnexion de votre espace.';
+      ? `Au revoir ${firstName}. À bientôt sur la plateforme FOBAK.`
+      : 'Au revoir. À bientôt sur la plateforme FOBAK.';
     let redirected = false;
     const go = () => { if (!redirected) { redirected = true; window.location.href = target; } };
     const spoken = speak(message, go);
-    setTimeout(go, spoken ? 2200 : 100);
+    setTimeout(go, spoken ? 4200 : 100);
   });
 });
 
@@ -645,8 +645,8 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 
-// Fermeture automatique après 10 minutes d'inactivité.
-(()=>{if(!document.querySelector('.logout-btn'))return;let t;const r=()=>{clearTimeout(t);t=setTimeout(()=>location.href='/logout',600000)};['click','keydown','mousemove','touchstart','scroll'].forEach(e=>addEventListener(e,r,{passive:true}));r()})();
+// V108 — l'expiration de session est gérée côté serveur ; aucun minuteur JS ne force une déconnexion.
+
 
 // V73 : mémorisation locale de l'identifiant uniquement (jamais du mot de passe).
 document.addEventListener('DOMContentLoaded', () => {

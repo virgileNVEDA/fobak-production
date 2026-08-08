@@ -63,8 +63,8 @@ UPLOAD_ROOT = os.environ.get("UPLOAD_ROOT", os.path.join(STATIC_DIR, "uploads"))
 RDC_FLAG_REL = "img/drapeau_rdc.jpg"
 RDC_FLAG_ABS = os.path.join(STATIC_DIR, RDC_FLAG_REL)
 ALLOWED_IMAGE_EXT = {"png", "jpg", "jpeg", "webp", "pdf", "doc", "docx", "xls", "xlsx"}
-APP_VERSION = "107.0.0"
-APP_RELEASE_NAME = "FOBAK Manager Pro V107 — Profils photo & identité d’adhésion séparée"
+APP_VERSION = "111.0.0"
+APP_RELEASE_NAME = "FOBAK Manager Pro V111 — Navigation mobile et logos corrigés"
 CARD_TEMPLATE_VERSION = "paysage-v99-photo-adaptative-pied-adresse-verso-aere"
 
 # Numérotation protocolaire nationale. Le numéro de cadre reste distinct du
@@ -979,6 +979,14 @@ def init_db():
         allowed INTEGER DEFAULT 0,
         updated_at TEXT
     );
+    CREATE TABLE IF NOT EXISTS user_permissions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        permission_key TEXT NOT NULL,
+        allowed INTEGER DEFAULT 1,
+        updated_at TEXT,
+        UNIQUE(user_id, permission_key)
+    );
     CREATE TABLE IF NOT EXISTS treasury_entries (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         type TEXT NOT NULL DEFAULT 'entrée',
@@ -1241,12 +1249,56 @@ def init_db():
         ensure_column(table, 'deleted_at', 'TEXT')
         ensure_column(table, 'deleted_by', 'INTEGER')
 
+    # V108 — personnel Santé indépendant de l'adhésion FOBAK.
+    for col, definition in {
+        'staff_origin': "TEXT DEFAULT 'member'",
+        'contract_type': 'TEXT',
+        'staff_address': 'TEXT',
+        'staff_documents': 'TEXT',
+        'account_user_id': 'INTEGER'
+    }.items():
+        ensure_column('health_staff', col, definition)
+    ensure_column('members', 'health_only', 'INTEGER DEFAULT 0')
+    # V109 — circuit patient, responsable légal, orientation médicale et alertes Santé.
+    for col, definition in {
+        'email': 'TEXT', 'guardian_name': 'TEXT', 'guardian_relation': 'TEXT',
+        'guardian_email': 'TEXT', 'guardian_phone': 'TEXT'
+    }.items():
+        ensure_column('patients', col, definition)
+    for col, definition in {'assigned_staff_id':'INTEGER','assigned_at':'TEXT','assigned_by':'INTEGER'}.items():
+        ensure_column('health_visits', col, definition)
+    # V110 — publication différée des résultats au patient / responsable légal.
+    for col, definition in {
+        'patient_notification_status': "TEXT DEFAULT 'pending'",
+        'patient_notified_at': 'TEXT',
+        'patient_notification_recipient': 'TEXT',
+        'patient_notification_error': 'TEXT'
+    }.items():
+        ensure_column('health_lab_orders', col, definition)
+    cur.execute("""CREATE TABLE IF NOT EXISTS health_alerts(
+        id INTEGER PRIMARY KEY AUTOINCREMENT, target_user_id INTEGER NOT NULL, center_id INTEGER,
+        patient_id INTEGER, visit_id INTEGER, event_type TEXT NOT NULL, priority TEXT DEFAULT 'normal',
+        title TEXT NOT NULL, message TEXT NOT NULL, link TEXT, email_status TEXT DEFAULT 'pending',
+        created_at TEXT NOT NULL, created_by INTEGER, read_at TEXT
+    )""")
+    cur.execute('CREATE INDEX IF NOT EXISTS idx_health_alerts_user ON health_alerts(target_user_id,read_at,created_at)')
+    cur.execute("""CREATE TABLE IF NOT EXISTS health_patient_notifications(
+        id INTEGER PRIMARY KEY AUTOINCREMENT, patient_id INTEGER NOT NULL, center_id INTEGER, lab_order_id INTEGER,
+        event_type TEXT NOT NULL, title TEXT NOT NULL, message TEXT NOT NULL, status TEXT DEFAULT 'unread',
+        email_recipient TEXT, email_status TEXT DEFAULT 'pending', created_at TEXT NOT NULL, read_at TEXT
+    )""")
+    cur.execute('CREATE INDEX IF NOT EXISTS idx_health_patient_notifications_patient ON health_patient_notifications(patient_id,status,created_at)')
+
     ensure_column('members', 'executive_number', 'TEXT')
     ensure_column('members', 'executive_position', 'TEXT')
     sync_default_executive_numbers(con)
 
     for role_name, level in [('Médecin directeur','centre'),('Docteur / Médecin','centre'),('Infirmier','centre'),('Sage-femme','centre'),('Laborantin','centre'),('Pharmacien','centre'),('Réceptionniste','centre'),('Caissier','centre'),('Gestionnaire de stock','centre'),('Coordonnateur provincial de santé','province'),('Administrateur national de santé','national')]:
         cur.execute("INSERT OR IGNORE INTO health_roles(name,description,level,active,created_at,created_by) VALUES(?,?,?,?,?,?)", (role_name,'Rôle sanitaire configurable',level,1,now(),1))
+    # Les rôles Santé apparaissent également avec un libellé propre dans les permissions et interfaces.
+    for rr in cur.execute("SELECT name FROM health_roles WHERE active=1 AND deleted_at IS NULL").fetchall():
+        _slug=re.sub(r'[^a-z0-9]+','_',unicodedata.normalize('NFKD',rr['name']).encode('ascii','ignore').decode().lower()).strip('_') or 'personnel'
+        ROLE_LABELS.setdefault('health_'+_slug, rr['name'])
     default_patient_fields = json.dumps([
         {'key':'first_name','label':'Prénom','type':'text','required':True},
         {'key':'last_name','label':'Nom et postnom','type':'text','required':True},
@@ -1350,6 +1402,17 @@ def init_db():
         status TEXT DEFAULT 'sent', sent_at TEXT NOT NULL, received_at TEXT, feedback TEXT, created_by INTEGER
     );
     """)
+    # Les colonnes d’orientation sont garanties aussi lors d’une installation neuve.
+    for col, definition in {'assigned_staff_id':'INTEGER','assigned_at':'TEXT','assigned_by':'INTEGER'}.items():
+        ensure_column('health_visits', col, definition)
+    # V110 — publication différée des résultats au patient / responsable légal.
+    for col, definition in {
+        'patient_notification_status': "TEXT DEFAULT 'pending'",
+        'patient_notified_at': 'TEXT',
+        'patient_notification_recipient': 'TEXT',
+        'patient_notification_error': 'TEXT'
+    }.items():
+        ensure_column('health_lab_orders', col, definition)
 
 
     # ===== V40 : Rapports sanitaires hiérarchiques et pertes =====
@@ -1591,6 +1654,27 @@ def now():
 
 def today():
     return datetime.now().strftime("%Y-%m-%d")
+
+def patient_is_minor(birth_date):
+    """Retourne True si le patient a moins de 18 ans à la date du jour."""
+    if not birth_date:
+        return False
+    try:
+        d = datetime.strptime(str(birth_date), '%Y-%m-%d').date()
+        t = datetime.now().date()
+        age = t.year - d.year - ((t.month, t.day) < (d.month, d.day))
+        return age < 18
+    except Exception:
+        return False
+
+def patient_notification_target(patient):
+    """Choisit l'adresse de notification sans exposer de données médicales."""
+    if not patient:
+        return '', '', ''
+    minor = patient_is_minor(patient['birth_date'] if 'birth_date' in patient.keys() else None)
+    if minor and (patient['guardian_email'] or '').strip():
+        return (patient['guardian_email'] or '').strip().lower(), (patient['guardian_name'] or 'Responsable légal').strip(), (patient['guardian_phone'] or '').strip()
+    return (patient['email'] or '').strip().lower(), f"{(patient['last_name'] or '').strip()} {(patient['first_name'] or '').strip()}".strip(), (patient['phone'] or '').strip()
 
 
 def get_settings():
@@ -2195,6 +2279,9 @@ def role_permission_allowed(user, permission_key, default=False):
         return True
     try:
         con = db()
+        direct = con.execute("SELECT allowed FROM user_permissions WHERE user_id=? AND permission_key=? ORDER BY id DESC LIMIT 1", (user["id"], permission_key)).fetchone()
+        if direct is not None:
+            con.close(); return bool(direct["allowed"])
         row = con.execute("SELECT allowed FROM role_permissions WHERE role_key=? AND permission_key=? ORDER BY id DESC LIMIT 1", (user["role"], permission_key)).fetchone()
         con.close()
         return bool(row["allowed"]) if row else bool(default)
@@ -2209,6 +2296,7 @@ def can_output_member_card(user):
 def member_scope_query(user, base="WHERE deleted_at IS NULL"):
     params = []
     where = base
+    where += " AND COALESCE(health_only,0)=0 AND COALESCE(status,'')<>'health_staff'"
     if user and user["role"] in PROVINCIAL_ROLES:
         where += " AND province=?"
         params.append(user["province"])
@@ -4354,7 +4442,7 @@ def change_password():
 
 @app.route('/logout-tab')
 def logout_tab():
-    return render_template('logout_tab.html')
+    return redirect(url_for('logout'))
 
 @app.route("/logout")
 def logout():
@@ -4364,9 +4452,17 @@ def logout():
         con.execute("UPDATE active_sessions SET active=0, logout_at=?, last_seen=? WHERE session_token=?", (now(), now(), token))
         con.commit(); con.close()
     session.clear()
-    flash("Vous êtes déconnecté de tous les onglets.", "info")
-    return redirect(url_for("index"))
+    flash("Vous êtes déconnecté. À bientôt sur la plateforme FOBAK.", "info")
+    return redirect(url_for("login"))
 
+
+@app.route("/logout-all")
+@login_required
+def logout_all_sessions():
+    user_id=session.get("user_id")
+    con=db(); con.execute("UPDATE active_sessions SET active=0, logout_at=?, last_seen=? WHERE user_id=? AND active=1",(now(),now(),user_id)); con.commit(); con.close()
+    session.clear(); flash("Toutes vos sessions FOBAK ont été fermées.","info")
+    return redirect(url_for("login"))
 
 @app.route("/security")
 @login_required
@@ -6677,8 +6773,13 @@ def roles_permissions_page():
     modules = PERMISSION_MODULES
     actions = PERMISSION_ACTIONS
     con=db()
+    existing_role_rows=con.execute('SELECT role_key,MAX(role_label) role_label FROM role_permissions GROUP BY role_key').fetchall()
+    editable_roles=dict(ROLE_LABELS)
+    for rr in existing_role_rows:
+        if rr['role_key']:
+            editable_roles.setdefault(rr['role_key'], rr['role_label'] or rr['role_key'])
     if request.method=='POST':
-        for role_key, role_label in ROLE_LABELS.items():
+        for role_key, role_label in editable_roles.items():
             new_label=request.form.get(f'label_{role_key}',role_label).strip() or role_label
             for module in modules:
                 for action in actions:
@@ -6688,7 +6789,7 @@ def roles_permissions_page():
                     con.execute('INSERT INTO role_permissions(role_key,role_label,permission_key,allowed,updated_at) VALUES(?,?,?,?,?)',(role_key,new_label,pkey,allowed,now()))
         con.commit(); flash('Autorisations complètes enregistrées.','success'); log_action(current_user()['id'],'Modification des autorisations par module','roles',None)
     rows=con.execute('SELECT * FROM role_permissions').fetchall(); con.close()
-    data={r:{m:{a:0 for a in actions} for m in modules} for r in ROLE_LABELS}; labels=dict(ROLE_LABELS)
+    data={r:{m:{a:0 for a in actions} for m in modules} for r in editable_roles}; labels=dict(editable_roles)
     for row in rows:
         key=row['permission_key']
         if '.' in key:
@@ -7270,7 +7371,10 @@ PERMISSION_MODULES = {
     'moderation_chat':'Modération et signalements du chat','communication_email':'Campagnes e-mail',
     'modeles_messages':'Modèles de messages','biographie_president':'Biographie du Président national',
     'responsables':'Responsables et dirigeants','recaptcha':'Vérification anti-robot',
-    'discussion_membres':'Discussion publique des membres','annonces_chat':'Annonces officielles','communication_sante':'Communication du Centre de Santé'
+    'discussion_membres':'Discussion publique des membres','annonces_chat':'Annonces officielles','communication_sante':'Communication du Centre de Santé',
+    'reception_sante':'Réception Santé','urgences_sante':'Urgences','comptabilite_sante':'Comptabilité Santé','rh_sante':'Ressources humaines Santé',
+    'ambulance_sante':'Ambulance','assurance_sante':'Assurance maladie','parametres_sante':'Paramètres Santé','comptes_personnel_sante':'Comptes du personnel Santé',
+    'resultats_patients':'Résultats patients et notifications'
 }
 PERMISSION_ACTIONS = {'voir':'Voir','ajouter':'Ajouter','modifier':'Modifier','supprimer':'Supprimer','valider':'Valider','imprimer':'Imprimer','exporter':'Exporter','parametrer':'Paramétrer'}
 
@@ -7310,7 +7414,8 @@ BUSINESS_ENDPOINT_MODULES = {
     'chat_add_members':'groupes_chat','chat_group_manage':'groupes_chat','chat_delete_conversation':'groupes_chat',
     'chat_create_meeting':'rendez_vous_chat','chat_report_message':'moderation_chat','chat_block_user':'moderation_chat',
     'communication_campaign':'communication_email','communication_templates':'modeles_messages',
-    'leaders_admin':'responsables','delete_leader':'responsables','president_biography_admin':'biographie_president'
+    'leaders_admin':'responsables','delete_leader':'responsables','president_biography_admin':'biographie_president',
+    'health_staff_page':'personnel_sante','health_reception_page':'reception_sante','health_communication_page':'communication_sante'
 }
 
 
@@ -7602,23 +7707,96 @@ def health_roles_page():
 def health_staff_page():
     con=db(); user=current_user()
     if request.method=='POST':
-        if not module_allowed('personnel_sante','ajouter'): abort(403)
-        member_id=request.form.get('member_id',type=int); center_id=request.form.get('center_id',type=int); role_id=request.form.get('role_id',type=int)
-        member=con.execute("SELECT * FROM members WHERE id=? AND deleted_at IS NULL AND status='active'",(member_id,)).fetchone()
-        center=con.execute('SELECT * FROM health_centers WHERE id=? AND active=1',(center_id,)).fetchone()
-        if not member: flash("Affectation refusée : la personne doit d'abord être un membre actif de la Fondation.",'danger')
-        elif not center or (user['role'] in PROVINCIAL_ROLES and center['province']!=(user['province'] or '')): abort(403)
-        elif not role_id: flash('Choisissez un rôle sanitaire.','warning')
-        else:
-            try:
-                con.execute('INSERT INTO health_staff(member_id,center_id,role_id,specialty,professional_number,diploma,engagement_date,status,created_at,created_by) VALUES(?,?,?,?,?,?,?,\'active\',?,?)',(member_id,center_id,role_id,request.form.get('specialty',''),request.form.get('professional_number',''),request.form.get('diploma',''),request.form.get('engagement_date',''),now(),user['id']))
-                con.commit(); flash('Membre affecté au centre de santé.','success')
-            except sqlite3.IntegrityError: flash('Cette affectation existe déjà.','warning')
+        if not module_allowed('personnel_sante','ajouter') and request.form.get('action','add_staff')=='add_staff': abort(403)
+        action=request.form.get('action','add_staff')
+        if action=='add_staff':
+            center_id=request.form.get('center_id',type=int); role_id=request.form.get('role_id',type=int)
+            center=con.execute('SELECT * FROM health_centers WHERE id=? AND active=1',(center_id,)).fetchone()
+            if not center or (user['role'] in PROVINCIAL_ROLES and center['province']!=(user['province'] or '')): abort(403)
+            if not role_id:
+                flash('Choisissez un rôle sanitaire.','warning')
+            else:
+                link_mode=request.form.get('link_mode','external')
+                member_id=request.form.get('member_id',type=int) if link_mode=='member' else None
+                if link_mode=='member':
+                    member=con.execute("SELECT * FROM members WHERE id=? AND deleted_at IS NULL AND status='active' AND COALESCE(health_only,0)=0",(member_id,)).fetchone()
+                    if not member:
+                        flash('Le membre FOBAK sélectionné est introuvable ou inactif.','danger'); con.close(); return redirect(url_for('health_staff_page'))
+                    origin='member'
+                else:
+                    first=(request.form.get('first_name') or '').strip(); last=(request.form.get('last_name') or '').strip(); post=(request.form.get('post_name') or '').strip()
+                    email=(request.form.get('email') or '').strip(); phone=(request.form.get('phone') or '').strip()
+                    if not first or not last:
+                        flash('Nom et prénom du personnel sont obligatoires.','danger'); con.close(); return redirect(url_for('health_staff_page'))
+                    temp_code='STAFF-TMP-'+secrets.token_hex(5).upper(); joined=(request.form.get('engagement_date') or datetime.now().strftime('%Y-%m-%d')); expiry=(datetime.now()+timedelta(days=3650)).strftime('%Y-%m-%d')
+                    cur=con.execute("""INSERT INTO members(code,first_name,last_name,email,phone,province,commune,physical_address,profession,photo_path,joined_at,expires_at,status,health_only,created_by,updated_at)
+                                       VALUES(?,?,?,?,?,?,?,?,?,?,?,?, 'health_staff',1,?,?)""",
+                                    (temp_code,first,(last+' '+post).strip(),email,phone,center['province'],request.form.get('commune',''),request.form.get('staff_address',''),request.form.get('profession','Personnel sanitaire'),save_upload(request.files.get('photo'),'photos') or '',joined,expiry,user['id'],now()))
+                    member_id=cur.lastrowid; con.execute('UPDATE members SET code=? WHERE id=?',(f'STAFF-{member_id:05d}',member_id)); origin='external'
+                try:
+                    cur=con.execute("""INSERT INTO health_staff(member_id,center_id,role_id,specialty,professional_number,diploma,engagement_date,status,created_at,created_by,staff_origin,contract_type,staff_address)
+                                       VALUES(?,?,?,?,?,?,?,'active',?,?,?,?,?)""",
+                                    (member_id,center_id,role_id,request.form.get('specialty',''),request.form.get('professional_number',''),request.form.get('diploma',''),request.form.get('engagement_date',''),now(),user['id'],origin,request.form.get('contract_type',''),request.form.get('staff_address','')))
+                    staff_id=cur.lastrowid
+                    if request.form.get('create_account')=='1':
+                        m=con.execute('SELECT * FROM members WHERE id=?',(member_id,)).fetchone(); identifier=(m['email'] or m['phone'] or '').strip()
+                        if not identifier:
+                            flash('Personnel enregistré, mais compte non créé : ajoutez un e-mail ou un téléphone.','warning')
+                        else:
+                            existing=con.execute("SELECT id FROM users WHERE (email=? AND ?<>'') OR (phone=? AND ?<>'')",(m['email'],m['email'],m['phone'],m['phone'])).fetchone()
+                            hr=con.execute('SELECT name FROM health_roles WHERE id=?',(role_id,)).fetchone(); role_name=(hr['name'] if hr else 'Personnel Santé')
+                            role_slug=re.sub(r'[^a-z0-9]+','_',unicodedata.normalize('NFKD',role_name).encode('ascii','ignore').decode().lower()).strip('_') or 'personnel'
+                            account_role='health_'+role_slug
+                            if existing: uid=existing['id']; temporary_password=None
+                            else:
+                                temporary_password=secrets.token_urlsafe(9)
+                                curu=con.execute('INSERT INTO users(email,phone,password_hash,role,province,localite,active,created_at) VALUES(?,?,?,?,?,?,1,?)',(m['email'] or None,m['phone'] or None,generate_password_hash(temporary_password),account_role,center['province'],center['commune'] or '',now())); uid=curu.lastrowid
+                                con.execute('UPDATE users SET force_password_change=1 WHERE id=?',(uid,))
+                            # Droits Santé de base par utilisateur : un membre FOBAK peut travailler au centre sans perdre son rôle Fondation.
+                            default_mods=['centres_sante','patients','rendez_vous','reception_sante','communication_sante']
+                            lname=role_name.lower()
+                            if 'médec' in lname or 'doct' in lname: default_mods += ['consultations','dossiers_medicaux','laboratoire','resultats_patients','hospitalisation','rapports_sante']
+                            if 'infirm' in lname or 'sage' in lname: default_mods += ['consultations','dossiers_medicaux','hospitalisation','maternite']
+                            if 'labor' in lname: default_mods += ['laboratoire','resultats_patients']
+                            if 'pharmac' in lname: default_mods += ['pharmacie','stocks']
+                            if 'réception' in lname: default_mods += ['files_attente','triage']
+                            if 'caiss' in lname or 'compt' in lname: default_mods += ['facturation','caisse_sante','comptabilite_sante']
+                            if 'stock' in lname: default_mods += ['stocks','fournisseurs']
+                            if 'admin' in lname or 'directeur' in lname or 'coordonnateur' in lname: default_mods += list(PERMISSION_MODULES.keys())
+                            for mod in set(default_mods):
+                                if existing:
+                                    con.execute('INSERT INTO user_permissions(user_id,permission_key,allowed,updated_at) VALUES(?,?,1,?) ON CONFLICT(user_id,permission_key) DO UPDATE SET allowed=1,updated_at=excluded.updated_at',(uid,f'{mod}.voir',now()))
+                                else:
+                                    con.execute('INSERT INTO role_permissions(role_key,role_label,permission_key,allowed,updated_at) VALUES(?,?,?,?,?)',(account_role,role_name,f'{mod}.voir',1,now()))
+                            for mod in {'patients','rendez_vous','consultations','laboratoire','resultats_patients','pharmacie','reception_sante','communication_sante'} & set(default_mods):
+                                for act in ('ajouter','modifier','imprimer'):
+                                    if existing:
+                                        con.execute('INSERT INTO user_permissions(user_id,permission_key,allowed,updated_at) VALUES(?,?,1,?) ON CONFLICT(user_id,permission_key) DO UPDATE SET allowed=1,updated_at=excluded.updated_at',(uid,f'{mod}.{act}',now()))
+                                    else:
+                                        con.execute('INSERT INTO role_permissions(role_key,role_label,permission_key,allowed,updated_at) VALUES(?,?,?,?,?)',(account_role,role_name,f'{mod}.{act}',1,now()))
+                            con.execute('UPDATE members SET user_id=? WHERE id=?',(uid,member_id)); con.execute('UPDATE health_staff SET account_user_id=? WHERE id=?',(uid,staff_id))
+                            if temporary_password: flash(f'Compte Santé créé. Mot de passe temporaire : {temporary_password}','success')
+                    con.commit(); flash('Personnel sanitaire enregistré.','success')
+                except sqlite3.IntegrityError:
+                    con.rollback(); flash('Cette affectation existe déjà.','warning')
+        elif action in {'toggle_account','reset_password'}:
+            if not module_allowed('comptes_personnel_sante','modifier'): abort(403)
+            staff_id=request.form.get('staff_id',type=int)
+            row=con.execute('SELECT hs.*,m.user_id,m.email,m.phone FROM health_staff hs JOIN members m ON m.id=hs.member_id WHERE hs.id=?',(staff_id,)).fetchone()
+            if not row: abort(404)
+            if action=='toggle_account' and row['user_id']:
+                u=con.execute('SELECT active FROM users WHERE id=?',(row['user_id'],)).fetchone(); newv=0 if u and u['active'] else 1
+                con.execute('UPDATE users SET active=? WHERE id=?',(newv,row['user_id'])); con.commit(); flash('État du compte Santé mis à jour.','success')
+            elif action=='reset_password' and row['user_id']:
+                temporary_password=secrets.token_urlsafe(9); con.execute('UPDATE users SET password_hash=?,force_password_change=1 WHERE id=?',(generate_password_hash(temporary_password),row['user_id'])); con.commit(); flash(f'Nouveau mot de passe temporaire : {temporary_password}','success')
+        con.close(); return redirect(url_for('health_staff_page'))
     where,params=health_scope_clause(user,'c')
-    rows=con.execute('''SELECT hs.*,m.first_name,m.last_name,m.code member_code,c.name center_name,c.province,hr.name role_name FROM health_staff hs JOIN members m ON m.id=hs.member_id JOIN health_centers c ON c.id=hs.center_id JOIN health_roles hr ON hr.id=hs.role_id'''+where+' ORDER BY c.province,c.name,m.last_name',params).fetchall()
+    rows=con.execute("""SELECT hs.*,m.first_name,m.last_name,m.code member_code,m.email,m.phone,m.photo_path,c.name center_name,c.province,hr.name role_name,u.active account_active
+                        FROM health_staff hs JOIN members m ON m.id=hs.member_id JOIN health_centers c ON c.id=hs.center_id JOIN health_roles hr ON hr.id=hs.role_id
+                        LEFT JOIN users u ON u.id=COALESCE(hs.account_user_id,m.user_id)"""+where+' ORDER BY c.province,c.name,m.last_name',params).fetchall()
     centers=con.execute('SELECT * FROM health_centers'+health_scope_clause(user)[0]+' ORDER BY name',health_scope_clause(user)[1]).fetchall()
-    members=con.execute("SELECT id,code,first_name,last_name,province FROM members WHERE deleted_at IS NULL AND status='active' ORDER BY last_name,first_name LIMIT 1000").fetchall()
-    roles=con.execute('SELECT * FROM health_roles WHERE active=1 ORDER BY name').fetchall(); con.close()
+    members=con.execute("SELECT id,code,first_name,last_name,province FROM members WHERE deleted_at IS NULL AND status='active' AND COALESCE(health_only,0)=0 ORDER BY last_name,first_name LIMIT 1000").fetchall()
+    roles=con.execute('SELECT * FROM health_roles WHERE active=1 AND deleted_at IS NULL ORDER BY name').fetchall(); con.close()
     return render_template('health_staff.html',rows=rows,centers=centers,members=members,roles=roles)
 
 @app.route('/health/patients', methods=['GET','POST'])
@@ -7631,8 +7809,18 @@ def patients_page():
         center_id=request.form.get('center_id',type=int); center=con.execute('SELECT * FROM health_centers WHERE id=?',(center_id,)).fetchone()
         if not center or (user['role'] in PROVINCIAL_ROLES and center['province']!=(user['province'] or '')): abort(403)
         code=_next_code('PAT-'+(center['province'][:3].upper()),'patients')
-        con.execute('''INSERT INTO patients(patient_code,center_id,first_name,last_name,gender,birth_date,phone,address,province,emergency_contact,blood_group,allergies,medical_history,created_at,created_by,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',(code,center_id,request.form.get('first_name','').strip(),request.form.get('last_name','').strip(),request.form.get('gender',''),request.form.get('birth_date',''),request.form.get('phone',''),request.form.get('address',''),center['province'],request.form.get('emergency_contact',''),request.form.get('blood_group',''),request.form.get('allergies',''),request.form.get('medical_history',''),now(),user['id'],now()))
-        con.commit(); flash('Patient enregistré.','success')
+        patient_email=(request.form.get('email') or '').strip().lower(); guardian_email=(request.form.get('guardian_email') or '').strip().lower(); birth_date=(request.form.get('birth_date') or '').strip()
+        cur=con.execute('''INSERT INTO patients(patient_code,center_id,first_name,last_name,gender,birth_date,phone,email,address,province,emergency_contact,guardian_name,guardian_relation,guardian_email,guardian_phone,blood_group,allergies,medical_history,created_at,created_by,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',(
+            code,center_id,request.form.get('first_name','').strip(),request.form.get('last_name','').strip(),request.form.get('gender',''),birth_date,request.form.get('phone',''),patient_email,request.form.get('address',''),center['province'],request.form.get('emergency_contact',''),request.form.get('guardian_name','').strip(),request.form.get('guardian_relation','').strip(),guardian_email,request.form.get('guardian_phone','').strip(),request.form.get('blood_group',''),request.form.get('allergies',''),request.form.get('medical_history',''),now(),user['id'],now()))
+        con.commit()
+        minor=patient_is_minor(birth_date); recipient=guardian_email if minor and guardian_email else patient_email
+        recipient_name=(request.form.get('guardian_name','').strip() if minor and guardian_email else f"{request.form.get('last_name','').strip()} {request.form.get('first_name','').strip()}")
+        if recipient:
+            subject='Confirmation d’enregistrement — Centre de Santé BAKITANI'
+            body=(f"Bonjour {recipient_name or 'Madame, Monsieur'},\n\nNous confirmons l’enregistrement du patient {request.form.get('last_name','').strip()} {request.form.get('first_name','').strip()} au {center['name']}.\nCode patient : {code}\nDate : {today()}\n\nConservez ce code pour vos prochaines démarches. Pour protéger la confidentialité médicale, aucun diagnostic ni résultat clinique n’est transmis dans cet e-mail.\n\nCentre de Santé BAKITANI — Fondation BAKITANI ASBL")
+            queue_and_send('email',recipient,request.form.get('guardian_phone','') if minor else request.form.get('phone',''),subject,body,'health_patient_registered',recipient_name,None,user['id'])
+            flash('Patient enregistré. Un message de confirmation a été mis en file d’envoi.','success')
+        else: flash('Patient enregistré. Aucune adresse e-mail n’a été fournie pour la confirmation.','success')
     if user['role'] in PROVINCIAL_ROLES:
         rows=con.execute('''SELECT p.*,c.name center_name FROM patients p JOIN health_centers c ON c.id=p.center_id WHERE c.province=? AND p.deleted_at IS NULL ORDER BY p.id DESC''',(user['province'],)).fetchall(); centers=con.execute('SELECT * FROM health_centers WHERE province=? AND active=1 ORDER BY name',(user['province'],)).fetchall()
     else:
@@ -7651,13 +7839,21 @@ def consultations_page():
         code=_next_code('CONS','consultations')
         cols=['reason','complaints','disease_history','temperature','blood_pressure','heart_rate','respiratory_rate','weight','height','clinical_exam','diagnosis','requested_tests','treatment','orientation','next_appointment','notes']
         vals=[request.form.get(c,'') for c in cols]
-        con.execute('''INSERT INTO consultations(consultation_code,patient_id,center_id,staff_id,consultation_date,reason,complaints,disease_history,temperature,blood_pressure,heart_rate,respiratory_rate,weight,height,clinical_exam,diagnosis,requested_tests,treatment,orientation,next_appointment,notes,status,created_at,created_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'draft',?,?)''',[code,patient_id,patient['center_id'],request.form.get('staff_id',type=int),request.form.get('consultation_date') or today(),*vals,now(),user['id']])
+        selected_staff_id=request.form.get('staff_id',type=int)
+        con.execute('''INSERT INTO consultations(consultation_code,patient_id,center_id,staff_id,consultation_date,reason,complaints,disease_history,temperature,blood_pressure,heart_rate,respiratory_rate,weight,height,clinical_exam,diagnosis,requested_tests,treatment,orientation,next_appointment,notes,status,created_at,created_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'draft',?,?)''',[code,patient_id,patient['center_id'],selected_staff_id,request.form.get('consultation_date') or today(),*vals,now(),user['id']])
+        if selected_staff_id:
+            visit=con.execute("SELECT id FROM health_visits WHERE patient_id=? AND assigned_staff_id=? AND status='assigned' ORDER BY id DESC LIMIT 1",(patient_id,selected_staff_id)).fetchone()
+            if visit: con.execute("UPDATE health_visits SET status='in_consultation',started_at=COALESCE(started_at,?) WHERE id=?",(now(),visit['id']))
         con.commit(); flash('Consultation enregistrée.','success')
     if user['role'] in PROVINCIAL_ROLES:
         rows=con.execute('''SELECT co.*,p.patient_code,p.first_name,p.last_name,c.name center_name FROM consultations co JOIN patients p ON p.id=co.patient_id JOIN health_centers c ON c.id=co.center_id WHERE c.province=? AND co.deleted_at IS NULL ORDER BY co.id DESC''',(user['province'],)).fetchall(); patients=con.execute('''SELECT p.* FROM patients p JOIN health_centers c ON c.id=p.center_id WHERE c.province=? ORDER BY p.last_name''',(user['province'],)).fetchall(); staff=con.execute('''SELECT hs.id,m.first_name,m.last_name,hr.name role_name FROM health_staff hs JOIN members m ON m.id=hs.member_id JOIN health_roles hr ON hr.id=hs.role_id JOIN health_centers c ON c.id=hs.center_id WHERE c.province=? AND hs.status='active' ORDER BY m.last_name''',(user['province'],)).fetchall()
     else:
         rows=con.execute('''SELECT co.*,p.patient_code,p.first_name,p.last_name,c.name center_name FROM consultations co JOIN patients p ON p.id=co.patient_id JOIN health_centers c ON c.id=co.center_id WHERE co.deleted_at IS NULL ORDER BY co.id DESC''').fetchall(); patients=con.execute('SELECT * FROM patients ORDER BY last_name').fetchall(); staff=con.execute('''SELECT hs.id,m.first_name,m.last_name,hr.name role_name FROM health_staff hs JOIN members m ON m.id=hs.member_id JOIN health_roles hr ON hr.id=hs.role_id WHERE hs.status='active' AND hs.deleted_at IS NULL ORDER BY m.last_name''').fetchall()
-    con.close(); return render_template('consultations.html',rows=rows,patients=patients,staff=staff)
+    current_staff=con.execute('''SELECT hs.id FROM health_staff hs JOIN members m ON m.id=hs.member_id WHERE hs.status='active' AND hs.deleted_at IS NULL AND COALESCE(hs.account_user_id,m.user_id)=? ORDER BY hs.id LIMIT 1''',(user['id'],)).fetchone()
+    assigned_visits=[]
+    if current_staff:
+        assigned_visits=con.execute('''SELECT v.*,p.patient_code,p.first_name,p.last_name,t.temperature,t.systolic,t.diastolic,t.oxygen_saturation,t.pain_score,t.triage_level FROM health_visits v JOIN patients p ON p.id=v.patient_id LEFT JOIN health_triage t ON t.visit_id=v.id WHERE v.assigned_staff_id=? AND v.status IN ('assigned','in_consultation') ORDER BY CASE v.priority WHEN 'critique' THEN 0 WHEN 'urgent' THEN 1 ELSE 2 END,v.assigned_at''',(current_staff['id'],)).fetchall()
+    con.close(); return render_template('consultations.html',rows=rows,patients=patients,staff=staff,assigned_visits=assigned_visits,current_staff_id=(current_staff['id'] if current_staff else None))
 
 @app.route('/health/forms', methods=['GET','POST'])
 @login_required
@@ -7704,7 +7900,7 @@ def _next_health_receipt_no(con):
 @login_required
 def health_operations_page():
     con=db(); user=current_user(); action=request.form.get('action','') if request.method=='POST' else ''
-    health_action_modules = {'appointment':'rendez_vous','visit':'files_attente','triage':'triage','lab':'laboratoire','lab_result':'laboratoire','product':'pharmacie','batch':'stocks','admission':'hospitalisation','invoice':'facturation','support':'aide_sociale','equipment':'equipements','supplier':'fournisseurs','referral':'references'}
+    health_action_modules = {'appointment':'rendez_vous','visit':'files_attente','triage':'triage','lab':'laboratoire','lab_result':'laboratoire','notify_lab_patient':'resultats_patients','product':'pharmacie','batch':'stocks','admission':'hospitalisation','invoice':'facturation','support':'aide_sociale','equipment':'equipements','supplier':'fournisseurs','referral':'references'}
     required_module = health_action_modules.get(action)
     if request.method=='POST' and required_module and not module_allowed(required_module, 'ajouter', False) and not module_allowed(required_module, 'modifier', False) and not module_allowed(required_module, 'valider', False):
         con.close(); abort(403)
@@ -7720,7 +7916,11 @@ def health_operations_page():
         if not center or (user['role'] in PROVINCIAL_ROLES and center['province']!=(user['province'] or '')): abort(403)
         patient_id=request.form.get('patient_id',type=int)
         if action=='appointment':
-            code=_next_code('RDV','health_appointments'); con.execute('INSERT INTO health_appointments(code,patient_id,center_id,service_name,professional_id,appointment_date,appointment_time,reason,status,created_at,created_by) VALUES(?,?,?,?,?,?,?,?,?,?,?)',(code,patient_id,center_id,request.form.get('service_name',''),request.form.get('professional_id',type=int),request.form.get('appointment_date') or today(),request.form.get('appointment_time',''),request.form.get('reason',''),'scheduled',now(),user['id']))
+            professional_id=request.form.get('professional_id',type=int); code=_next_code('RDV','health_appointments'); con.execute('INSERT INTO health_appointments(code,patient_id,center_id,service_name,professional_id,appointment_date,appointment_time,reason,status,created_at,created_by) VALUES(?,?,?,?,?,?,?,?,?,?,?)',(code,patient_id,center_id,request.form.get('service_name',''),professional_id,request.form.get('appointment_date') or today(),request.form.get('appointment_time',''),request.form.get('reason',''),'scheduled',now(),user['id']))
+            if professional_id:
+                pro=con.execute('''SELECT COALESCE(hs.account_user_id,m.user_id) user_id,m.first_name,m.last_name FROM health_staff hs JOIN members m ON m.id=hs.member_id WHERE hs.id=? AND hs.center_id=?''',(professional_id,center_id)).fetchone(); pat=con.execute('SELECT * FROM patients WHERE id=?',(patient_id,)).fetchone()
+                if pro and pro['user_id']:
+                    con.execute("INSERT INTO health_alerts(target_user_id,center_id,patient_id,event_type,priority,title,message,link,created_at,created_by) VALUES(?,?,?,'appointment','normal',?,?,?,?,?)",(pro['user_id'],center_id,patient_id,'Nouveau rendez-vous',f"Rendez-vous {code} pour {pat['patient_code']} — {pat['last_name']} {pat['first_name']}.",url_for('health_appointments_page'),now(),user['id']))
             flash('Rendez-vous enregistré.','success')
         elif action=='visit':
             code=_next_code('VIS','health_visits'); q=con.execute('SELECT COALESCE(MAX(queue_number),0)+1 n FROM health_visits WHERE center_id=? AND visit_date=?',(center_id,today())).fetchone()['n']; con.execute('INSERT INTO health_visits(code,patient_id,center_id,visit_date,arrival_time,service_name,priority,queue_number,status,created_at,created_by) VALUES(?,?,?,?,?,?,?,?,?,?,?)',(code,patient_id,center_id,today(),request.form.get('arrival_time',''),request.form.get('service_name','Consultation'),request.form.get('priority','normal'),q,'waiting',now(),user['id']))
@@ -7730,12 +7930,94 @@ def health_operations_page():
             if not visit or visit['center_id']!=center_id: abort(400)
             temp=request.form.get('temperature',type=float); sat=request.form.get('oxygen_saturation',type=float); pain=request.form.get('pain_score',type=int)
             level='urgent' if (temp and temp>=39) or (sat and sat<92) or (pain and pain>=8) or request.form.get('danger_signs','').strip() else 'normal'
+            if visit['priority']=='critique': level='critique'
             con.execute('INSERT OR REPLACE INTO health_triage(visit_id,patient_id,center_id,temperature,systolic,diastolic,heart_rate,respiratory_rate,oxygen_saturation,weight,height,glucose,pain_score,consciousness,danger_signs,pregnancy_status,triage_level,notes,recorded_at,recorded_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',(visit_id,visit['patient_id'],center_id,temp,request.form.get('systolic',type=int),request.form.get('diastolic',type=int),request.form.get('heart_rate',type=int),request.form.get('respiratory_rate',type=int),sat,request.form.get('weight',type=float),request.form.get('height',type=float),request.form.get('glucose',type=float),pain,request.form.get('consciousness',''),request.form.get('danger_signs',''),request.form.get('pregnancy_status',''),level,request.form.get('notes',''),now(),user['id']))
-            con.execute("UPDATE health_visits SET status='triaged' WHERE id=?",(visit_id,)); flash('Triage enregistré.','success')
+            assigned_staff_id=request.form.get('professional_id',type=int)
+            if assigned_staff_id:
+                doctor=con.execute('''SELECT hs.id,COALESCE(hs.account_user_id,m.user_id) user_id,m.first_name,m.last_name,m.email,m.phone,hr.name role_name,hc.name center_name FROM health_staff hs JOIN members m ON m.id=hs.member_id JOIN health_roles hr ON hr.id=hs.role_id JOIN health_centers hc ON hc.id=hs.center_id WHERE hs.id=? AND hs.center_id=? AND hs.status='active' AND hs.deleted_at IS NULL''',(assigned_staff_id,center_id)).fetchone()
+                if not doctor: abort(400)
+                con.execute("UPDATE health_visits SET status='assigned',priority=?,assigned_staff_id=?,assigned_at=?,assigned_by=? WHERE id=?",(level,assigned_staff_id,now(),user['id'],visit_id))
+                patient=con.execute('SELECT * FROM patients WHERE id=?',(visit['patient_id'],)).fetchone()
+                if doctor['user_id']:
+                    title='Patient urgent orienté vers vous' if level=='urgent' else 'Nouveau patient orienté vers vous'; msg=f"{patient['patient_code']} — {patient['last_name']} {patient['first_name']} est en attente de consultation. Priorité : {level}."; link=url_for('consultations_page')
+                    con.execute("INSERT INTO health_alerts(target_user_id,center_id,patient_id,visit_id,event_type,priority,title,message,link,email_status,created_at,created_by) VALUES(?,?,?,?,?,?,?,?,?,'pending',?,?)",(doctor['user_id'],center_id,patient['id'],visit_id,'patient_assigned',level,title,msg,link,now(),user['id']))
+                con.commit()
+                if doctor['email']:
+                    subject='[URGENT] Patient orienté — Centre de Santé BAKITANI' if level=='urgent' else 'Nouveau patient orienté — Centre de Santé BAKITANI'; secure_link=request.url_root.rstrip('/')+url_for('consultations_page')
+                    body=(f"Bonjour {doctor['first_name']} {doctor['last_name']},\n\n"
+                          f"Un patient vient de vous être orienté au {doctor['center_name']}.\n"
+                          f"Code patient : {patient['patient_code']}\nPriorité : {level.upper()}\n"
+                          f"Ouvrez votre espace sécurisé pour consulter le dossier et les constantes : {secure_link}\n\n"
+                          "Pour des raisons de confidentialité, les détails cliniques ne sont pas transmis par e-mail.")
+                    queue_and_send('email',doctor['email'],doctor['phone'],subject,body,'health_doctor_assignment',f"{doctor['first_name']} {doctor['last_name']}",doctor['user_id'],user['id'])
+                    con2=db(); con2.execute("UPDATE health_alerts SET email_status='queued' WHERE visit_id=? AND target_user_id=? AND event_type='patient_assigned'",(visit_id,doctor['user_id'])); con2.commit(); con2.close()
+                flash('Triage enregistré et patient orienté vers le médecin concerné.','success')
+            else:
+                con.execute("UPDATE health_visits SET status='triaged',priority=? WHERE id=?",(level,visit_id)); con.commit(); flash('Triage enregistré. Choisissez un médecin pour transmettre le dossier.','warning')
         elif action=='lab':
             code=_next_code('LAB','health_lab_orders'); con.execute('INSERT INTO health_lab_orders(code,patient_id,consultation_id,center_id,test_name,sample_type,priority,status,requested_at,requested_by) VALUES(?,?,?,?,?,?,?,?,?,?)',(code,patient_id,request.form.get('consultation_id',type=int),center_id,request.form.get('test_name',''),request.form.get('sample_type',''),request.form.get('priority','normal'),'ordered',now(),user['id'])); flash('Examen de laboratoire demandé.','success')
         elif action=='lab_result':
-            order_id=request.form.get('order_id',type=int); con.execute("UPDATE health_lab_orders SET result_text=?,reference_range=?,status='validated',validated_at=?,validated_by=? WHERE id=? AND center_id=?",(request.form.get('result_text',''),request.form.get('reference_range',''),now(),user['id'],order_id,center_id)); flash('Résultat validé.','success')
+            if not module_allowed('laboratoire','valider') and not module_allowed('resultats_patients','valider'):
+                abort(403)
+            order_id=request.form.get('order_id',type=int); order=con.execute('SELECT * FROM health_lab_orders WHERE id=? AND center_id=?',(order_id,center_id)).fetchone()
+            if not order:
+                abort(404)
+            con.execute("UPDATE health_lab_orders SET result_text=?,reference_range=?,status='validated',validated_at=?,validated_by=? WHERE id=? AND center_id=?",(request.form.get('result_text',''),request.form.get('reference_range',''),now(),user['id'],order_id,center_id))
+            pat=con.execute('SELECT * FROM patients WHERE id=?',(order['patient_id'],)).fetchone()
+            # 1) Avertir le médecin prescripteur, lorsque la demande provient d'une consultation.
+            if order['consultation_id']:
+                doc=con.execute('''SELECT COALESCE(hs.account_user_id,m.user_id) user_id,m.first_name,m.last_name,m.email,m.phone FROM consultations co JOIN health_staff hs ON hs.id=co.staff_id JOIN members m ON m.id=hs.member_id WHERE co.id=?''',(order['consultation_id'],)).fetchone()
+                if doc and doc['user_id']:
+                    con.execute("INSERT INTO health_alerts(target_user_id,center_id,patient_id,event_type,priority,title,message,link,email_status,created_at,created_by) VALUES(?,?,?,'lab_result','normal',?,?,?,'pending',?,?)",(doc['user_id'],center_id,order['patient_id'],'Résultat de laboratoire disponible',f"Le résultat {order['code']} — {order['test_name']} pour {pat['patient_code']} est validé.",url_for('health_laboratory_page'),now(),user['id']))
+                    if doc['email']:
+                        subject='Résultat de laboratoire disponible — Centre de Santé BAKITANI'; link=request.url_root.rstrip('/')+url_for('health_laboratory_page'); body=f"Bonjour {doc['first_name']} {doc['last_name']},\n\nUn résultat de laboratoire demandé pour le patient {pat['patient_code']} est maintenant disponible dans votre espace sécurisé.\nExamen : {order['test_name']}\nAccès : {link}\n\nLes résultats détaillés ne sont pas envoyés par e-mail afin de protéger la confidentialité médicale."; queue_and_send('email',doc['email'],doc['phone'],subject,body,'health_lab_result',f"{doc['first_name']} {doc['last_name']}",doc['user_id'],user['id'])
+            # 2) Avertir automatiquement le patient ou son responsable légal, même plusieurs jours après le prélèvement.
+            notify_patient = request.form.get('notify_patient','1') == '1'
+            if notify_patient and module_allowed('resultats_patients','ajouter'):
+                recipient, recipient_name, recipient_phone = patient_notification_target(pat)
+                notification_message = f"Le résultat de l’examen {order['code']} — {order['test_name']} est disponible. Consultez le Centre de Santé ou votre espace patient lorsqu’il est activé."
+                con.execute("INSERT INTO health_patient_notifications(patient_id,center_id,lab_order_id,event_type,title,message,status,email_recipient,email_status,created_at) VALUES(?,?,?,'lab_result','Résultat disponible',?,'unread',?,'pending',?)",(order['patient_id'],center_id,order_id,notification_message,recipient,now()))
+                if recipient:
+                    subject='Vos résultats d’examens sont disponibles — Centre de Santé BAKITANI'
+                    public_health_link=request.url_root.rstrip('/')+url_for('health_public_home')
+                    who = 'le patient' if not patient_is_minor(pat['birth_date']) else 'votre enfant / personne à charge'
+                    body=(f"Bonjour {recipient_name or 'Madame, Monsieur'},\n\n"
+                          f"Nous vous informons que les résultats d’un examen effectué pour {who} au Centre de Santé BAKITANI sont maintenant disponibles.\n"
+                          f"Code patient : {pat['patient_code']}\n"
+                          f"Référence de l’examen : {order['code']}\n"
+                          f"Examen : {order['test_name']}\n\n"
+                          "Pour protéger la confidentialité médicale, le résultat détaillé n’est pas transmis dans cet e-mail. "
+                          "Vous pouvez vous présenter au Centre selon les indications reçues ou utiliser votre espace patient lorsqu’il est activé.\n"
+                          f"Portail du Centre : {public_health_link}\n\nCentre de Santé BAKITANI — Fondation BAKITANI ASBL")
+                    try:
+                        queue_and_send('email',recipient,recipient_phone,subject,body,'health_patient_lab_result',recipient_name,None,user['id'])
+                        con.execute("UPDATE health_lab_orders SET patient_notification_status='queued',patient_notified_at=?,patient_notification_recipient=?,patient_notification_error=NULL WHERE id=?",(now(),recipient,order_id))
+                    except Exception as exc:
+                        con.execute("UPDATE health_lab_orders SET patient_notification_status='failed',patient_notification_recipient=?,patient_notification_error=? WHERE id=?",(recipient,str(exc)[:500],order_id))
+                else:
+                    con.execute("UPDATE health_lab_orders SET patient_notification_status='no_email',patient_notification_error='Aucune adresse e-mail du patient ou du responsable légal' WHERE id=?",(order_id,))
+            elif not notify_patient:
+                con.execute("UPDATE health_lab_orders SET patient_notification_status='not_requested' WHERE id=?",(order_id,))
+            flash('Résultat validé. Le médecin et le patient/responsable légal ont été notifiés selon leurs coordonnées et autorisations.','success')
+        elif action=='notify_lab_patient':
+            if not module_allowed('resultats_patients','ajouter'):
+                abort(403)
+            order_id=request.form.get('order_id',type=int)
+            order=con.execute("SELECT * FROM health_lab_orders WHERE id=? AND center_id=? AND status='validated'",(order_id,center_id)).fetchone()
+            if not order: abort(404)
+            pat=con.execute('SELECT * FROM patients WHERE id=?',(order['patient_id'],)).fetchone()
+            recipient, recipient_name, recipient_phone = patient_notification_target(pat)
+            if not recipient:
+                con.execute("UPDATE health_lab_orders SET patient_notification_status='no_email',patient_notification_error='Aucune adresse e-mail du patient ou du responsable légal' WHERE id=?",(order_id,))
+                flash('Aucune adresse e-mail n’est disponible pour ce patient ou son responsable légal.','warning')
+            else:
+                subject='Vos résultats d’examens sont disponibles — Centre de Santé BAKITANI'
+                public_health_link=request.url_root.rstrip('/')+url_for('health_public_home')
+                body=(f"Bonjour {recipient_name or 'Madame, Monsieur'},\n\nNous vous informons qu’un résultat d’examen est maintenant disponible au Centre de Santé BAKITANI.\nCode patient : {pat['patient_code']}\nRéférence : {order['code']}\nExamen : {order['test_name']}\n\nPour protéger la confidentialité médicale, le résultat détaillé n’est pas transmis par e-mail.\nPortail : {public_health_link}\n\nCentre de Santé BAKITANI — Fondation BAKITANI ASBL")
+                queue_and_send('email',recipient,recipient_phone,subject,body,'health_patient_lab_result',recipient_name,None,user['id'])
+                con.execute("UPDATE health_lab_orders SET patient_notification_status='queued',patient_notified_at=?,patient_notification_recipient=?,patient_notification_error=NULL WHERE id=?",(now(),recipient,order_id))
+                con.execute("INSERT INTO health_patient_notifications(patient_id,center_id,lab_order_id,event_type,title,message,status,email_recipient,email_status,created_at) VALUES(?,?,?,'lab_result','Résultat disponible',?,'unread',?,'queued',?)",(order['patient_id'],center_id,order_id,f"Le résultat {order['code']} — {order['test_name']} est disponible.",recipient,now()))
+                flash('Notification du résultat remise en file d’envoi.','success')
         elif action=='product':
             code=request.form.get('product_code','').strip() or _next_code('MED','health_products'); con.execute('INSERT OR IGNORE INTO health_products(center_id,code,name,category,unit,minimum_stock,sale_price,active) VALUES(?,?,?,?,?,?,?,1)',(center_id,code,request.form.get('product_name',''),request.form.get('category','medicament'),request.form.get('unit',''),request.form.get('minimum_stock',type=float) or 0,request.form.get('sale_price',type=float) or 0)); flash('Produit enregistré.','success')
         elif action=='batch':
@@ -7802,7 +8084,21 @@ def health_reception_page():
         visits=con.execute("SELECT v.*,p.patient_code,p.last_name,p.first_name,hc.name center_name FROM health_visits v JOIN patients p ON p.id=v.patient_id JOIN health_centers hc ON hc.id=v.center_id WHERE hc.province=? AND v.visit_date=? ORDER BY CASE v.priority WHEN 'critique' THEN 0 WHEN 'urgent' THEN 1 ELSE 2 END,v.queue_number",(province_filter,today())).fetchall()
     else:
         visits=con.execute("SELECT v.*,p.patient_code,p.last_name,p.first_name,hc.name center_name FROM health_visits v JOIN patients p ON p.id=v.patient_id JOIN health_centers hc ON hc.id=v.center_id WHERE v.visit_date=? ORDER BY CASE v.priority WHEN 'critique' THEN 0 WHEN 'urgent' THEN 1 ELSE 2 END,v.queue_number",(today(),)).fetchall()
-    con.close(); return render_template('health_reception.html',centers=centers,patients=patients,visits=visits)
+    if province_filter:
+        doctors=con.execute("""SELECT hs.id,m.first_name,m.last_name,hr.name role_name,hc.name center_name FROM health_staff hs JOIN members m ON m.id=hs.member_id JOIN health_roles hr ON hr.id=hs.role_id JOIN health_centers hc ON hc.id=hs.center_id WHERE hc.province=? AND hs.status='active' AND hs.deleted_at IS NULL AND (lower(hr.name) LIKE '%médec%' OR lower(hr.name) LIKE '%doct%') ORDER BY hc.name,m.last_name,m.first_name""",(province_filter,)).fetchall()
+    else:
+        doctors=con.execute("""SELECT hs.id,m.first_name,m.last_name,hr.name role_name,hc.name center_name FROM health_staff hs JOIN members m ON m.id=hs.member_id JOIN health_roles hr ON hr.id=hs.role_id JOIN health_centers hc ON hc.id=hs.center_id WHERE hs.status='active' AND hs.deleted_at IS NULL AND (lower(hr.name) LIKE '%médec%' OR lower(hr.name) LIKE '%doct%') ORDER BY hc.name,m.last_name,m.first_name""").fetchall()
+    con.close(); return render_template('health_reception.html',centers=centers,patients=patients,visits=visits,doctors=doctors)
+
+@app.get('/health/alertes')
+@login_required
+def health_alerts_page():
+    user=current_user(); con=db(); rows=con.execute('SELECT * FROM health_alerts WHERE target_user_id=? ORDER BY id DESC LIMIT 200',(user['id'],)).fetchall(); con.execute('UPDATE health_alerts SET read_at=COALESCE(read_at,?) WHERE target_user_id=?',(now(),user['id'])); con.commit(); con.close(); return render_template('health_alerts.html',rows=rows)
+
+@app.get('/health/alertes/poll')
+@login_required
+def health_alerts_poll():
+    user=current_user(); after=request.args.get('after',0,type=int); con=db(); rows=con.execute('SELECT id,event_type,priority,title,message,link,created_at FROM health_alerts WHERE target_user_id=? AND id>? ORDER BY id ASC LIMIT 50',(user['id'],after)).fetchall(); unread=con.execute('SELECT COUNT(*) n FROM health_alerts WHERE target_user_id=? AND read_at IS NULL',(user['id'],)).fetchone()['n']; con.close(); return jsonify({'ok':True,'unread':unread,'alerts':[dict(r) for r in rows]})
 
 @app.get('/health/rendez-vous')
 @login_required
